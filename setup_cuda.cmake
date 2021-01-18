@@ -10,7 +10,7 @@ endif()
 set(CUDA_FOUND ${CMAKE_CUDA_COMPILER})
 
 # reference: http://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
-set(TARGET_CUDA_ARCH -arch=sm_50 -gencode=arch=compute_50,code=sm_50 -gencode=arch=compute_52,code=sm_52 -gencode=arch=compute_60,code=sm_60 -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_75,code=compute_75)
+set(TARGET_CUDA_ARCH -gencode=arch=compute_75,code=compute_75)
 
 # reference: https://cliutils.gitlab.io/modern-cmake/chapters/packages/CUDA.html
 function(CUDA_CONVERT_FLAGS EXISTING_TARGET)
