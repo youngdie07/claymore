@@ -1,10 +1,10 @@
 if (CUDA_FOUND)
 
-add_cuda_executable(gmpm)
-target_sources(gmpm
-    PRIVATE     gmpm.cu
+add_cuda_executable(wasirf)
+target_sources(wasirf
+    PRIVATE     wasirf.cu
 )
-target_link_libraries(gmpm
+target_link_libraries(wasirf
     PRIVATE     mnio
                 cxxopts
                 spdlog
