@@ -1,6 +1,6 @@
 {
 	"simulation": {
-		"gpuid": 1,
+		"gpuid": 0,
 		"gravity": -9.8,
 		"fps": 120,
 		"frames": 120,

@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
     constexpr auto LEN = 46;
     constexpr auto STRIDE = 56;
     constexpr auto MODEL_CNT = 1;
-    for (int did = 0; did < 2; ++did) {
+    for (int did = 0; did < 1; ++did) {
       std::vector<std::array<float, 3>> model;
       for (int i = 0; i < MODEL_CNT; ++i) {
         auto idx = (did * MODEL_CNT + i);
@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
           model, vec<float, 3>{0.f, 0.f, 0.f});
     }
   }
-  getchar();
+  //getchar();
 
   benchmark->main_loop();
   ///
