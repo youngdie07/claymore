@@ -2,8 +2,8 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": -9.8,
-		"fps": 120,
-		"frames": 120,
+		"fps": 60,
+		"frames": 60,
 		"default_dt": 5e-6
 	},
 	"models": [
