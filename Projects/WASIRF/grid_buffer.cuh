@@ -3,9 +3,13 @@
 #include "mgmpm_kernels.cuh"
 #include "settings.h"
 #include <MnSystem/Cuda/HostUtils.hpp>
+#include "utility_funcs.hpp"
+#include <MnBase/Meta/Polymorphism.h>
+
 
 namespace mn {
 
+/// Structure of values held by grid-nodes in a BlockDomain (device)
 using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -21,6 +25,14 @@ using grid_buffer_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_>;
+
+/// Structure to hold downsampled grid-block values in GridArrayDomain (device) (JB)
+using grid_array_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridArrayDomain, attrib_layout::aos, f32_, f32_, f32_, f32_, f32_, f32_, f32_>;
+
 
 struct GridBuffer : Instance<grid_buffer_> {
   using base_t = Instance<grid_buffer_>;
@@ -42,6 +54,16 @@ struct GridBuffer : Instance<grid_buffer_> {
     cuDev.compute_launch({blockCnt, config::g_blockvolume}, clear_grid, *this);
 #endif
   }
+};
+
+/// 1D GridArray structure for device instantiation (JB)
+struct GridArray : Instance<grid_array_> {
+  using base_t = Instance<grid_array_>;
+  GridArray &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  GridArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 
 } // namespace mn
