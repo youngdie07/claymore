@@ -87,7 +87,7 @@ using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size,
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 
 // Down-sampled output grid domain, used in grid_buffer.cuh (JB)
-using GridArrayDomain = compact_domain<int, config::g_max_active_blocks>;
+using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
 
 } // namespace mn
 
