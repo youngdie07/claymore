@@ -28,6 +28,39 @@ void write_partio(std::string filename,
   parts->release();
 }
 
+/// Output function for grid data on host to *.bgeo (JB) 
+template <typename T, std::size_t dim>
+void write_partio_grid(std::string filename,
+		       const std::vector<std::array<T, dim>> &data) {
+  /// Set mutable particle structure, add attributes
+  Partio::ParticlesDataMutable*       parts = Partio::create();
+  Partio::ParticleAttribute posH    = parts->addAttribute("position", Partio::VECTOR, 3); /// Block ID
+  Partio::ParticleAttribute mass    = parts->addAttribute("mass",     Partio::FLOAT, 1);  /// Mass
+  Partio::ParticleAttribute velH    = parts->addAttribute("velocity", Partio::VECTOR, 3); /// Momentum
+    
+  /// Loop over grid-blocks, set values in Partio structure
+  for(int i=0; i < (int)data.size(); ++i)
+    {
+      int idx = parts->addParticle();
+      float* p =parts->dataWrite<float>(posH,idx);
+      float* m =parts->dataWrite<float>(mass,idx);
+      float* v =parts->dataWrite<float>(velH,idx);
+
+      p[0] = data[i][0];
+      p[1] = data[i][1];
+      p[2] = data[i][2];
+      m[0] = data[i][3];
+      v[0] = data[i][4];
+      v[1] = data[i][5];
+      v[2] = data[i][6];
+    }
+  /// Output as *.bgeo
+  Partio::write(filename.c_str(), *parts);
+  parts->release();
+}
+
+
+
 /// have issues
 auto read_sdf(std::string fn, float ppc, float dx, vec<float, 3> offset,
               vec<float, 3> lengths) {
