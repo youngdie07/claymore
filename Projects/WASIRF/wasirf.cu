@@ -142,6 +142,30 @@ void parse_scene(std::string fn,
               mn::IO::flush();
               initModel(positions, velocity);
             }
+
+            fmt::print("About to set up graph in gmpm.cu\n");
+            auto initGrid = [&](auto &graph) {
+              benchmark->initGrid(graph);
+            };
+
+            /// Instantiate zero'd initial grid array on host (JB)
+            std::vector<std::array<float, 7>> graph;
+            for (int i = 0, size = mn::config::g_max_active_block; i < size; i++) {
+              graph.push_back(std::array<float, 7>{129,129,129,0,0,0,0});
+            }
+            fmt::print("Set up graph in gmpm.cu\n");
+
+            /// Write initial grid to Partio (JB)
+            mn::IO::insert_job([&]() {
+              mn::write_partio_grid<float, 7>("grid.bgeo",
+                                          graph);
+            });
+            mn::IO::flush();
+            fmt::print("Exported graph in gmpm.cu\n");
+
+            /// Call initGrid() in gmpm_simulator.cuh (JB)
+            initGrid(graph);
+            fmt::print("Called initGrid from gmpm_simulator.cuh on graph in gmpm.cu\n");
           }
         }
       }
@@ -181,6 +205,11 @@ int main(int argc, char *argv[]) {
       benchmark->initModel<mn::material_e::FixedCorotated>(
           model, vec<float, 3>{0.f, 0.f, 0.f});
     }
+    /// Instantiate initial grid array on host (JB)
+    std::vector<std::array<float, 7>> graph(mn::config::g_max_active_block, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+
+    /// Launch initGrid in gmpm_simulator.cuh (JB)
+    benchmark->initGrid(graph);
   }
   //getchar();
 
