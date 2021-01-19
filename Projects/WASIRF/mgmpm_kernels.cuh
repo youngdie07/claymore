@@ -1572,6 +1572,52 @@ retrieve_particle_buffer(Partition partition, Partition prev_partition,
   }
 }
 
+
+/// Retrieve selected down-sampled grid values from grid buffer to grid array (JB)
+template <typename Partition, typename Grid, typename GridArray>
+__global__ void retrieve_selected_grid_blocks(
+    const ivec3 *__restrict__ prev_blockids, const Partition partition,
+    const int *__restrict__ _marks, Grid prev_grid, GridArray garray) {
+  auto blockid = prev_blockids[blockIdx.x];
+  if (_marks[blockIdx.x]) {
+    auto blockno = partition.query(blockid);
+    if (blockno == -1)
+      return;
+    auto sourceblock = prev_grid.ch(_0, blockIdx.x);
+    auto node_id = blockIdx.x;
+  
+    /// Set block index once
+    if (threadIdx.x == 0){
+      garray.val(_0, node_id) = blockid[0];
+      garray.val(_1, node_id) = blockid[1];
+      garray.val(_2, node_id) = blockid[2];
+      garray.val(_3, node_id) = 0.f;
+      garray.val(_4, node_id) = 0.f;
+      garray.val(_5, node_id) = 0.f;
+      garray.val(_6, node_id) = 0.f;
+    }
+
+    /// Synch threads in block
+    __syncthreads();
+
+    /// Create temp values in threads for specific cells
+    auto m  = sourceblock.val_1d(_0, threadIdx.x);
+    auto vx = sourceblock.val_1d(_1, threadIdx.x);
+    auto vy = sourceblock.val_1d(_2, threadIdx.x);
+    auto vz = sourceblock.val_1d(_3, threadIdx.x);
+
+    /// Ensure temp values are populated in all threads
+    __syncthreads();
+
+    /// Atomically add thread (cell) values to block (grid-block) value
+    atomicAdd_block(&garray.val(_3, node_id), m);
+    atomicAdd_block(&garray.val(_4, node_id), vx);
+    atomicAdd_block(&garray.val(_5, node_id), vy);
+    atomicAdd_block(&garray.val(_6, node_id), vz);
+  }
+}
+
+
 } // namespace mn
 
 #endif
