@@ -52,6 +52,7 @@ constexpr int g_blockmask = ((1 << BLOCK_BITS) - 1);
 constexpr int g_blockvolume = (1 << (BLOCK_BITS * 3));
 constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
+constexpr int g_num_nodes = g_domain_size * g_domain_size * g_domain_size;
 
 // particle
 #define MAX_PPC 128
@@ -68,7 +69,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.8f;
 
 /// only used on host
-constexpr int g_max_particle_num = 1000000;
+constexpr int g_max_particle_num = 2000000;
 constexpr int g_max_active_block = 10000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
@@ -84,6 +85,9 @@ using BlockDomain = compact_domain<char, config::g_blocksize,
 using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size,
                                   config::g_grid_size>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
+
+// Down-sampled output grid domain, used in grid_buffer.cuh (JB)
+using GridArrayDomain = compact_domain<int, config::g_max_active_blocks>;
 
 } // namespace mn
 
