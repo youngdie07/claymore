@@ -38,7 +38,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 8
+#define DOMAIN_BITS 10
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -70,7 +70,7 @@ constexpr float g_gravity = -9.8f;
 
 /// only used on host
 constexpr int g_max_particle_num = 2000000;
-constexpr int g_max_active_block = 10000; /// 62500 bytes for active mask
+constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
@@ -82,8 +82,8 @@ constexpr std::size_t g_max_halo_block = 4000;
 
 using BlockDomain = compact_domain<char, config::g_blocksize,
                                    config::g_blocksize, config::g_blocksize>;
-using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size,
-                                  config::g_grid_size>;
+using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size/16,
+                                  config::g_grid_size>/16;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 
 // Down-sampled output grid domain, used in grid_buffer.cuh (JB)

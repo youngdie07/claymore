@@ -284,9 +284,31 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
                         threadIdx.x / 32 / g_num_warps_per_grid_block;
   auto blockid = partition._activeKeys[blockno];
+
+  /// Set boundary block dimensions toto matcsettings.h
   int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size - bc) << 2) |
-                  ((blockid[1] < bc || blockid[1] >= g_grid_size - bc) << 1) |
-                  (blockid[2] < bc || blockid[2] >= g_grid_size - bc);
+                  ((blockid[1] < bc || blockid[1] >= g_grid_size/16 - bc) << 1) |
+                   (blockid[2] < bc || blockid[2] >= g_grid_size/16 - bc);
+  
+  // Added a boundary for an internal cuboid/column/columns (JB)
+  int boxx = 6;
+  //int boxy = 6;
+  int boxz = 6;
+  
+  int buffx = ( g_grid_size >> 1 );
+  //int buffy = ((g_grid_size/16 >> 1) - (boxy/2));
+  int buffz = ((g_grid_size/16 >> 1) - (boxz/2));
+     
+  int isOutColumn  = ((blockid[0] >= buffx && blockid[0] < boxx + buffx)       << 2) | 
+                     ((blockid[1] >= 0     && blockid[1] <  g_grid_size )      << 1) |
+                      (blockid[2] >= buffz && blockid[2] < boxz + buffz);
+
+  // Check that all 3 dimension boundary flags are tripped, reset if not (JB)
+  if (isOutColumn != 7) isOutColumn = 0;
+
+  // Add chanel and column boundary results to box boundary results (JB)
+  isInBound |= isOutColumn;
+
   if (threadIdx.x < numWarps)
     sh_maxvels[threadIdx.x] = 0.0f;
   __syncthreads();
