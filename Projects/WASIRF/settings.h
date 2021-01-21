@@ -69,7 +69,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.8f;
 
 /// only used on host
-constexpr int g_max_particle_num = 2000000;
+constexpr int g_max_particle_num = 3000000;
 constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
@@ -82,8 +82,7 @@ constexpr std::size_t g_max_halo_block = 4000;
 
 using BlockDomain = compact_domain<char, config::g_blocksize,
                                    config::g_blocksize, config::g_blocksize>;
-using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size/16,
-                                  config::g_grid_size>/16;
+using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size/16, config::g_grid_size/16>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 
 // Down-sampled output grid domain, used in grid_buffer.cuh (JB)
