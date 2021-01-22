@@ -9,7 +9,7 @@
     "models": [
         {
             "type": "particle",
-            "file": "Water/Water_x6_y0.1_z0.9_dx0.02_pad1.sdf",
+            "file": "Water/Water_x8_y0.2_z0.9_dx0.02_pad1.sdf",
             "constitutive": "jfluid",
 	    "ppc": 128,
 	    "volume": 7.4505806e-9,
@@ -23,15 +23,40 @@
                 0.008
             ],
             "span": [
-                5.3,
-                5.3,
-                5.3
+                9.8,
+                9.8,
+                9.8
             ],
             "velocity": [
                 0.125,
                 0,
                 0
             ]
-        }
+        },
+        {
+	    "type": "particle",
+	    "file": "Debris/Debris_x6_y1_z0.5_3x1.sdf",
+	    "constitutive": "fixed_corotated",
+	    "ppc": 8,
+	    "volume": 7.4505806e-9,
+	    "rho": 900,
+	    "youngs_modulus": 1e7,
+	    "poisson_ratio": 0.4,
+	    "offset": [
+		0.25,
+		0.03,
+		0.029
+		],
+	    "span": [
+		0.2,
+		0.2,
+		0.2
+		],
+	    "velocity": [
+		0.125,
+		0,
+		0
+		]
+	    }
     ]
 }
