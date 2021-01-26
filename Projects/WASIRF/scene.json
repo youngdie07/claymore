@@ -2,19 +2,19 @@
  "simulation": {
         "gpuid": 0,
         "gravity": -9.8,
-        "fps": 30,
+        "fps": 60,
         "frames": 120,
-        "default_dt": 5e-06
+        "default_dt": 1e-07
     },
     "models": [
         {
             "type": "particle",
             "file": "Water/Water_x8_y0.2_z0.9_dx0.02_pad1.sdf",
             "constitutive": "jfluid",
-	    "ppc": 128,
+	    "ppc": 8,
 	    "volume": 7.4505806e-9,
 	    "rho": 1e3,
-	    "bulk_modulus": 4e5,
+	    "bulk_modulus": 2e9,
 	    "gamma": 9.81,
 	    "viscosity": 0.01,
             "offset": [
@@ -23,9 +23,9 @@
                 0.008
             ],
             "span": [
-                9.8,
-                9.8,
-                9.8
+                0.4,
+                0.4,
+                0.4
             ],
             "velocity": [
                 0.125,
@@ -45,12 +45,12 @@
 	    "offset": [
 		0.25,
 		0.03,
-		0.029
+		0.025
 		],
 	    "span": [
-		0.2,
-		0.2,
-		0.2
+		0.01,
+		0.01,
+		0.01
 		],
 	    "velocity": [
 		0.125,

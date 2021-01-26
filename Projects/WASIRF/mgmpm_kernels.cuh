@@ -332,7 +332,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         vel[0] = isInBound & 4 ? 0.f : vel[0] * mass;
         vel[1] = isInBound & 2 ? 0.f : vel[1] * mass;
-        vel[1] += g_gravity * dt;
+        vel[1] += (g_gravity/16.f) * dt;  // Grav deps on sim dims
         vel[2] = isInBound & 1 ? 0.f : vel[2] * mass;
         // if (isInBound) ///< sticky
         //  vel.set(0.f);
