@@ -9,8 +9,19 @@ else()
 endif()
 set(CUDA_FOUND ${CMAKE_CUDA_COMPILER})
 
+# IMPORTANT
+# ---------
+# Set GPU architecture(s) to compile this code for. 
+# Can be found by the listed compute capability of your GPU, or use 'nvidia-smi' in console
+# Some backward/forward compatability available, tricky for older GPUs
 # reference: http://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
-set(TARGET_CUDA_ARCH -gencode=arch=compute_75,code=compute_75)
+
+# Mox Hyak HPC System - RTX 2080ti GPUs - Univ. of Wash. - Justin Bonus
+#set(TARGET_CUDA_ARCH -gencode=arch=compute_75,code=compute_75)
+
+# Dell G7 Laptop - GTX 1060m GPU - Univ. of Wash. - Justin Bonus
+set(TARGET_CUDA_ARCH -arch=sm_61)
+
 
 # reference: https://cliutils.gitlab.io/modern-cmake/chapters/packages/CUDA.html
 function(CUDA_CONVERT_FLAGS EXISTING_TARGET)
