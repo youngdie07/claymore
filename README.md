@@ -1,4 +1,5 @@
-# A Massively Parallel and Scalable Multi-GPU Material Point Method
+# Claymore
+# Multi-GPU Material Point Method for Engineering Projects
 
 <div align="left">
     <a href="https://claymore.readthedocs.io/en/latest/"> Documentation </a>
@@ -6,7 +7,7 @@
 
 ## Description
 
-This is the opensource code for the SIGGRAPH 2020 paper:
+Opensource code for Multi-GPU MPM. It is a modified fork from opensource code [page](https://github.com/penn-graphics-research/claymore) for the SIGGRAPH 2020 paper:
 
 **A Massively Parallel and Scalable Multi-GPU Material Point Method** 
 
@@ -29,7 +30,6 @@ Authors:
 <img src="Clips/examples.jpg" />
 </p>
 
-Harnessing the power of modern multi-GPU architectures, we present a massively parallel simulation system based on the Material Point Method (MPM) for simulating physical behaviors of materials undergoing complex topological changes, self-collision, and large deformations. Our system makes three critical contributions. First, we introduce a new particle data structure that promotes coalesced memory access patterns on the GPU and eliminates the need for complex atomic operations on the memory hierarchy when writing particle data to the grid. Second, we propose a kernel fusion approach using a new Grid-to-Particles-to-Grid (G2P2G) scheme, which efficiently reduces GPU kernel launches, improves latency, and significantly reduces the amount of global memory needed to store particle data. Finally, we introduce optimized algorithmic designs that allow for efficient sparse grids in a shared memory context, enabling us to best utilize modern multi-GPU computational platforms for hybrid Lagrangian-Eulerian computational patterns. We demonstrate the effectiveness of our method with extensive benchmarks, evaluations, and dynamic simulations with elastoplasticity, granular media, and fluid dynamics. In comparisons against an open-source and heavily optimized CPU-based MPM codebase on an elastic sphere colliding scene with particle counts ranging from 5 to 40 million, our GPU MPM achieves over 100X per-time-step speedup on a workstation with an Intel 8086K CPU and a single Quadro P6000 GPU, exposing exciting possibilities for future MPM simulations in computer graphics and computational science. Moreover, compared to the state-of-the-art GPU MPM method, we not only achieve 2X acceleration on a single GPU but our kernel fusion strategy and Array-of-Structs-of-Array (AoSoA) data structure design also generalizes to multi-GPU systems. Our multi-GPU MPM exhibits near-perfect weak and strong scaling with 4 GPUs, enabling performant and large-scale simulations on a 1024x1024x1024 grid with close to 100 million particles with less than 4 minutes per frame on a single 4-GPU workstation and 134 million particles with less than 1 minute per frame on an 8-GPU workstation.
 
 
 <!--
@@ -42,7 +42,7 @@ Harnessing the power of modern multi-GPU architectures, we present a massively p
 -->
 
 ## Compilation
-This is a cross-platform C++/CUDA cmake project. The minimum version requirement of cmake is 3.15, yet the latest version is generally recommended. The required CUDA version is 10.2 or 11.
+This is a cross-platform C++/CUDA cmake project. The minimum version requirement of cmake is 3.16, yet the latest version is generally recommended. The required CUDA version is 10.2 or 11.
 
 Currently, *supported OS* includes Windows 10 and Ubuntu (>=18.04), and *tested compilers* includes gcc8.4, msvc v142, clang-9 (includes msvc version). 
 
@@ -56,15 +56,46 @@ cmake --build .
 
 Or configure the project using the *CMake Tools* extension in *Visual Studio Code* (recommended).
 
+### Formulation
 
-### Data
+> Time-Integration (Explicit)
+> Material models (Fixed-corotated, NA Cam-Clay, Drucker-Prager, Weakly Comp. Fluid)
+> Shape Function (2nd Order B-Spline)
+> Transfer Scheme (Affine Particle-In-Cell)
+> Kernel (Grid-to-Particle-to-Grid)
+
+### Input
+
+JSON input files are used to configure some simulation settings.
 
 Currently, binary position data and the level-set (signed distance field) [data](https://github.com/littlemine/Data) are accepted as input files for particles. Uniformly sampling particles from analytic geometries is another viable way for the initialization of models.
 
+Starting from an \*.obj or \*.stl file, SDFGen [page](https://github.com/wdas/SDFGen) can make appropiate \*.sdf files. 
+
+### Output
+
+Particle output includes 
+> Position (x, y, z)
+> Stress ($\sigma_{1}$, $\sigma_{2}$, $\sigma_{3}$)
+> Deformation Gradient ($J = ||F||$)
+
+Particle data is segmented by object and device.
+
+Grid output includes
+> Index (x, y, z)
+> Mass (m)
+> Momentum ($M_{x}$, $M_{y}$, $M_{z}$)
+
+Grid data is dynamic (inactive cells not included) and down-sampled (one block output per 4x4x4 cells)
+
+Outputs are binary geometry files (\*.bgeo). Houdini Apprentice can render these efficiently.
+
+
 ### Run Demos
 The project provides the following GPU-based schemes for MPM:
-- **GMPM**: improved single-GPU pipeline
-- **MGSP**: static geometry (particle) partitioning multi-GPU pipeline
+- **GMPM**: Improved single-GPU pipeline
+- **MGSP**: Static geometry (particle) partitioning multi-GPU pipeline
+- **WASIRF**: Single-GPU simulation of flume experiments. 
 <!--
 - dynamic spatial partitioning multi-GPU pipeline
 -->
@@ -82,7 +113,7 @@ Create a sub-folder in *Projects* with a cmake file at its root.
 
 ## Bibtex
 
-Please cite our paper if you use this code for your research: 
+Please cite the original paper if you use this code for your research: 
 ```
 @article{Wang2020multiGMPM,
     author = {Xinlei Wang* and Yuxing Qiu* and Stuart R. Slattery and Yu Fang and Minchen Li and Song-Chun Zhu and Yixin Zhu and Min Tang and Dinesh Manocha and Chenfanfu Jiang},
@@ -98,8 +129,7 @@ Please cite our paper if you use this code for your research:
 ## Credits
 This project draws inspirations from [Taichi](https://github.com/taichi-dev/taichi), [GMPM](https://github.com/kuiwuchn/GPUMPM).
 
-### Acknowledgement
-We thank [Yuanming Hu](http://taichi.graphics/me/) for useful discussions and proofreading, [Feng Gao](https://fen9.github.io/) for his help on configuring workstations. We appreciate Prof. [Chenfanfu Jiang](https://www.seas.upenn.edu/~cffjiang/) and [Yuanming Hu](http://taichi.graphics/me/) for their insightful advice on the documentation.
+
 
 ### Dependencies
 The following libraries are adopted in our project development:
