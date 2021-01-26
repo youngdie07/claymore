@@ -97,35 +97,55 @@ auto read_sdf(std::string fn, float ppc, float dx, vec<float, 3> offset,
   return data;
 }
 
+// Read SDF file, uniformly sample position data into an array (JB)
+// Controlled by scene.json - span & offset (per model)
+// span = [0.5, 0.5, 0.5] 
+// offset = [0.1, 0.2, 0.2]
+// Means longest model dim covers 0.5 of the domain length, max
+// Offset by 10% of domain in x, 20% y, 20% z
 auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
               vec<float, 3> offset, vec<float, 3> lengths) {
   std::vector<std::array<float, 3>> data;
   std::string fileName = std::string(AssetDirPath) + "MpmParticles/" + fn;
 
-  float levelsetDx;
+  // Create SampleGenerator class
   SampleGenerator pd;
+
+  float levelsetDx;
   std::vector<float> samples;
   vec<float, 3> mins, maxs, scales;
   vec<int, 3> maxns;
+
+
+  // Load sdf into pd, update levelsetDx, mins, maxns
   pd.LoadSDF(fileName, levelsetDx, mins[0], mins[1], mins[2], maxns[0],
              maxns[1], maxns[2]);
   maxs = maxns.cast<float>() * levelsetDx;
 
+  // Adjust *.sdf extents to simulation domainsize, select smallest ratio
   scales = maxns.cast<float>() / domainsize;
   float scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
   float samplePerLevelsetCell = ppc * scale;
 
+  // Output uniformly sampled sdf into samples
   pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
 
+  // Adjust lengths to extents of the *.sdf, select smallest ratio
   //scales = lengths / (maxs - mins) / maxns.cast<float>();
   scales = lengths /  maxns.cast<float>();
   scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
 
+  // Loop through samples
   for (int i = 0, size = samples.size() / 3; i < size; i++) {
+    // Group x,y,z position data
     vec<float, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
+    
+    // Scale positions, add-in offset from JSON
     p = (p - mins) * scale + offset;
+
+    // Add (x,y,z) to data
     data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
   }
   printf("[%f, %f, %f] - [%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
