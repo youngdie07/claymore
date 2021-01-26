@@ -118,7 +118,8 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
 
-  scales = lengths / (maxs - mins) / maxns.cast<float>();
+  //scales = lengths / (maxs - mins) / maxns.cast<float>();
+  scales = lengths /  maxns.cast<float>();
   scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
 
