@@ -140,12 +140,11 @@ struct ParticleBuffer<material_e::JFluid>
     : ParticleBufferImpl<material_e::JFluid> {
   using base_t = ParticleBufferImpl<material_e::JFluid>;
   float rho = DENSITY;
-  float volume = (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                (1 << DOMAIN_BITS) / MODEL_PPC);
-  float bulk = 4e4;
-  float gamma = 7.15f;
+  float mass = (volume * DENSITY);
+  float bulk = 5e7;
+  float gamma = 7.1f;
   float visco = 0.01f;
   void updateParameters(float density, float vol, float b, float g, float v) {
     rho = density;

@@ -11,7 +11,7 @@ set(CUDA_FOUND ${CMAKE_CUDA_COMPILER})
 
 # IMPORTANT
 # ---------
-# Set GPU architecture(s) to compile this code for. 
+# Set GPU architecture(s) to compile code for. 
 # Can be found by the listed compute capability of your GPU, or use 'nvidia-smi' in console
 # Some backward/forward compatability available, tricky for older GPUs
 # reference: http://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/

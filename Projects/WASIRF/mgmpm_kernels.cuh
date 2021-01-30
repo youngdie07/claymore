@@ -286,21 +286,21 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   auto blockid = partition._activeKeys[blockno];
 
   /// Set boundary block dimensions toto matcsettings.h
-  int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size - bc) << 2) |
-                  ((blockid[1] < bc || blockid[1] >= g_grid_size/16 - bc) << 1) |
-                   (blockid[2] < bc || blockid[2] >= g_grid_size/16 - bc);
+  int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
+                  ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
+                   (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
   
   // Added a boundary for an internal cuboid/column/columns (JB)
-  int boxx = 6;
+  int boxx = 2;
   //int boxy = 6;
-  int boxz = 6;
+  int boxz = 2;
   
-  int buffx = ( g_grid_size >> 1 );
-  //int buffy = ((g_grid_size/16 >> 1) - (boxy/2));
-  int buffz = ((g_grid_size/16 >> 1) - (boxz/2));
+  int buffx = ( g_grid_size_x >> 1 );
+  //int buffy = ((g_grid_size_y >> 1) - (boxy/2));
+  int buffz = ((g_grid_size_z >> 1) - (boxz/2));
      
-  int isOutColumn  = ((blockid[0] >= buffx && blockid[0] < boxx + buffx)       << 2) | 
-                     ((blockid[1] >= 0     && blockid[1] <  g_grid_size )      << 1) |
+  int isOutColumn  = ((blockid[0] >= buffx && blockid[0] < boxx + buffx )       << 2) | 
+                     ((blockid[1] >= 0     && blockid[1] <  g_grid_size_y)      << 1) |
                       (blockid[2] >= buffz && blockid[2] < boxz + buffz);
 
   // Check that all 3 dimension boundary flags are tripped, reset if not (JB)
@@ -326,17 +326,20 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       int j = (cidib >> g_blockbits) & g_blockmask;
       int k = cidib & g_blockmask;
 #endif
+        // Retrieve grid momentums
         vel[0] = grid_block.val_1d(_1, cidib);
         vel[1] = grid_block.val_1d(_2, cidib);
         vel[2] = grid_block.val_1d(_3, cidib);
 
+        // Set velocities, advance, check boundaries
         vel[0] = isInBound & 4 ? 0.f : vel[0] * mass;
         vel[1] = isInBound & 2 ? 0.f : vel[1] * mass;
-        vel[1] += (g_gravity/16.f) * dt;  // Grav deps on sim dims
+        vel[1] += (g_gravity * g_grid_ratio_y) * dt;  // Grav deps on sim dims
         vel[2] = isInBound & 1 ? 0.f : vel[2] * mass;
         // if (isInBound) ///< sticky
         //  vel.set(0.f);
 
+        // Update grid to use new velocities
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
 
@@ -497,15 +500,16 @@ __global__ void g2p2g(float dt, float newDt,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          float inv_dim = 1.f;
+          C[0] += W * vi[0] * xixp[0] * inv_dim ;
+          C[1] += W * vi[1] * xixp[0] * inv_dim ;
+          C[2] += W * vi[2] * xixp[0] * inv_dim ;
+          C[3] += W * vi[0] * xixp[1] * inv_dim ;
+          C[4] += W * vi[1] * xixp[1] * inv_dim ;
+          C[5] += W * vi[2] * xixp[1] * inv_dim ;
+          C[6] += W * vi[0] * xixp[2] * inv_dim ;
+          C[7] += W * vi[1] * xixp[2] * inv_dim ;
+          C[8] += W * vi[2] * xixp[2] * inv_dim ;
         }
     pos += vel * dt;
 

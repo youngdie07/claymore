@@ -1,62 +1,37 @@
 {
  "simulation": {
         "gpuid": 0,
-        "gravity": -9.8,
+        "gravity": -9.81,
         "fps": 60,
         "frames": 120,
-        "default_dt": 1e-07
+        "default_dt": 1e-05
     },
     "models": [
         {
             "type": "particle",
             "file": "Water/Water_x8_y0.2_z0.9_dx0.02_pad1.sdf",
             "constitutive": "jfluid",
-	    "ppc": 8,
-	    "volume": 7.4505806e-9,
+	    "ppc": 1,
+	    "volume": 0.00000381469,
 	    "rho": 1e3,
-	    "bulk_modulus": 2e9,
-	    "gamma": 9.81,
+	    "bulk_modulus": 2e5,
+	    "gamma": 7.1,
 	    "viscosity": 0.01,
             "offset": [
-                0.008,
-                0.008,
-                0.008
+                0.0779,
+                0.0079,
+                0.0079
             ],
             "span": [
-                0.4,
-                0.4,
-                0.4
+                0.41,
+                0.41,
+                0.41
             ],
             "velocity": [
                 0.125,
-                0,
+                0.0,
                 0
             ]
-        },
-        {
-	    "type": "particle",
-	    "file": "Debris/Debris_x6_y1_z0.5_3x1.sdf",
-	    "constitutive": "fixed_corotated",
-	    "ppc": 8,
-	    "volume": 7.4505806e-9,
-	    "rho": 900,
-	    "youngs_modulus": 1e7,
-	    "poisson_ratio": 0.4,
-	    "offset": [
-		0.25,
-		0.03,
-		0.025
-		],
-	    "span": [
-		0.01,
-		0.01,
-		0.01
-		],
-	    "velocity": [
-		0.125,
-		0,
-		0
-		]
-	    }
+        }
     ]
 }

@@ -32,9 +32,9 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 8.f
+#define MODEL_PPC 1.f
 constexpr float g_model_ppc = MODEL_PPC;
-constexpr float cfl = 0.5f;
+constexpr float g_cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
@@ -60,13 +60,29 @@ constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
-// material parameters
+// Material parameters
 #define DENSITY 1e3
-#define YOUNGS_MODULUS 5e3
+#define YOUNGS_MODULUS 5e7
 #define POISSON_RATIO 0.4f
 
-//
+// Unscaled gravity (m/s2)
 constexpr float g_gravity = -9.8f;
+
+// Domain size (meters)
+#define DOMAIN_VOLUME 16.0f
+constexpr float g_length_x = 16.0f;
+constexpr float g_length_y = 1.0f;
+constexpr float g_length_z = 1.0f;
+
+// Domain ratio ( )
+constexpr float g_grid_ratio_x = 1.f;
+constexpr float g_grid_ratio_y = 1.f/16.f;
+constexpr float g_grid_ratio_z = 1.f/16.f;
+
+// Domain grid blocks (#)
+constexpr int g_grid_size_x = g_grid_size * g_grid_ratio_x;
+constexpr int g_grid_size_y = g_grid_size * g_grid_ratio_y;
+constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z;
 
 /// only used on host
 constexpr int g_max_particle_num = 3000000;
@@ -82,7 +98,7 @@ constexpr std::size_t g_max_halo_block = 4000;
 
 using BlockDomain = compact_domain<char, config::g_blocksize,
                                    config::g_blocksize, config::g_blocksize>;
-using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size/16, config::g_grid_size/16>;
+using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y, config::g_grid_size_z>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 
 // Down-sampled output grid domain, used in grid_buffer.cuh (JB)
