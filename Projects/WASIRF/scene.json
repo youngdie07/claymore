@@ -4,7 +4,7 @@
         "gravity": -9.81,
         "fps": 60,
         "frames": 120,
-        "default_dt": 1e-05
+        "default_dt": 1e-06
     },
     "models": [
         {
@@ -14,8 +14,8 @@
 	    "ppc": 1,
 	    "volume": 0.00000381469,
 	    "rho": 1e3,
-	    "bulk_modulus": 2e5,
-	    "gamma": 7.1,
+	    "bulk_modulus": 2e9,
+	    "gamma": 0.1,
 	    "viscosity": 0.01,
             "offset": [
                 0.0779,

@@ -513,13 +513,23 @@ __global__ void g2p2g(float dt, float newDt,
         }
     pos += vel * dt;
 
+    // Advance J (volume ratio, det. of def. grad., ||F||)
     J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
     if (J < 0.1)
       J = 0.1;
     vec9 contrib;
     {
+      // Update particle volume
       float voln = J * pbuffer.volume;
-      float pressure = pbuffer.bulk * (powf(J, -pbuffer.gamma) - 1.f);
+      
+      // Murnaghan-Tait state equation, isothermal pressure form (JB)
+      // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm 
+      // P = (bulk/gamma) [J^(-gamma) - 1] + Patm
+      // Is Patm needed?
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
+      // Consider adding MacDonald-Tait for tangent bulk mod?
+      // K = Ko (Vo/V)^(n) = (bulk)*(J)^(-gamma) = new bulk
+      // Birch-Murnaghan?
       {
         contrib[0] =
             ((C[0] + C[0]) * g_D_inv * pbuffer.visco - pressure) * voln;

@@ -65,8 +65,9 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 #define YOUNGS_MODULUS 5e7
 #define POISSON_RATIO 0.4f
 
-// Unscaled gravity (m/s2)
+// Unscaled gravity (m/s2) and atm. pressure (Pa)
 constexpr float g_gravity = -9.8f;
+constexpr float g_atm = 101.3e3;
 
 // Domain size (meters)
 #define DOMAIN_VOLUME 16.0f
