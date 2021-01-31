@@ -28,7 +28,46 @@ void write_partio(std::string filename,
   parts->release();
 }
 
-/// Output function for grid data on host to *.bgeo (JB) 
+// Write combined particle position (x,y,z) and attribute (...) data (JB)
+template <typename T, std::size_t dim>
+void write_partio_particles(std::string filename,
+                  const std::vector<std::array<T, 3>>  &positions, 
+                  const std::vector<std::array<T,dim>> &attributes) {
+  // Create a mutable Partio structure pointer
+  Partio::ParticlesDataMutable*       parts = Partio::create();
+
+  // Add positions and attributes to the pointer by arrow operator
+  Partio::ParticleAttribute posH     = parts->addAttribute("position", Partio::VECTOR, 3);
+  Partio::ParticleAttribute attribH  = parts->addAttribute("attribute", Partio::FLOAT, (int)dim);
+
+  for(int i=0; i < (int)positions.size(); ++i)
+  {
+    // Create new particle with two write-input vectors/arrays
+    int idx = parts->addParticle();
+    float* p =parts->dataWrite<float>(posH,    idx);
+    float* a =parts->dataWrite<float>(attribH, idx);
+
+    // Add position data for particle
+    for(int k=0; k<3; ++k)
+    {
+      p[k] = positions[i][k];
+    }
+
+    // Add extra attributes for particle
+    for(int k=0; k<(int)dim; ++k)
+    {
+      a[k] = attributes[i][k];
+    }
+  }
+
+  // Write
+  Partio::write(filename.c_str(), *parts);
+
+  // Release (scope-dependent)
+  parts->release();
+}
+
+/// Write grid data (m, mvx, mvy, mvz) on host to disk as *.bgeo (JB) 
 template <typename T, std::size_t dim>
 void write_partio_grid(std::string filename,
 		       const std::vector<std::array<T, dim>> &data) {

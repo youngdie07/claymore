@@ -88,11 +88,16 @@ struct GmpmSimulator {
     fmt::print("Exiting initGrid in gmpm_simulator.cuh!\n");
   }
 
-
+  /// Initialize (host --> device) particle position objects (&model --> particles) 
+  /// and velocity vector (&v0 --> vel0) 
+  /// Also initialize particle attributes
+  /// Output initial positions as *.bgeo file
   template <material_e m>
   void initModel(const std::vector<std::array<float, 3>> &model,
                  const mn::vec<float, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(gpuid);
+    /// Establish double-buffered particle structures (device)
+    /// Set proper material 
     for (int copyid = 0; copyid < 2; ++copyid) {
       particleBins[copyid].emplace_back(ParticleBuffer<m>(
           device_allocator{},
@@ -101,25 +106,43 @@ struct GmpmSimulator {
         pb.reserveBuckets(device_allocator{}, config::g_max_active_block);
       });
     }
+    /// Set initial velocity vector (host) (host --> host)
     vel0.emplace_back();
     for (int i = 0; i < 3; ++i)
       vel0.back()[i] = v0[i];
 
+    /// Allocate memory for particles (device) and pattribs (device) (JB)
     particles.emplace_back(
         std::move(ParticleArray{spawn<particle_array_, orphan_signature>(
             device_allocator{}, sizeof(float) * 3 * model.size())}));
+    pattribs.emplace_back(
+        std::move(ParticleArray{spawn<particle_array_, orphan_signature>(
+            device_allocator{}, sizeof(float) * 3 * model.size())}));
+
+    /// Set-up particle bin parameters
     curNumActiveBins.emplace_back(config::g_max_particle_bin);
     bincnt.emplace_back(0);
     checkedBinCnts.emplace_back(0);
 
+    /// Set particle count (host) and print
     pcnt.emplace_back(model.size());
     fmt::print("init {}-th model with {} particles\n",
                particleBins[0].size() - 1, pcnt.back());
+
+    /// Copy particles (device) position data from model (host), asynchronous
     cudaMemcpyAsync((void *)&particles.back().val_1d(_0, 0), model.data(),
                     sizeof(std::array<float, 3>) * model.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
 
+    /// Copy pattribs (device) attribute data from model (host), asynchronous (JB)
+    cudaMemcpyAsync((void *)&pattribs.back().val_1d(_0, 0), model.data(),
+                    sizeof(std::array<float, 3>) * model.size(),
+                    cudaMemcpyDefault, cuDev.stream_compute());
+    cuDev.syncStream<streamIdx::Compute>();
+
+    /// Write model data (host) to *.bgeo binary output (disk) using Partio
+    /// Functions found in Library/MnSystem/IO/ParticleIO.hpp (JB)
     std::string fn = std::string{"model"} + "_id[" +
                      std::to_string(particleBins[0].size() - 1) +
                      "]_frame[0].bgeo";
@@ -445,16 +468,16 @@ struct GmpmSimulator {
         rollid ^= 1;
         dt = nextDt;
       }
-      // Start frame's output
+      // Restart frame's output scheme
       IO::flush();
 
-      // Output material point position data
+      // Output material point position and attribute data (JB)
       output_model();
       
       // Output grid block data (JB)
       output_grid();
 
-      // Step forward
+      // Step forward, terminal print
       nextTime = 1.f * (curFrame + 1) / fps;
       fmt::print(fmt::emphasis::bold | fg(fmt::color::red),
                  "-----------------------------------------------------------"
@@ -465,31 +488,52 @@ struct GmpmSimulator {
     auto &cuDev = Cuda::ref_cuda_context(gpuid);
     CudaTimer timer{cuDev.stream_compute()};
     timer.tick();
+    /// Iterate through particle models
     for (int i = 0; i < getModelCnt(); ++i) {
+      /// Set-up particle counter on host and device
       int parcnt, *d_parcnt = (int *)cuDev.borrow(sizeof(int));
       checkCudaErrors(
           cudaMemsetAsync(d_parcnt, 0, sizeof(int), cuDev.stream_compute()));
+      
+      /// Copy (device --> device ) particle position and attributes (JB)
+      /// Moves from time-step struct (pbuffer) to frame struct (particles, pattribs)
       match(particleBins[rollid][i])([&](const auto &pb) {
-        cuDev.compute_launch({pbcnt, 128}, retrieve_particle_buffer,
+        cuDev.compute_launch({pbcnt, 128}, retrieve_particle_buffer_attributes,
                              partitions[rollid], partitions[rollid ^ 1], pb,
                              get<typename std::decay_t<decltype(pb)>>(
                                  particleBins[rollid ^ 1][i]),
-                             particles[i], d_parcnt);
+                             particles[i], pattribs[i], d_parcnt);
       });
       checkCudaErrors(cudaMemcpyAsync(&parcnt, d_parcnt, sizeof(int),
                                       cudaMemcpyDefault,
                                       cuDev.stream_compute()));
       cuDev.syncStream<streamIdx::Compute>();
+
+      /// Terminal output
       fmt::print(fg(fmt::color::red), "total number of particles {}\n", parcnt);
+      
+      /// Copy (device --> host) particle position (x,y,z) data, asynch.
       model.resize(parcnt);
       checkCudaErrors(
           cudaMemcpyAsync(model.data(), (void *)&particles[i].val_1d(_0, 0),
                           sizeof(std::array<float, 3>) * (parcnt),
                           cudaMemcpyDefault, cuDev.stream_compute()));
       cuDev.syncStream<streamIdx::Compute>();
+
+      /// Copy (device --> host) particle attribute (.,.,.) data, asynch. (JB)
+      attribs.resize(parcnt);
+      checkCudaErrors(
+          cudaMemcpyAsync(attribs.data(), (void *)&pattribs[i].val_1d(_0, 0),
+                          sizeof(std::array<float, 3>) * (parcnt),
+                          cudaMemcpyDefault, cuDev.stream_compute()));
+      cuDev.syncStream<streamIdx::Compute>();
+      
+      /// Output filename
       std::string fn = std::string{"model"} + "_id[" + std::to_string(i) +
                        "]_frame[" + std::to_string(curFrame) + "].bgeo";
-      IO::insert_job([fn, m = model]() { write_partio<float, 3>(fn, m); });
+      
+      /// Write to combined binary *.bgeo file, seperate by model and frame (JB)
+      IO::insert_job([fn, m = model, a = attribs]() { write_partio_particles<float, 3>(fn, m, a); });
     }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particles", gpuid,
                            curFrame, curStep));
@@ -656,19 +700,20 @@ struct GmpmSimulator {
     }
   }
 
-  /// Pulled from scene.json
+  /// Basic simulation settings
   int gpuid, nframes, fps;
 
-  /// animation runtime settings
+  /// Timing variables
   float dt, nextDt, dtDefault, curTime, maxVel;
   uint64_t curFrame, curStep;
 
-  /// data on device, double buffering
+  /// Data on device, double-buffering scheme
   std::vector<GridBuffer> gridBlocks;
   std::vector<particle_buffer_t> particleBins[2];
   std::vector<Partition<1>> partitions; ///< with halo info  
   std::vector<GridArray>     nodes;     ///< Node array structure on device, 4+ f32 (ID+, mass, mx,my,mz) (JB)
-  std::vector<ParticleArray> particles; ///< Particle array structure on device, three f32 (x,y,z) (JB)
+  std::vector<ParticleArray> particles; ///< Particle array structure on device,  three f32 (x,y,z) (JB)
+  std::vector<ParticleArray> pattribs;  ///< Particle atrrib structure on device, three f32 (.,.,.) (JB)  
   struct Intermediates {
     void *base;
     float *d_maxVel;
@@ -706,12 +751,13 @@ struct GmpmSimulator {
   std::array<std::size_t, 2> checkedCnts;
   std::vector<std::size_t> checkedBinCnts;
   float maxVels;
-  int pbcnt, nbcnt, ebcnt;        ///< num blocks
-  std::vector<int> bincnt;        ///< num bins
-  std::vector<uint32_t> pcnt;     ///< num particles
-  std::vector<uint32_t> node_cnt; ///< num grid nodes (JB)
-  std::vector<std::array<float, 3>> model; ///< Particle info (x,y,z) on host (JB)
-  std::vector<std::array<float, 7>> graph; ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
+  int pbcnt, nbcnt, ebcnt;        ///< Number of particle, neighbor, and exterior blocks
+  std::vector<int> bincnt;        ///< Number of particle bins
+  std::vector<uint32_t> pcnt;     ///< Number of particles
+  std::vector<uint32_t> node_cnt; ///< Number of grid nodes (JB)
+  std::vector<std::array<float, 3>> model;   ///< Particle info (x,y,z) on host (JB)
+  std::vector<std::array<float, 3>> attribs; ///< Particle attributes on host (JB)
+  std::vector<std::array<float, 7>> graph;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
   std::vector<vec3> vel0; ///< Initial velocity vector on host
 };
 

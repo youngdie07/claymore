@@ -526,7 +526,8 @@ __global__ void g2p2g(float dt, float newDt,
       // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm 
       // P = (bulk/gamma) [J^(-gamma) - 1] + Patm
       // Is Patm needed?
-      float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
+      //float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
+      float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
       // Consider adding MacDonald-Tait for tangent bulk mod?
       // K = Ko (Vo/V)^(n) = (bulk)*(J)^(-gamma) = new bulk
       // Birch-Murnaghan?
@@ -1579,6 +1580,8 @@ __global__ void check_partition_domain(uint32_t blockCount, int did,
   }
 }
 
+/// Function to retrieve particle positions (x,y,z) [0.0, 1.0] (JB)
+/// Copies from particle buffer to particle array (device --> device)
 template <typename Partition, typename ParticleBuffer, typename ParticleArray>
 __global__ void
 retrieve_particle_buffer(Partition partition, Partition prev_partition,
@@ -1600,14 +1603,206 @@ retrieve_particle_buffer(Partition partition, Partition prev_partition,
                                          source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
 
+    /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
-    /// pos
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
     parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
     parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
     parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
   }
 }
 
+
+/// Functions to retrieve particle positions and attributes (JB)
+/// Copies from particle buffer to two particle arrays (device --> device)
+/// Depends on material model (JFluid, FixedCorotated, NACC, Sand) 
+/// Copy/paste/modify function for new material
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition, Partition prev_partition,
+                         ParticleBuffer<material_e::JFluid> pbuffer, 
+                         ParticleBuffer<material_e::JFluid> next_pbuffer,
+                         ParticleArray parray, ParticleArray pattrib, 
+                         int *_parcnt) {
+  int pcnt = next_pbuffer._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto atm = g_atm; //< Atmospheric pressure (Pa)
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, pbuffer._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+
+    if (1) {
+      /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(source_bin.val(_3, _source_pidib), -pbuffer.gamma) - 1.f);
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_1, parid) = pressure + atm;
+      pattrib.val(_2, parid) = pressure;
+    }
+
+    if (0) {
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_3, _source_pidib);
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition, Partition prev_partition,
+                         ParticleBuffer<material_e::FixedCorotated> pbuffer, 
+                         ParticleBuffer<material_e::FixedCorotated> next_pbuffer,
+                         ParticleArray parray, ParticleArray pattrib, 
+                         int *_parcnt) {
+  int pcnt = next_pbuffer._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = pbuffer._binsts[blockIdx.x];
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, pbuffer._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
+      pattrib.val(_0, parid) = source_bin.val(_3,  _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_7,  _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_11, _source_pidib);
+    }
+
+    if (0) {
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_3, _source_pidib);
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition, Partition prev_partition,
+                         ParticleBuffer<material_e::NACC> pbuffer, 
+                         ParticleBuffer<material_e::NACC> next_pbuffer,
+                         ParticleArray parray, ParticleArray pattrib, 
+                         int *_parcnt) {
+  int pcnt = next_pbuffer._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = pbuffer._binsts[blockIdx.x];
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, pbuffer._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
+      pattrib.val(_0, parid) = source_bin.val(_3,  _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_7,  _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_11, _source_pidib);
+    }
+
+    if (0) {
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_3, _source_pidib);
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition, Partition prev_partition,
+                         ParticleBuffer<material_e::Sand> pbuffer, 
+                         ParticleBuffer<material_e::Sand> next_pbuffer,
+                         ParticleArray parray, ParticleArray pattrib, 
+                         int *_parcnt) {
+  int pcnt = next_pbuffer._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = pbuffer._binsts[blockIdx.x];
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, pbuffer._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
+      pattrib.val(_0, parid) = source_bin.val(_3,  _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_7,  _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_11, _source_pidib);
+    }
+
+    if (0) {
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_1, parid) = source_bin.val(_3, _source_pidib);
+      pattrib.val(_2, parid) = source_bin.val(_3, _source_pidib);
+    }
+  }
+}
 
 /// Retrieve selected down-sampled grid values from grid buffer to grid array (JB)
 template <typename Partition, typename Grid, typename GridArray>
@@ -1622,7 +1817,7 @@ __global__ void retrieve_selected_grid_blocks(
     auto sourceblock = prev_grid.ch(_0, blockIdx.x);
     auto node_id = blockIdx.x;
   
-    /// Set block index once
+    /// Set block index via leader thread (e.g. 0)
     if (threadIdx.x == 0){
       garray.val(_0, node_id) = blockid[0];
       garray.val(_1, node_id) = blockid[1];
@@ -1637,19 +1832,19 @@ __global__ void retrieve_selected_grid_blocks(
     __syncthreads();
 
     /// Create temp values in threads for specific cells
-    auto m  = sourceblock.val_1d(_0, threadIdx.x);
-    auto vx = sourceblock.val_1d(_1, threadIdx.x);
-    auto vy = sourceblock.val_1d(_2, threadIdx.x);
-    auto vz = sourceblock.val_1d(_3, threadIdx.x);
+    auto m   = sourceblock.val_1d(_0, threadIdx.x);
+    auto mvx = sourceblock.val_1d(_1, threadIdx.x);
+    auto mvy = sourceblock.val_1d(_2, threadIdx.x);
+    auto mvz = sourceblock.val_1d(_3, threadIdx.x);
 
     /// Ensure temp values are populated in all threads
     __syncthreads();
 
     /// Atomically add thread (cell) values to block (grid-block) value
     atomicAdd_block(&garray.val(_3, node_id), m);
-    atomicAdd_block(&garray.val(_4, node_id), vx);
-    atomicAdd_block(&garray.val(_5, node_id), vy);
-    atomicAdd_block(&garray.val(_6, node_id), vz);
+    atomicAdd_block(&garray.val(_4, node_id), mvx);
+    atomicAdd_block(&garray.val(_5, node_id), mvy);
+    atomicAdd_block(&garray.val(_6, node_id), mvz);
   }
 }
 
