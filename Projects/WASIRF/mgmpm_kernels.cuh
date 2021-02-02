@@ -458,49 +458,70 @@ __global__ void g2p2g(float dt, float newDt,
     vec3 pos;
     float J;
     {
+      // Load particle positions (x,y,z) and det. of deformation gradient
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);
       J = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
     }
-    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
-    vec3 local_pos = pos - local_base_index * g_dx;
-    base_index = local_base_index;
+    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1; //< Particle grid-cell indices [0, g_domain_size), B-Spline 3x3 center
+    vec3 local_pos = pos - local_base_index * g_dx; //< Particle position in B-Spline ?
+    base_index = local_base_index; //< Save particle grid-cell indices at time n
 
-    vec3x3 dws;
+    /// B-Spline Shape-Function for Grid-to-Particle transfer
+    /// Operates on 3x3x3 grid-nodes
+    vec3x3 dws; //< Weight function gradients G2P, matrix
+
+    // Loop through x,y,z components of particle position
 #pragma unroll 3
     for (int dd = 0; dd < 3; ++dd) {
+      // Assume p is already within kernel range [-1.5, 1.5]
       float d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
-          g_dx_inv;
+          g_dx_inv; //< Normalized offset, d = p * g_dx_inv 
+      
+      // Weight gradient for x direction
       dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
+      
+      // Weight gradient for y direction
       d -= 1.0f;
       dws(dd, 1) = 0.75 - d * d;
+      
+      // Weight gradient for z direction
       d = 0.5f + d;
       dws(dd, 2) = 0.5 * d * d;
+
+      // Modify grid-cell indices for compatibility with shared g2pbuffer memory
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
-    vec3 vel;
+    vec3 vel; //< Advected velocity on particle?
     vel.set(0.f);
-    vec9 C;
+    vec9 C; //< ??
     C.set(0.f);
+
+    // Loop through 3x3x3 grid-nodes [i,j,k] for B-Spline
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
       for (char j = 0; j < 3; j++)
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
-          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          // Perform G2P for grid-node [i,j,k] and the particle
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< Position diff., (xi - xp)
+          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weight value for grid node [i,j,k] 
+          
+          // Pull grid node velocity vector from shared g2pbuffer memory
           vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k],
                   g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k],
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-                           [local_base_index[2] + k]};
-          vel += vi * W;
-          float inv_dim = 1.f;
+                           [local_base_index[2] + k]}; //< Grid-node velocity, (vx, vy, vz)
+          vel += vi * W; //< Advected particle velocity increment from grid-node
+
+          // C = Sum_i( Wip * vi * (xi - xp)T )
+          float inv_dim = 1.f; //< Scale if needed
           C[0] += W * vi[0] * xixp[0] * inv_dim ;
           C[1] += W * vi[1] * xixp[0] * inv_dim ;
           C[2] += W * vi[2] * xixp[0] * inv_dim ;
@@ -511,27 +532,28 @@ __global__ void g2p2g(float dt, float newDt,
           C[7] += W * vi[1] * xixp[2] * inv_dim ;
           C[8] += W * vi[2] * xixp[2] * inv_dim ;
         }
-    pos += vel * dt;
+    // Advect particle position increment from G2P B-Spline
+    pos += vel * dt; //< xp^n+1 = xp^n + (vp^n+1 * dt)
 
-    // Advance J (volume ratio, det. of def. grad., ||F||)
+    /// Begin P2G transfer
+    // Advance J (volume ratio V/Vo, det. of def. grad.)
     J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
     if (J < 0.1)
-      J = 0.1;
-    vec9 contrib;
+      J = 0.1;    //< Volume collapse bound
+    vec9 contrib; //< ??
     {
-      // Update particle volume
-      float voln = J * pbuffer.volume;
+      // Update particle quantities
+      float voln = J * pbuffer.volume; //< Particle volume
       
-      // Murnaghan-Tait state equation, isothermal pressure form (JB)
-      // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm 
-      // P = (bulk/gamma) [J^(-gamma) - 1] + Patm
+      // Murnaghan-Tait state equation (JB)
+      // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
+      // Value n\gamma\Ko' is often 6.15 - 7.1 for water. 
       // Is Patm needed?
       //float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
       float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
-      // Consider adding MacDonald-Tait for tangent bulk mod?
-      // K = Ko (Vo/V)^(n) = (bulk)*(J)^(-gamma) = new bulk
-      // Birch-Murnaghan?
+      // Add MacDonald-Tait for tangent bulk mod? Birch-Murnaghan? Other advanced models?
       {
+        // contrib = ((Cp + Cp.T) * (4 * 1/dx * 1/dx) * visco - diag{P}) * Vp
         contrib[0] =
             ((C[0] + C[0]) * g_D_inv * pbuffer.visco - pressure) * voln;
         contrib[1] = (C[1] + C[3]) * g_D_inv * pbuffer.visco * voln;
@@ -547,10 +569,14 @@ __global__ void g2p2g(float dt, float newDt,
         contrib[8] =
             ((C[8] + C[8]) * g_D_inv * pbuffer.visco - pressure) * voln;
       }
+      // contrib = (Cp * mp) - (contrib * dt) * (4 * 1/dx * 1/dx) 
       contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
       {
+        // Set particle bin to appropiate segment of particle buffer n+1
         auto particle_bin = next_pbuffer.ch(
             _0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity);
+
+        // Set particle positions (x,y,z) and attributes (J) after G2P
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -558,16 +584,18 @@ __global__ void g2p2g(float dt, float newDt,
       }
     }
 
-    local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
+    local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1; //< Particle cell index in 3x3. [-1,1]
     {
       int dirtag = dir_offset((base_index - 1) / g_blocksize -
-                              (local_base_index - 1) / g_blocksize);
+                              (local_base_index - 1) / g_blocksize); //< Particle index offset (n --> n+1)
       next_pbuffer.add_advection(partition, local_base_index - 1, dirtag,
-                                 pidib);
+                                 pidib); //< Update particle advection tagging
       // partition.add_advection(local_base_index - 1, dirtag, pidib);
     }
     // dws[d] = bspline_weight(local_pos[d]);
 
+    // Begin Particle-to-Grid B-spline shape-function transfer
+    // Loop through particle x,y,z position
 #pragma unroll 3
     for (char dd = 0; dd < 3; ++dd) {
       local_pos[dd] = pos[dd] - local_base_index[dd] * g_dx;
@@ -583,40 +611,48 @@ __global__ void g2p2g(float dt, float newDt,
       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
                              local_base_index[dd] - base_index[dd];
     }
+    // Loop through 3x3 grid-nodes for B-Spline
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
       for (char j = 0; j < 3; j++)
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
-          pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-          float W = dws(0, i) * dws(1, j) * dws(2, k);
-          auto wm = pbuffer.mass * W;
+          pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< (xi - xp)?
+          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weight value for grid node [i,j,k] 
+          auto wm = pbuffer.mass * W; //< Weighted particle mass for P2G transfer
+          
+          // Add grid node [i,j,k] particle increment to shared p2gbuffer memory
+          // mi      = Sum(  )
+          // mi * vi = Sum(  )
           atomicAdd(
               &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
-              wm);
+              wm); //< Mass increment
           atomicAdd(
               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[0] + (contrib[0] * pos[0] + contrib[3] * pos[1] +
                              contrib[6] * pos[2]) *
-                                W);
+                                W); //< Momentum in x increment
           atomicAdd(
               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[1] + (contrib[1] * pos[0] + contrib[4] * pos[1] +
                              contrib[7] * pos[2]) *
-                                W);
+                                W); //< Momentum in y increment
           atomicAdd(
               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[2] + (contrib[2] * pos[0] + contrib[5] * pos[1] +
                              contrib[8] * pos[2]) *
-                                W);
+                                W); //< Momentum in z increment
         }
   }
   __syncthreads();
+  /// G2P2P B-Spline transfers to shared p2gbuffer is finished
+  
+  /// Prepare to reduce further
   /// arena no, channel no, cell no
   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
     char local_block_id = base / numMViPerBlock;
@@ -625,25 +661,28 @@ __global__ void g2p2g(float dt, float newDt,
               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
     // auto grid_block = next_grid.template ch<0>(blockno);
-    int channelid = base & (numMViPerBlock - 1);
-    char c = channelid % g_blockvolume;
-    char cz = channelid & g_blockmask;
-    char cy = (channelid >>= g_blockbits) & g_blockmask;
-    char cx = (channelid >>= g_blockbits) & g_blockmask;
-    channelid >>= g_blockbits;
+    
+    /// Avoid most conflicts in p2gbuffer --> next_grid reduction with following scheme
+    int channelid = base & (numMViPerBlock - 1);         //< Thread channel ID, threadIdx.x % (4*64*4) --> [0,1023], reduces conflicts
+    char c = channelid % g_blockvolume;                  //< Cell ID in grid buffer, [0,1023] % 64
+    char cz = channelid & g_blockmask;                   //< Cell ID z in p2gbuffer, [0,1023] % 4
+    char cy = (channelid >>= g_blockbits) & g_blockmask; //< Cell ID y in p2gbuffer, [0,1023] / 2 / 2 % 4
+    char cx = (channelid >>= g_blockbits) & g_blockmask; //< Cell ID x in p2gbuffer, [0,1023] / 2 / 2 % 4
+    channelid >>= g_blockbits;                           //< ChannelID in p2gbuffer, [0,1023] / 2 / 2
 
+    // Reduce (m, mvx, mvy, mvz) from shared p2gbuffer to next grid buffer
     float val =
         p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
                  [cy + (local_block_id & 2 ? g_blocksize : 0)]
-                 [cz + (local_block_id & 1 ? g_blocksize : 0)];
+                 [cz + (local_block_id & 1 ? g_blocksize : 0)]; //< Pull (coalesced?) from shared p2gbuffer
     if (channelid == 0)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val); //< Add mass
     else if (channelid == 1)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val); //< Add momentum in x
     else if (channelid == 2)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val); //< Add momentum in y
     else
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val); //< Add momentum in z
   }
 }
 
