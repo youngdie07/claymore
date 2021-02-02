@@ -637,7 +637,8 @@ __global__ void g2p2g(float dt, float newDt,
       // Pressure, Murnaghan-Tait state equation (JB)
       // Add MacDonald-Tait for tangent bulk? Birch-Murnaghan? Other models?
       // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
-      float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm; //< Pressure (Pa)
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * 
+        (powf(J, -pbuffer.gamma) - 1.f) + g_atm; //< Pressure (Pa)
       {
         // Torque matrix (N * m)
         // Tp = ((Bp + Bp.T) * Dp^-1 * visco - pressure * I) * Vp
@@ -1784,10 +1785,12 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
 
     if (1) {
       /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
-      float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(source_bin.val(_3, _source_pidib), -pbuffer.gamma) - 1.f);
-      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
-      pattrib.val(_1, parid) = pressure + atm;
-      pattrib.val(_2, parid) = pressure;
+      float J = source_bin.val(_3, _source_pidib);
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * 
+        (powf(J, -pbuffer.gamma) - 1.f);       //< Pressure (Pa)
+      pattrib.val(_0, parid) = J;              //< J (V/Vo)
+      pattrib.val(_1, parid) = pressure + atm; //< Pn + Patm (Pa)
+      pattrib.val(_2, parid) = pressure;       //< Pn (Pa)
     }
 
     if (0) {

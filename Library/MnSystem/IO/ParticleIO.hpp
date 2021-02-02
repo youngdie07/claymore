@@ -37,15 +37,15 @@ void write_partio_particles(std::string filename,
   Partio::ParticlesDataMutable*       parts = Partio::create();
 
   // Add positions and attributes to the pointer by arrow operator
-  Partio::ParticleAttribute posH     = parts->addAttribute("position", Partio::VECTOR, 3);
-  Partio::ParticleAttribute attribH  = parts->addAttribute("attribute", Partio::FLOAT, (int)dim);
+  Partio::ParticleAttribute pos     = parts->addAttribute("position", Partio::VECTOR, 3);
+  Partio::ParticleAttribute attrib  = parts->addAttribute("attributes", Partio::FLOAT, (int)dim);
 
   for(int i=0; i < (int)positions.size(); ++i)
   {
     // Create new particle with two write-input vectors/arrays
-    int idx = parts->addParticle();
-    float* p =parts->dataWrite<float>(posH,    idx);
-    float* a =parts->dataWrite<float>(attribH, idx);
+    int idx  = parts->addParticle();
+    float* p = parts->dataWrite<float>(pos,    idx);
+    float* a = parts->dataWrite<float>(attrib, idx);
 
     // Add position data for particle
     for(int k=0; k<3; ++k)
@@ -72,26 +72,26 @@ template <typename T, std::size_t dim>
 void write_partio_grid(std::string filename,
 		       const std::vector<std::array<T, dim>> &data) {
   /// Set mutable particle structure, add attributes
-  Partio::ParticlesDataMutable*       parts = Partio::create();
-  Partio::ParticleAttribute posH    = parts->addAttribute("position", Partio::VECTOR, 3); /// Block ID
-  Partio::ParticleAttribute mass    = parts->addAttribute("mass",     Partio::FLOAT, 1);  /// Mass
-  Partio::ParticleAttribute velH    = parts->addAttribute("velocity", Partio::VECTOR, 3); /// Momentum
+  Partio::ParticlesDataMutable* parts = Partio::create();
+  Partio::ParticleAttribute position  = parts->addAttribute("position", Partio::VECTOR, 3); /// Block ID
+  Partio::ParticleAttribute mass      = parts->addAttribute("mass",     Partio::FLOAT, 1);  /// Mass
+  Partio::ParticleAttribute momentum  = parts->addAttribute("momentum", Partio::VECTOR, 3); /// Momentum
     
   /// Loop over grid-blocks, set values in Partio structure
   for(int i=0; i < (int)data.size(); ++i)
     {
-      int idx = parts->addParticle();
-      float* p =parts->dataWrite<float>(posH,idx);
-      float* m =parts->dataWrite<float>(mass,idx);
-      float* v =parts->dataWrite<float>(velH,idx);
+      int idx   = parts->addParticle();
+      float* p  = parts->dataWrite<float>(position,idx);
+      float* m  = parts->dataWrite<float>(mass,idx);
+      float* mv = parts->dataWrite<float>(momentum,idx);
 
-      p[0] = data[i][0];
-      p[1] = data[i][1];
-      p[2] = data[i][2];
-      m[0] = data[i][3];
-      v[0] = data[i][4];
-      v[1] = data[i][5];
-      v[2] = data[i][6];
+      p[0]  = data[i][0];
+      p[1]  = data[i][1];
+      p[2]  = data[i][2];
+      m[0]  = data[i][3];
+      mv[0] = data[i][4];
+      mv[1] = data[i][5];
+      mv[2] = data[i][6];
     }
   /// Output as *.bgeo
   Partio::write(filename.c_str(), *parts);
