@@ -378,21 +378,69 @@ __global__ void g2p2g(float dt, float newDt,
                       ParticleBuffer<material_e::JFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid) {
-  static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
-  static constexpr uint64_t numViInArena = numViPerBlock << 3;
+  // Grid-to-Particle-to Grid Kernel for JFluid material
+  // Transfer Scheme:  Affine Particle-in-Cell
+  // Shape-function:   Quadratic B-Spline
+  // Time Integration: Explicit
+  // Material:         JFluid, Weakly incompressible fluid
+  
+  //+-----------------------------------+
+  //| USING AFFINE-PIC TRANSFER
+  //+-----------------------------------+
+  //| mp  p s mass
+  //| xp^n  p v position
+  //| vp^n  p v velocity
+  //| Fp  p m deformation gradient
+  //| fp  p v force
+  //+-----------------------------------+
+  //| Bp^n  p m affine state
+  //| Cp^n  p m velocity derivatives
+  //| Dp^n  p m interia-like tensor
+  //+-----------------------------------+
+  //| mi^n  n s mass
+  //| xi  n v position 
+  //| vi^n  n v velocity
+  //| ~vi^n+1 n v intermediate velocity
+  //| fi  n v force
+  //+-----------------------------------+
+  //| wip^n n+p s weights
+  //| dwip^n n+p  v weight gradients
+  //+-----------------------------------+
+  //| N(x)  g s interpolation kernel
+  //| dx  g s grid spacing
+  //| v*  g m cross product matrix of v
+  //+-----------------------------------+
+  //| epsilon g t permutation tensor
+  //| I g m identity matrix
+  //+-----------------------------------+
 
-  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
-  static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
+  
+  
+  // Grid-to-particle buffer size set-up
+  static constexpr uint64_t numViPerBlock = g_blockvolume * 3; //< Grid velocities per block
+  static constexpr uint64_t numViInArena = numViPerBlock << 3; //< Grid velocities per arena
+
+  // Particle-to-grid buffer size set-up
+  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4; //< Mass and momentum per block
+  static constexpr uint64_t numMViInArena = numMViPerBlock << 3; //< Mass and momentum per arena
 
   static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
   static constexpr unsigned arenabits = g_blockbits + 1;
 
   extern __shared__ char shmem[];
+  
+  // Create shared memory grid-to-particle buffer
+  // Covers 8 grid blocks (2x2x2), each block 64 cells (4x4x4)
+  // Mass (m) and momentum (mvx, mvy, mvz) held, f32
   using ViArena =
       float(*)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   using ViArenaRef =
       float(&)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
+  
+  // Create shared memory particle-to-grid buffer
+  // Covers 8 grid blocks (2x2x2), each block 64 cells (4x4x4)
+  // Mass (m) and momentum (mvx, mvy, mvz) held, f32
   using MViArena =
       float(*)[4][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   using MViArenaRef =
@@ -455,8 +503,8 @@ __global__ void g2p2g(float dt, float newDt,
       source_blockno =
           pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
-    vec3 pos;
-    float J;
+    vec3 pos; //< Positions (x,y,z)
+    float J;  //< Det. of Deformation Gradient, ||F||
     {
       // Load particle positions (x,y,z) and det. of deformation gradient
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -469,7 +517,7 @@ __global__ void g2p2g(float dt, float newDt,
     vec3 local_pos = pos - local_base_index * g_dx; //< Particle position in B-Spline ?
     base_index = local_base_index; //< Save particle grid-cell indices at time n
 
-    /// B-Spline Shape-Function for Grid-to-Particle transfer
+    /// B-Spline Quadratic Shape-Function for G2P transfer
     /// Operates on 3x3x3 grid-nodes
     vec3x3 dws; //< Weight function gradients G2P, matrix
 
@@ -497,10 +545,10 @@ __global__ void g2p2g(float dt, float newDt,
     }
     vec3 vel; //< Advected velocity on particle?
     vel.set(0.f);
-    vec9 C; //< ??
+    vec9 C; //< Used for matrices of Affine-PIC, (e.g. Bp, Cp)
     C.set(0.f);
 
-    // Loop through 3x3x3 grid-nodes [i,j,k] for B-Spline
+    // Loop through 3x3x3 grid-nodes [i,j,k] for Quadratic B-Spline
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -539,38 +587,39 @@ __global__ void g2p2g(float dt, float newDt,
     // Advance J (volume ratio V/Vo, det. of def. grad.)
     J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
     if (J < 0.1)
-      J = 0.1;    //< Volume collapse bound
-    vec9 contrib; //< ??
+      J = 0.1;    //< Volume change lower-bound
+    float Dp_inv; //< Inverse Intertia-Like Tensor (Quadratic Stencil)
+    Dp_inv = g_D_inv;
+    vec9 contrib; //< Used for APIC matrices
     {
       // Update particle quantities
       float voln = J * pbuffer.volume; //< Particle volume
       
-      // Murnaghan-Tait state equation (JB)
+      // Update pressure, Murnaghan-Tait state equation (JB)
       // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
       // Value n\gamma\Ko' is often 6.15 - 7.1 for water. 
-      // Is Patm needed?
-      //float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
       float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
-      // Add MacDonald-Tait for tangent bulk mod? Birch-Murnaghan? Other advanced models?
+      // Add MacDonald-Tait for tangent bulk? Birch-Murnaghan? Other models?
       {
-        // contrib = ((Cp + Cp.T) * (4 * 1/dx * 1/dx) * visco - diag{P}) * Vp
+        // contrib = ((Bp + Bp.T) * Dp^-1 * visco - diag{P}) * Vp
+        
         contrib[0] =
-            ((C[0] + C[0]) * g_D_inv * pbuffer.visco - pressure) * voln;
-        contrib[1] = (C[1] + C[3]) * g_D_inv * pbuffer.visco * voln;
-        contrib[2] = (C[2] + C[6]) * g_D_inv * pbuffer.visco * voln;
+            ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[1] = (C[1] + C[3]) * Dp_inv * pbuffer.visco * voln;
+        contrib[2] = (C[2] + C[6]) * Dp_inv * pbuffer.visco * voln;
 
-        contrib[3] = (C[3] + C[1]) * g_D_inv * pbuffer.visco * voln;
+        contrib[3] = (C[3] + C[1]) * Dp_inv * pbuffer.visco * voln;
         contrib[4] =
-            ((C[4] + C[4]) * g_D_inv * pbuffer.visco - pressure) * voln;
-        contrib[5] = (C[5] + C[7]) * g_D_inv * pbuffer.visco * voln;
+            ((C[4] + C[4]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[5] = (C[5] + C[7]) * Dp_inv * pbuffer.visco * voln;
 
-        contrib[6] = (C[6] + C[2]) * g_D_inv * pbuffer.visco * voln;
-        contrib[7] = (C[7] + C[5]) * g_D_inv * pbuffer.visco * voln;
+        contrib[6] = (C[6] + C[2]) * Dp_inv * pbuffer.visco * voln;
+        contrib[7] = (C[7] + C[5]) * Dp_inv * pbuffer.visco * voln;
         contrib[8] =
-            ((C[8] + C[8]) * g_D_inv * pbuffer.visco - pressure) * voln;
+            ((C[8] + C[8]) * Dp_inv * pbuffer.visco - pressure) * voln;
       }
-      // contrib = (Cp * mp) - (contrib * dt) * (4 * 1/dx * 1/dx) 
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      // contrib = ((Bp * mp) - (contrib * dt)) * Dp^-1 
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
         // Set particle bin to appropiate segment of particle buffer n+1
         auto particle_bin = next_pbuffer.ch(
@@ -623,8 +672,8 @@ __global__ void g2p2g(float dt, float newDt,
           auto wm = pbuffer.mass * W; //< Weighted particle mass for P2G transfer
           
           // Add grid node [i,j,k] particle increment to shared p2gbuffer memory
-          // mi      = Sum(  )
-          // mi * vi = Sum(  )
+          // mi      = Sum( wip * mp )
+          // mi * vi = Sum( wip * mp * vp? + Cp * (xi - xp).T )
           atomicAdd(
               &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
