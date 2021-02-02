@@ -579,6 +579,14 @@ __global__ void g2p2g(float dt, float newDt,
     vec9 C; //< Used for matrices of Affine-PIC, (e.g. Bp, Cp)
     C.set(0.f);
 
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
+    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
+    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length_x * g_length_x; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    
     // Loop through 3x3x3 grid-nodes [i,j,k] for Quad. B-Spline shape-func.
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
@@ -596,20 +604,20 @@ __global__ void g2p2g(float dt, float newDt,
                   g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k],
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-                           [local_base_index[2] + k]}; //< Grid-node velocity, (vx, vy, vz)
-          vel += vi * W; //< Advected particle velocity increment from grid-node
+                           [local_base_index[2] + k]}; //< Grid-node velocity, ([1m]/s)
+          vel += vi * W; //< Particle velocity increment from grid-node ([1m]/s)
 
           // Affine state (m^2 / s) increment for particle from grid-node [i,j,k]
           // Bp^n+1 = Sum_i( Wip^n * ~vi^n+1 * (xi - xp^n).T )
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     // Advect particle position increment from G2P B-Spline
     pos += vel * dt; //< xp^n+1 = xp^n + (vp^n+1 * dt)
@@ -617,16 +625,9 @@ __global__ void g2p2g(float dt, float newDt,
     /// Begin particle material update
     // Advance J^n (volume ratio, V/Vo, ||F^n||)
     // J^n+1 = (1 + tr(Bp^n+1) * Dp^-1 * dt) * J^n
-    J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
+    J = (1 + (C[0] + C[4] + C[8]) * Dp_inv * dt) * J;
     if (J < 0.1)
       J = 0.1; //< Lower-bound
-    
-    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
-    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
-    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
-    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
-    float Dp_inv;     //< Inverse Intertia-Like Tensor (1/m^2)
-    Dp_inv = g_D_inv; //< Scalar 4/(dx^2) for Quad. B-Spline
     vec9 contrib;     //< Used for APIC matrix intermediates
     {
       // Update particle quantities
@@ -661,9 +662,9 @@ __global__ void g2p2g(float dt, float newDt,
             _0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity);
 
         // Set particle buffer positions (x,y,z) and attributes (J) at n+1
-        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x (m)
-        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y (m)
-        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z (m)
+        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x ([1m])
+        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y ([1m])
+        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z ([1m])
         particle_bin.val(_3, pidib % g_bin_capacity) = J;      //< J
       }
     }
@@ -701,9 +702,9 @@ __global__ void g2p2g(float dt, float newDt,
       for (char j = 0; j < 3; j++)
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
-          pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< (xi - xp)?
+          pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< (xi - xp) ([1m])
           float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weighting for grid node [i,j,k] 
-          auto wm = pbuffer.mass * W;                  //< Weighted particle mass for P2G
+          auto wm = pbuffer.mass * W;                  //< Weighted particle mass (kg)
           
           // Add grid node's [i,j,k] particle increment to shared p2gbuffer memory
           // mi      = Sum( Wip * mp )
@@ -762,11 +763,11 @@ __global__ void g2p2g(float dt, float newDt,
     if (channelid == 0)
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val); //< Add mass (kg)
     else if (channelid == 1)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val); //< Add x momentum (kg * m / s)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val); //< Add x momentum (kg * [1m] / s)
     else if (channelid == 2)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val); //< Add y momentum (kg * m / s)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val); //< Add y momentum (kg * [1m] / s)
     else
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val); //< Add z momentum (kg * m / s)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val); //< Add z momentum (kg * [1m] / s)
   }
 }
 
