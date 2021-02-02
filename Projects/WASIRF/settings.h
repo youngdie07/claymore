@@ -71,6 +71,7 @@ constexpr float g_atm = 101.325e3;  //< Atm. Pressure (Pa)
 
 // Domain size (meters)
 #define DOMAIN_VOLUME 16.0f
+constexpr float g_length   = 16.0f; //< Domain length (m)
 constexpr float g_length_x = 16.0f; //< Domain x length (m)
 constexpr float g_length_y = 1.0f;  //< Domain y length (m)
 constexpr float g_length_z = 1.0f;  //< Domain z length (m)

@@ -12,7 +12,7 @@
             "file": "Water/Water_x8_y0.2_z0.9_dx0.02_pad1.sdf",
             "constitutive": "jfluid",
 	    "ppc": 1,
-	    "volume": 0.00000381469,
+	    "volume": 0.00000381468,
 	    "rho": 1e3,
 	    "bulk_modulus": 2e9,
 	    "gamma": 7.1,

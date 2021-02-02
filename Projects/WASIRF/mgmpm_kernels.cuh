@@ -347,7 +347,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           // Set cell velocity (m/s) after grid-block boundary check
           vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
           vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
-          vel[1] += (g_gravity * g_grid_ratio_y) * dt;  //< Grav. effect
+          vel[1] += (g_gravity / g_length) * dt;  //< Grav. effect
           vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         }
         
@@ -1787,7 +1787,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
       /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
       float J = source_bin.val(_3, _source_pidib);
       float pressure = (pbuffer.bulk / pbuffer.gamma) * 
-        (powf(J, -pbuffer.gamma) - 1.f);       //< Pressure (Pa)
+        (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
       pattrib.val(_0, parid) = J;              //< J (V/Vo)
       pattrib.val(_1, parid) = pressure + atm; //< Pn + Patm (Pa)
       pattrib.val(_2, parid) = pressure;       //< Pn (Pa)
