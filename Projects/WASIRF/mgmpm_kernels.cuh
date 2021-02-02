@@ -274,89 +274,108 @@ template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
                                                float *maxVel) {
-  constexpr int bc = g_bc;
-  constexpr int numWarps =
-      g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
+  constexpr int bc = g_bc; //< Num of 'buffer' grid-blocks at domain exterior
+  constexpr int numWarps = g_num_grid_blocks_per_cuda_block * 
+    g_num_warps_per_grid_block; //< Warps per block
   constexpr unsigned activeMask = 0xffffffff;
   //__shared__ float sh_maxvels[g_blockvolume * g_num_grid_blocks_per_cuda_block
   /// 32];
-  extern __shared__ float sh_maxvels[];
+  
+  extern __shared__ float sh_maxvels[]; //< Max vel.^2s for block, shared mem
   std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
-                        threadIdx.x / 32 / g_num_warps_per_grid_block;
-  auto blockid = partition._activeKeys[blockno];
+                        threadIdx.x / 32 / g_num_warps_per_grid_block; //< Grid-block number
+  auto blockid = partition._activeKeys[blockno]; //< Grid-block ID, [i,j,k]
 
-  /// Set boundary block dimensions toto matcsettings.h
+  /// 3 digits for grid-block presence at domain boundary
+  /// Require buffers at exteriors, prevent CFL issues/particle escape
+  /// e.g. 011 means y and z coords of block are at domain boundary
   int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
                   ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
                    (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
   
-  // Added a boundary for an internal cuboid/column/columns (JB)
-  int boxx = 2;
-  //int boxy = 6;
-  int boxz = 2;
+  // Add grid-block enforced boundary for cuboid/column/columns (JB)
+  int boxx = 2; //< x-width grid-blocks 
+  //int boxy = 6; //< y-width grid-blocks
+  int boxz = 2; //< z-width grid-blocks
   
-  int buffx = ( g_grid_size_x >> 1 );
-  //int buffy = ((g_grid_size_y >> 1) - (boxy/2));
-  int buffz = ((g_grid_size_z >> 1) - (boxz/2));
-     
+  int buffx = ( g_grid_size_x >> 1 ); //< x grid-block offest
+  //int buffy = ((g_grid_size_y >> 1) - (boxy/2)); //< y grid-block offset
+  int buffz = ((g_grid_size_z >> 1) - (boxz/2)); //< z grid-block offset
+  
+  // 3 digits for grid-block in column
+  // e.g. 011 means y and z presence, but not x 
+  // Must be 111 for grid-block to be in column
   int isOutColumn  = ((blockid[0] >= buffx && blockid[0] < boxx + buffx )       << 2) | 
                      ((blockid[1] >= 0     && blockid[1] <  g_grid_size_y)      << 1) |
                       (blockid[2] >= buffz && blockid[2] < boxz + buffz);
 
-  // Check that all 3 dimension boundary flags are tripped, reset if not (JB)
+  // Check if 3 flags are tripped, reset if not (JB)
   if (isOutColumn != 7) isOutColumn = 0;
 
   // Add chanel and column boundary results to box boundary results (JB)
   isInBound |= isOutColumn;
 
+  // One element in shared vel.^2 per warp
   if (threadIdx.x < numWarps)
     sh_maxvels[threadIdx.x] = 0.0f;
+  
+  // Synch threads, boundary collision check finished
   __syncthreads();
 
-  /// within-warp computations
+  /// Within-warp computations
   if (blockno < blockCount) {
-    auto grid_block = grid.ch(_0, blockno);
+    auto grid_block = grid.ch(_0, blockno); //< Set grid-block of buffer
+    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
     for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
-      float mass = grid_block.val_1d(_0, cidib), velSqr = 0.f;
-      vec3 vel;
+      float mass = grid_block.val_1d(_0, cidib); //< Mass at grid-node in grid-block
+      float velSqr = 0.f;  //< Thread velocity squared (vx^2 + vy^2 + vz^2)
+      vec3 vel;            //< Thread velocity vector {vx, vy, vz} (m/s)
       if (mass > 0.f) {
-        mass = 1.f / mass;
+        mass = 1.f / mass; //< Invert mass, avoids division operator
 #if 0
       int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
       int j = (cidib >> g_blockbits) & g_blockmask;
       int k = cidib & g_blockmask;
 #endif
-        // Retrieve grid momentums
-        vel[0] = grid_block.val_1d(_1, cidib);
-        vel[1] = grid_block.val_1d(_2, cidib);
-        vel[2] = grid_block.val_1d(_3, cidib);
+        // Retrieve grid momentums (kg*m/s2)
+        vel[0] = grid_block.val_1d(_1, cidib); //< mvx
+        vel[1] = grid_block.val_1d(_2, cidib); //< mvy
+        vel[2] = grid_block.val_1d(_3, cidib); //< mvz
 
-        // Set velocities, advance, check boundaries
-        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass;
-        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass;
-        vel[1] += (g_gravity * g_grid_ratio_y) * dt;  // Grav deps on sim dims
-        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass;
-        // if (isInBound) ///< sticky
-        //  vel.set(0.f);
-
-        // Update grid to use new velocities
-        grid_block.val_1d(_1, cidib) = vel[0];
+        ///< Slip contact
+        if (1){
+          // Set cell velocity (m/s) after grid-block boundary check
+          vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
+          vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
+          vel[1] += (g_gravity * g_grid_ratio_y) * dt;  //< Grav. effect
+          vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
+        }
+        
+        ///< Sticky contact
+        if (0){
+          if (isInBound) ///< sticky
+            vel.set(0.f);
+        }
+        
+        // Set grid buffer momentum to velocity (m/s) for G2P transfer
+        grid_block.val_1d(_1, cidib) = vel[0]; //< vx
         velSqr += vel[0] * vel[0];
 
-        grid_block.val_1d(_2, cidib) = vel[1];
+        grid_block.val_1d(_2, cidib) = vel[1]; //< vy
         velSqr += vel[1] * vel[1];
 
-        grid_block.val_1d(_3, cidib) = vel[2];
+        grid_block.val_1d(_3, cidib) = vel[2]; //< vz
         velSqr += vel[2] * vel[2];
       }
-      // unsigned activeMask = __ballot_sync(0xffffffff, mv[0] != 0.0f);
+      // Reduce velocity^2 from threads
+      // Loop 
       for (int iter = 1; iter % 32; iter <<= 1) {
         float tmp = __shfl_down_sync(activeMask, velSqr, iter, 32);
         if ((threadIdx.x % 32) + iter < 32)
-          velSqr = tmp > velSqr ? tmp : velSqr;
+          velSqr = tmp > velSqr ? tmp : velSqr; //< Block max velocity^2
       }
       if (velSqr > sh_maxvels[threadIdx.x / 32] && (threadIdx.x % 32) == 0)
-        sh_maxvels[threadIdx.x / 32] = velSqr;
+        sh_maxvels[threadIdx.x / 32] = velSqr; //< Block max vel^2 in shared mem
     }
   }
   __syncthreads();
@@ -369,7 +388,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
     __syncthreads();
   }
   if (threadIdx.x == 0)
-    atomicMax(maxVel, sh_maxvels[0]);
+    atomicMax(maxVel, sh_maxvels[0]); //< Leader thread sets max velocity^2 for CFL
 }
 
 template <typename Partition, typename Grid>
@@ -378,60 +397,64 @@ __global__ void g2p2g(float dt, float newDt,
                       ParticleBuffer<material_e::JFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid) {
+  //============================================================
   // Grid-to-Particle-to Grid Kernel for JFluid material
   // Transfer Scheme:  Affine Particle-in-Cell
   // Shape-function:   Quadratic B-Spline
   // Time Integration: Explicit
-  // Material:         JFluid, Weakly incompressible fluid
-  
+  // Material:         JFluid, weakly incompressible fluid
+  //============================================================
+
   //+-----------------------------------+
-  //| USING AFFINE-PIC TRANSFER
+  //| FOR AFFINE-PIC TRANSFER
   //+-----------------------------------+
-  //| mp  p s mass
+  //| mp    p s mass
   //| xp^n  p v position
   //| vp^n  p v velocity
-  //| Fp  p m deformation gradient
-  //| fp  p v force
+  //| Fp    p m deformation gradient
+  //| fp    p v force
   //+-----------------------------------+
   //| Bp^n  p m affine state
   //| Cp^n  p m velocity derivatives
   //| Dp^n  p m interia-like tensor
   //+-----------------------------------+
-  //| mi^n  n s mass
-  //| xi  n v position 
-  //| vi^n  n v velocity
+  //| mi^n    n s mass
+  //| xi      n v position 
+  //| vi^n    n v velocity
   //| ~vi^n+1 n v intermediate velocity
-  //| fi  n v force
+  //| fi      n v force
   //+-----------------------------------+
-  //| wip^n n+p s weights
-  //| dwip^n n+p  v weight gradients
+  //| wip^n   n+p s weights
+  //| dwip^n  n+p v weight gradients
   //+-----------------------------------+
-  //| N(x)  g s interpolation kernel
-  //| dx  g s grid spacing
-  //| v*  g m cross product matrix of v
+  //| N(x)    g s interpolation kernel
+  //| dx      g s grid spacing
+  //| v*      g m cross prod matrix of v
   //+-----------------------------------+
   //| epsilon g t permutation tensor
-  //| I g m identity matrix
+  //| I       g m identity matrix
   //+-----------------------------------+
-
   
+  // Each particle-block transfers to arena of grid-blocks
+  // Arena is 2x2x2 grid-blocks (G2P2G, Quad B-Spline)
+  // 
   
   // Grid-to-particle buffer size set-up
-  static constexpr uint64_t numViPerBlock = g_blockvolume * 3; //< Grid velocities per block
-  static constexpr uint64_t numViInArena = numViPerBlock << 3; //< Grid velocities per arena
+  static constexpr uint64_t numViPerBlock = g_blockvolume * 3;  //< Velocities per block
+  static constexpr uint64_t numViInArena  = numViPerBlock << 3; //< Velocities per arena
 
   // Particle-to-grid buffer size set-up
-  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4; //< Mass and momentum per block
-  static constexpr uint64_t numMViInArena = numMViPerBlock << 3; //< Mass and momentum per arena
+  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;   //< Mass, momentum per block
+  static constexpr uint64_t numMViInArena  = numMViPerBlock << 3; //< Mass, momentum per arena
 
-  static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
-  static constexpr unsigned arenabits = g_blockbits + 1;
+  static constexpr unsigned arenamask = (g_blocksize << 1) - 1;   //< Arena mask
+  static constexpr unsigned arenabits = g_blockbits + 1;          //< Arena bits
 
   extern __shared__ char shmem[];
   
   // Create shared memory grid-to-particle buffer
-  // Covers 8 grid blocks (2x2x2), each block 64 cells (4x4x4)
-  // Mass (m) and momentum (mvx, mvy, mvz) held, f32
+  // Covers 8 grid blocks (2x2x2), each block 64 nodes (4x4x4)
+  // Velocity (vx, vy, vz) held, f32
   using ViArena =
       float(*)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   using ViArenaRef =
@@ -448,12 +471,13 @@ __global__ void g2p2g(float dt, float newDt,
   MViArenaRef __restrict__ p2gbuffer =
       *reinterpret_cast<MViArena>(shmem + numViInArena * sizeof(float));
 
-  int src_blockno = blockIdx.x;
-  int ppb = next_pbuffer._ppbs[src_blockno];
+  int src_blockno = blockIdx.x; //< Source block number
+  int ppb = next_pbuffer._ppbs[src_blockno]; //< Particles per block
   if (ppb == 0)
-    return;
-  auto blockid = partition._activeKeys[blockIdx.x];
+    return; //< Exit of no particles in grid-block
+  auto blockid = partition._activeKeys[blockIdx.x]; //< Grid-block ID
 
+  // Thread for each element in g2pbuffer
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
     auto blockno = partition.query(
@@ -468,18 +492,23 @@ __global__ void g2p2g(float dt, float newDt,
     char cx = (channelid >>= g_blockbits) & g_blockmask;
     channelid >>= g_blockbits;
 
-    float val;
+    // Pull from grid buffer (device)
+    float val; //< Set to value from grid buffer
     if (channelid == 0)
-      val = grid_block.val_1d(_1, c);
+      val = grid_block.val_1d(_1, c); //< Grid-node vx (m/s)
     else if (channelid == 1)
-      val = grid_block.val_1d(_2, c);
+      val = grid_block.val_1d(_2, c); //< Grid-node vy (m/s)
     else
-      val = grid_block.val_1d(_3, c);
+      val = grid_block.val_1d(_3, c); //< Grid-node vz (m/s)
+    
+    // Set element value in g2pbuffer (device)
     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
              [cy + (local_block_id & 2 ? g_blocksize : 0)]
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
   }
-  __syncthreads();
+  __syncthreads(); // g2pbuffer is populated
+  
+  // Loop through p2gbuffer elements, set zero
   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
     int loc = base;
     char z = loc & arenamask;
@@ -487,8 +516,9 @@ __global__ void g2p2g(float dt, float newDt,
     char x = (loc >>= arenabits) & arenamask;
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
-  __syncthreads();
+  __syncthreads(); // p2gbuffer is populated
 
+  // Loop through particles in block
   for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
@@ -506,22 +536,23 @@ __global__ void g2p2g(float dt, float newDt,
     vec3 pos; //< Positions (x,y,z)
     float J;  //< Det. of Deformation Gradient, ||F||
     {
-      // Load particle positions (x,y,z) and det. of deformation gradient
-      auto source_particle_bin = pbuffer.ch(_0, source_blockno);
-      pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);
-      pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);
-      pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);
-      J = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
+      auto source_particle_bin = pbuffer.ch(_0, source_blockno); //< Particle bin
+      
+      // Load positions (x,y,z) and J from particle bin
+      pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity); //< x [0.,1.]
+      pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity); //< y [0.,1.]
+      pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity); //< z [0.,1.]
+      J = source_particle_bin.val(_3, source_pidib % g_bin_capacity);      //< J
     }
-    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1; //< Particle grid-cell indices [0, g_domain_size), B-Spline 3x3 center
-    vec3 local_pos = pos - local_base_index * g_dx; //< Particle position in B-Spline ?
-    base_index = local_base_index; //< Save particle grid-cell indices at time n
+    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1; //< Particle grid-cell index [0, g_domain_size-1]x3
+    vec3 local_pos = pos - local_base_index * g_dx; //< Particle position in cell [0.,g_dx)x3
+    base_index = local_base_index; //< Save index at time n
 
-    /// B-Spline Quadratic Shape-Function for G2P transfer
-    /// Operates on 3x3x3 grid-nodes
-    vec3x3 dws; //< Weight function gradients G2P, matrix
-
-    // Loop through x,y,z components of particle position
+    /// Execute shape-function for grid-to-particle transfer
+    /// Using Quad. B-Spline, 3x3x3 grid-nodes
+    vec3x3 dws; //< Weight gradients G2P, matrix
+    
+    // Loop through x,y,z components of local particle position
 #pragma unroll 3
     for (int dd = 0; dd < 3; ++dd) {
       // Assume p is already within kernel range [-1.5, 1.5]
@@ -540,7 +571,7 @@ __global__ void g2p2g(float dt, float newDt,
       d = 0.5f + d;
       dws(dd, 2) = 0.5 * d * d;
 
-      // Modify grid-cell indices for compatibility with shared g2pbuffer memory
+      // Modify grid-cell index for compatibility with shared g2pbuffer memory
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
     vec3 vel; //< Advected velocity on particle?
@@ -548,14 +579,14 @@ __global__ void g2p2g(float dt, float newDt,
     vec9 C; //< Used for matrices of Affine-PIC, (e.g. Bp, Cp)
     C.set(0.f);
 
-    // Loop through 3x3x3 grid-nodes [i,j,k] for Quadratic B-Spline
+    // Loop through 3x3x3 grid-nodes [i,j,k] for Quad. B-Spline shape-func.
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
       for (char j = 0; j < 3; j++)
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
-          // Perform G2P for grid-node [i,j,k] and the particle
+          // Perform G2P transfer for grid-node [i,j,k] and particle
           vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< Position diff., (xi - xp)
           float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weight value for grid node [i,j,k] 
           
@@ -568,68 +599,72 @@ __global__ void g2p2g(float dt, float newDt,
                            [local_base_index[2] + k]}; //< Grid-node velocity, (vx, vy, vz)
           vel += vi * W; //< Advected particle velocity increment from grid-node
 
-          // C = Sum_i( Wip * vi * (xi - xp)T )
-          float inv_dim = 1.f; //< Scale if needed
-          C[0] += W * vi[0] * xixp[0] * inv_dim ;
-          C[1] += W * vi[1] * xixp[0] * inv_dim ;
-          C[2] += W * vi[2] * xixp[0] * inv_dim ;
-          C[3] += W * vi[0] * xixp[1] * inv_dim ;
-          C[4] += W * vi[1] * xixp[1] * inv_dim ;
-          C[5] += W * vi[2] * xixp[1] * inv_dim ;
-          C[6] += W * vi[0] * xixp[2] * inv_dim ;
-          C[7] += W * vi[1] * xixp[2] * inv_dim ;
-          C[8] += W * vi[2] * xixp[2] * inv_dim ;
+          // Affine state (m^2 / s) increment for particle from grid-node [i,j,k]
+          // Bp^n+1 = Sum_i( Wip^n * ~vi^n+1 * (xi - xp^n).T )
+          C[0] += W * vi[0] * xixp[0];
+          C[1] += W * vi[1] * xixp[0];
+          C[2] += W * vi[2] * xixp[0];
+          C[3] += W * vi[0] * xixp[1];
+          C[4] += W * vi[1] * xixp[1];
+          C[5] += W * vi[2] * xixp[1];
+          C[6] += W * vi[0] * xixp[2];
+          C[7] += W * vi[1] * xixp[2];
+          C[8] += W * vi[2] * xixp[2];
         }
     // Advect particle position increment from G2P B-Spline
     pos += vel * dt; //< xp^n+1 = xp^n + (vp^n+1 * dt)
 
-    /// Begin P2G transfer
-    // Advance J (volume ratio V/Vo, det. of def. grad.)
+    /// Begin particle material update
+    // Advance J^n (volume ratio, V/Vo, ||F^n||)
+    // J^n+1 = (1 + tr(Bp^n+1) * Dp^-1 * dt) * J^n
     J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
     if (J < 0.1)
-      J = 0.1;    //< Volume change lower-bound
-    float Dp_inv; //< Inverse Intertia-Like Tensor (Quadratic Stencil)
-    Dp_inv = g_D_inv;
-    vec9 contrib; //< Used for APIC matrices
+      J = 0.1; //< Lower-bound
+    
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
+    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
+    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
+    float Dp_inv;     //< Inverse Intertia-Like Tensor (1/m^2)
+    Dp_inv = g_D_inv; //< Scalar 4/(dx^2) for Quad. B-Spline
+    vec9 contrib;     //< Used for APIC matrix intermediates
     {
       // Update particle quantities
-      float voln = J * pbuffer.volume; //< Particle volume
+      // Vp^n+1 = Jp^n+1 * Vo 
+      float voln = J * pbuffer.volume; //< Particle volume (m^3)
       
-      // Update pressure, Murnaghan-Tait state equation (JB)
-      // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
-      // Value n\gamma\Ko' is often 6.15 - 7.1 for water. 
-      float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm;
+      // Pressure, Murnaghan-Tait state equation (JB)
       // Add MacDonald-Tait for tangent bulk? Birch-Murnaghan? Other models?
+      // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
+      float pressure = (pbuffer.bulk) * (powf(J, -pbuffer.gamma) - 1.f) + g_atm; //< Pressure (Pa)
       {
-        // contrib = ((Bp + Bp.T) * Dp^-1 * visco - diag{P}) * Vp
-        
-        contrib[0] =
-            ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;
-        contrib[1] = (C[1] + C[3]) * Dp_inv * pbuffer.visco * voln;
-        contrib[2] = (C[2] + C[6]) * Dp_inv * pbuffer.visco * voln;
-
-        contrib[3] = (C[3] + C[1]) * Dp_inv * pbuffer.visco * voln;
-        contrib[4] =
-            ((C[4] + C[4]) * Dp_inv * pbuffer.visco - pressure) * voln;
-        contrib[5] = (C[5] + C[7]) * Dp_inv * pbuffer.visco * voln;
-
-        contrib[6] = (C[6] + C[2]) * Dp_inv * pbuffer.visco * voln;
-        contrib[7] = (C[7] + C[5]) * Dp_inv * pbuffer.visco * voln;
-        contrib[8] =
-            ((C[8] + C[8]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        // Torque matrix (N * m)
+        // Tp = ((Bp + Bp.T) * Dp^-1 * visco - pressure * I) * Vp
+        // ((m^2 / s) * (1 / m^2) * (N s / m^2) - (N / m^2)) * (m^3) = (N * m)
+        contrib[0] = ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[1] = ((C[1] + C[3]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[2] = ((C[2] + C[6]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[3] = ((C[3] + C[1]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[4] = ((C[4] + C[4]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[5] = ((C[5] + C[7]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[6] = ((C[6] + C[2]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[7] = ((C[7] + C[5]) * Dp_inv * pbuffer.visco) * voln;
+        contrib[8] = ((C[8] + C[8]) * Dp_inv * pbuffer.visco - pressure) * voln;
       }
-      // contrib = ((Bp * mp) - (contrib * dt)) * Dp^-1 
+      // Mass flow-rate matrix (kg / s)
+      // mp * Cp = ((Bp * mp) - (Tp * dt)) * Dp^-1 
+      // ((m^2 / s) * (kg) - (N*m) * (s)) * (1/m^2) = (kg * m^2 / s) * (1/m^2) = (kg/s)
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
-        // Set particle bin to appropiate segment of particle buffer n+1
+        // Load appropiate particle buffer bin at n+1
         auto particle_bin = next_pbuffer.ch(
             _0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity);
 
-        // Set particle positions (x,y,z) and attributes (J) after G2P
-        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
-        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
-        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
-        particle_bin.val(_3, pidib % g_bin_capacity) = J;
+        // Set particle buffer positions (x,y,z) and attributes (J) at n+1
+        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x (m)
+        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y (m)
+        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z (m)
+        particle_bin.val(_3, pidib % g_bin_capacity) = J;      //< J
       }
     }
 
@@ -638,12 +673,11 @@ __global__ void g2p2g(float dt, float newDt,
       int dirtag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize); //< Particle index offset (n --> n+1)
       next_pbuffer.add_advection(partition, local_base_index - 1, dirtag,
-                                 pidib); //< Update particle advection tagging
+                                 pidib); //< Update particle buffer advection tagging
       // partition.add_advection(local_base_index - 1, dirtag, pidib);
     }
-    // dws[d] = bspline_weight(local_pos[d]);
 
-    // Begin Particle-to-Grid B-spline shape-function transfer
+    // Begin Particle-to-Grid transfer
     // Loop through particle x,y,z position
 #pragma unroll 3
     for (char dd = 0; dd < 3; ++dd) {
@@ -668,40 +702,41 @@ __global__ void g2p2g(float dt, float newDt,
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
           pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< (xi - xp)?
-          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weight value for grid node [i,j,k] 
-          auto wm = pbuffer.mass * W; //< Weighted particle mass for P2G transfer
+          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weighting for grid node [i,j,k] 
+          auto wm = pbuffer.mass * W;                  //< Weighted particle mass for P2G
           
-          // Add grid node [i,j,k] particle increment to shared p2gbuffer memory
-          // mi      = Sum( wip * mp )
-          // mi * vi = Sum( wip * mp * vp? + Cp * (xi - xp).T )
+          // Add grid node's [i,j,k] particle increment to shared p2gbuffer memory
+          // mi      = Sum( Wip * mp )
+          // mi * vi = Sum( Wip * mp * (vp + (Bp * Dp^-1 * (xi - xp).T) ) )
+          // mi * vi = Sum((Wip * mp * vp) + (mp * Cp * (xi - xp).T * Wip))
           atomicAdd(
               &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
-              wm); //< Mass increment
+              wm); //< Mass increment (kg)
           atomicAdd(
               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[0] + (contrib[0] * pos[0] + contrib[3] * pos[1] +
                              contrib[6] * pos[2]) *
-                                W); //< Momentum in x increment
+                                W); //< Momentum x increment (kg * m / s)
           atomicAdd(
               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[1] + (contrib[1] * pos[0] + contrib[4] * pos[1] +
                              contrib[7] * pos[2]) *
-                                W); //< Momentum in y increment
+                                W); //< Momentum y increment (kg * m / s)
           atomicAdd(
               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[2] + (contrib[2] * pos[0] + contrib[5] * pos[1] +
                              contrib[8] * pos[2]) *
-                                W); //< Momentum in z increment
+                                W); //< Momentum z increment (kg * m / s)
         }
   }
   __syncthreads();
-  /// G2P2P B-Spline transfers to shared p2gbuffer is finished
+  /// Finished particle --> p2gbuffer transfer
   
-  /// Prepare to reduce further
+  /// Begin p2gbuffer   --> next grid-buffer transfer reduction
   /// arena no, channel no, cell no
   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
     char local_block_id = base / numMViPerBlock;
@@ -711,7 +746,7 @@ __global__ void g2p2g(float dt, float newDt,
               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
     // auto grid_block = next_grid.template ch<0>(blockno);
     
-    /// Avoid most conflicts in p2gbuffer --> next_grid reduction with following scheme
+    /// Avoid most conflicts in p2gbuffer --> next grid with following scheme
     int channelid = base & (numMViPerBlock - 1);         //< Thread channel ID, threadIdx.x % (4*64*4) --> [0,1023], reduces conflicts
     char c = channelid % g_blockvolume;                  //< Cell ID in grid buffer, [0,1023] % 64
     char cz = channelid & g_blockmask;                   //< Cell ID z in p2gbuffer, [0,1023] % 4
@@ -725,13 +760,13 @@ __global__ void g2p2g(float dt, float newDt,
                  [cy + (local_block_id & 2 ? g_blocksize : 0)]
                  [cz + (local_block_id & 1 ? g_blocksize : 0)]; //< Pull (coalesced?) from shared p2gbuffer
     if (channelid == 0)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val); //< Add mass
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val); //< Add mass (kg)
     else if (channelid == 1)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val); //< Add momentum in x
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val); //< Add x momentum (kg * m / s)
     else if (channelid == 2)
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val); //< Add momentum in y
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val); //< Add y momentum (kg * m / s)
     else
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val); //< Add momentum in z
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val); //< Add z momentum (kg * m / s)
   }
 }
 
@@ -875,12 +910,15 @@ __global__ void g2p2g(float dt, float newDt,
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
+      // dWip = Bp * Dp^-1 * dt + I
+      // (m^2 / s) * (1 / m^2) * (s) = ( )
       dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
-      vec9 F;
+      vec9 F; //< Deformation Gradient, Fp^n+1
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
+      // Set Deformation Gradient, Fp^n
       contrib[0] = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
       contrib[1] = source_particle_bin.val(_4, source_pidib % g_bin_capacity);
       contrib[2] = source_particle_bin.val(_5, source_pidib % g_bin_capacity);
@@ -890,25 +928,30 @@ __global__ void g2p2g(float dt, float newDt,
       contrib[6] = source_particle_bin.val(_9, source_pidib % g_bin_capacity);
       contrib[7] = source_particle_bin.val(_10, source_pidib % g_bin_capacity);
       contrib[8] = source_particle_bin.val(_11, source_pidib % g_bin_capacity);
+      // Set F = Fp^n+1 using dWip^n+1 and Fp^n
       matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
       {
         auto particle_bin = next_pbuffer.ch(
             _0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity);
-        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
-        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
-        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
-        particle_bin.val(_3, pidib % g_bin_capacity) = F[0];
-        particle_bin.val(_4, pidib % g_bin_capacity) = F[1];
-        particle_bin.val(_5, pidib % g_bin_capacity) = F[2];
-        particle_bin.val(_6, pidib % g_bin_capacity) = F[3];
-        particle_bin.val(_7, pidib % g_bin_capacity) = F[4];
-        particle_bin.val(_8, pidib % g_bin_capacity) = F[5];
-        particle_bin.val(_9, pidib % g_bin_capacity) = F[6];
+        particle_bin.val(_0,  pidib % g_bin_capacity) = pos[0]; //< x (m)
+        particle_bin.val(_1,  pidib % g_bin_capacity) = pos[1]; //< y (m)
+        particle_bin.val(_2,  pidib % g_bin_capacity) = pos[2]; //< z (m)
+        particle_bin.val(_3,  pidib % g_bin_capacity) = F[0];
+        particle_bin.val(_4,  pidib % g_bin_capacity) = F[1];
+        particle_bin.val(_5,  pidib % g_bin_capacity) = F[2];
+        particle_bin.val(_6,  pidib % g_bin_capacity) = F[3];
+        particle_bin.val(_7,  pidib % g_bin_capacity) = F[4];
+        particle_bin.val(_8,  pidib % g_bin_capacity) = F[5];
+        particle_bin.val(_9,  pidib % g_bin_capacity) = F[6];
         particle_bin.val(_10, pidib % g_bin_capacity) = F[7];
         particle_bin.val(_11, pidib % g_bin_capacity) = F[8];
       }
+      // Torque matrix (N * m)
+      // Tp = Stress * Volume
       compute_stress_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
                                     F, contrib);
+      // Mass-flow rate (kg / s)
+      // mp * Cp^n+1 = (Bp^n * mp - Tp * dt) * Dp^n+1
       contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
     }
 
