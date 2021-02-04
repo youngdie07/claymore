@@ -1802,10 +1802,10 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
     
-    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    /// Send positions (x,y,z) (m) to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
 
     if (1) {
@@ -1852,25 +1852,75 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
     
-    vec9 F;
-    F.set(0.f);
-    
-    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    /// Send positions (x,y,z) (m) to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
-    if (1) {
-      /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
-      pattrib.val(_0, parid) = source_bin.val(_3,  _source_pidib);
-      pattrib.val(_1, parid) = source_bin.val(_7,  _source_pidib);
-      pattrib.val(_2, parid) = source_bin.val(_11, _source_pidib);
+    // Deformation Gradient from particle buffer
+    vec9 F;     //< Deformation Gradient
+    F.set(0.f); //< Zero
+    F[0] = source_bin.val(_3, _source_pidib);
+    F[1] = source_bin.val(_4, _source_pidib);
+    F[2] = source_bin.val(_5, _source_pidib);
+    F[3] = source_bin.val(_6, _source_pidib);
+    F[4] = source_bin.val(_7, _source_pidib);
+    F[5] = source_bin.val(_8, _source_pidib);
+    F[6] = source_bin.val(_9, _source_pidib);
+    F[7] = source_bin.val(_10, _source_pidib);
+    F[8] = source_bin.val(_11, _source_pidib);
+
+
+    int retrieve_stretch_invariants = 0;
+    int retrieve_cauchy_invariants  = 0;
+
+
+    if (retrieve_stretch_invariants) {
+      vec9 U;
+      U.set(0.f);
+      vec3 I;
+      I.set(0.f);
+
+      // Retrieve right stretch tensor U for deformation gradient F
+      compute_stretch(F, U);
+
+      /// Right stretch tensor invariants
+      I[0] = U[0] + U[4] + U[8];    //< I1 = tr(U)
+      I[1] = U[0]*U[4] + U[4]*U[8] + 
+             U[0]*U[8] - U[3]*U[3] - 
+             U[6]*U[6] - U[7]*U[7]; //< I2 = 1/2((tr(U))^2 - tr(U^2))
+      I[2] = U[0]*U[4]*U[8] - U[0]*U[7]*U[7] - 
+             U[4]*U[6]*U[6] - U[8]*U[3]*U[3] + 
+             2*U[3]*U[6]*U[7];      //< I3 = ||U||
+
+      /// Send attributes (I1, I2, I3) to pattribs (device --> device)
+      pattrib.val(_0, parid) = I[0];
+      pattrib.val(_1, parid) = I[1];
+      pattrib.val(_2, parid) = I[2];
     }
 
-    if (0) {
-      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib);
-      pattrib.val(_1, parid) = source_bin.val(_3, _source_pidib);
-      pattrib.val(_2, parid) = source_bin.val(_3, _source_pidib);
+    if (retrieve_cauchy_invariants) {
+      vec9 C;
+      C.set(0.f);
+      vec3 I;
+      I.set(0.f);
+      
+      // Retrieve Cauchy Stress tensor C for deformation gradient F
+      compute_cauchy_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, C);
+
+      /// Cauchy Stress tensor invariants
+      I[0] = C[0] + C[4] + C[8];    //< I1 = tr(C)
+      I[1] = C[0]*C[4] + C[4]*C[8] + 
+             C[0]*C[8] - C[3]*C[3] - 
+             C[6]*C[6] - C[7]*C[7]; //< I2 = 1/2((tr(C))^2 - tr(C^2))
+      I[2] = C[0]*C[4]*C[8] - C[0]*C[7]*C[7] - 
+             C[4]*C[6]*C[6] - C[8]*C[3]*C[3] + 
+             2*C[3]*C[6]*C[7];      //< I3 = ||C||
+
+      /// Send attributes (I1, I2, I3) to pattribs (device --> device)
+      pattrib.val(_0, parid) = I[0];
+      pattrib.val(_1, parid) = I[1];
+      pattrib.val(_2, parid) = I[2];
     }
   }
 }
@@ -1901,10 +1951,10 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
     
-    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    /// Send positions (x,y,z) (m) to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
@@ -1947,10 +1997,10 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
     
-    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    /// Send positions (x,y,z) (m) to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes (F_11, F_22, F_33) to pattribs (device --> device)
@@ -1995,10 +2045,10 @@ __global__ void retrieve_selected_grid_blocks(
     __syncthreads();
 
     /// Create temp values in threads for specific cells
-    auto m   = sourceblock.val_1d(_0, threadIdx.x);
-    auto mvx = sourceblock.val_1d(_1, threadIdx.x);
-    auto mvy = sourceblock.val_1d(_2, threadIdx.x);
-    auto mvz = sourceblock.val_1d(_3, threadIdx.x);
+    auto m   = sourceblock.val_1d(_0, threadIdx.x);            //< Mass (kg)
+    auto mvx = sourceblock.val_1d(_1, threadIdx.x) * g_length; //< mvx (kg m/s)
+    auto mvy = sourceblock.val_1d(_2, threadIdx.x) * g_length; //< mvx (kg m/s)
+    auto mvz = sourceblock.val_1d(_3, threadIdx.x) * g_length; //< mvx (kg m/s)
 
     /// Ensure temp values are populated in all threads
     __syncthreads();

@@ -229,7 +229,7 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
     PF[4] = (dev_b_coeff * b_dev[4] + i_coeff) / J;
     PF[5] = (dev_b_coeff * b_dev[5]) / J;
     PF[6] = (dev_b_coeff * b_dev[6]) / J;
-    PF[7] = (dev_b_coeff * b_dev[7]) / Je;
+    PF[7] = (dev_b_coeff * b_dev[7]) / J;
     PF[8] = (dev_b_coeff * b_dev[8] + i_coeff) / J;
   }
 }
@@ -326,6 +326,83 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
   PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) * volume;
   PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) * volume;
   PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
+}
+
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_stretch(const vec<T, 9> &F, vec<T, 9> &PF) {
+  // Decompose Deformation Gradient, F, into U, S, and V
+  T U[9], S[3], V[9]; // Right stretch tensor, sigma, left stretch tensor
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  // Set PF to right stretch tensor U
+  PF[0] = U[0];
+  PF[1] = U[1];
+  PF[2] = U[2];
+  PF[3] = U[3];
+  PF[4] = U[4];
+  PF[5] = U[5];
+  PF[6] = U[6];
+  PF[7] = U[7];
+  PF[8] = U[8];
+}
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_cauchy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
+                              vec<T, 9> &PF) {
+  // Decompose Deformation Gradient, F, into U, S, and V
+  T U[9], S[3], V[9]; // Right stretch tensor, sigma, left stretch tensor
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  T J = S[0] * S[1] * S[2];             // J = V/Vo = MULT(S) = ||F||
+  T scaled_mu = 2.f * mu;               // Scaled shear modulus  (Pa)
+  T scaled_lambda = lambda * (J - 1.f); // Scaled Lame parameter (Pa)
+  
+  // P_hat = 2*mu * (S - 1) + lambda * (J - 1) * ()
+  vec<T, 3> P_hat; // 1st Piola-Kirchoff Principals? (N / m^2)
+  P_hat[0] = scaled_mu * (S[0] - 1.f) + scaled_lambda * (S[1] * S[2]);
+  P_hat[1] = scaled_mu * (S[1] - 1.f) + scaled_lambda * (S[0] * S[2]);
+  P_hat[2] = scaled_mu * (S[2] - 1.f) + scaled_lambda * (S[0] * S[1]);
+
+  // 1st Piola-Kirchoff Stress (N / m^2)
+  // Attached to reference and deformed configuration, Unsymmetric
+  // PK1 = P_hat * (U V')
+  vec<T, 9> P; //< PK1 Stress (N / m^2)
+  P[0] =
+      P_hat[0] * U[0] * V[0] + P_hat[1] * U[3] * V[3] + P_hat[2] * U[6] * V[6];
+  P[1] =
+      P_hat[0] * U[1] * V[0] + P_hat[1] * U[4] * V[3] + P_hat[2] * U[7] * V[6];
+  P[2] =
+      P_hat[0] * U[2] * V[0] + P_hat[1] * U[5] * V[3] + P_hat[2] * U[8] * V[6];
+  P[3] =
+      P_hat[0] * U[0] * V[1] + P_hat[1] * U[3] * V[4] + P_hat[2] * U[6] * V[7];
+  P[4] =
+      P_hat[0] * U[1] * V[1] + P_hat[1] * U[4] * V[4] + P_hat[2] * U[7] * V[7];
+  P[5] =
+      P_hat[0] * U[2] * V[1] + P_hat[1] * U[5] * V[4] + P_hat[2] * U[8] * V[7];
+  P[6] =
+      P_hat[0] * U[0] * V[2] + P_hat[1] * U[3] * V[5] + P_hat[2] * U[6] * V[8];
+  P[7] =
+      P_hat[0] * U[1] * V[2] + P_hat[1] * U[4] * V[5] + P_hat[2] * U[7] * V[8];
+  P[8] =
+      P_hat[0] * U[2] * V[2] + P_hat[1] * U[5] * V[5] + P_hat[2] * U[8] * V[8];
+
+  // Cauchy Stress (N / m^2)
+  // "True Stress" on deformed configuration, Symmetric
+  // C = (PK1 . F') / J
+  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) / J;
+  PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6]) / J;
+  PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6]) / J;
+  PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) / J;
+  PF[4] = (P[1] * F[1] + P[4] * F[4] + P[7] * F[7]) / J;
+  PF[5] = (P[2] * F[1] + P[5] * F[4] + P[8] * F[7]) / J;
+  PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) / J;
+  PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) / J;
+  PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) / J; 
 }
 
 } // namespace mn
