@@ -347,7 +347,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           // Set cell velocity (m/s) after grid-block boundary check
           vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
           vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
-          vel[1] += (g_gravity / g_length) * dt;  //< Grav. effect
+          vel[1] += (g_gravity * dt ) / g_length;       //< Grav (raise?)
           vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         }
         
@@ -495,11 +495,11 @@ __global__ void g2p2g(float dt, float newDt,
     // Pull from grid buffer (device)
     float val; //< Set to value from grid buffer
     if (channelid == 0)
-      val = grid_block.val_1d(_1, c); //< Grid-node vx (m/s)
+      val = grid_block.val_1d(_1, c); //< Grid-node vx ([1m]/s)
     else if (channelid == 1)
-      val = grid_block.val_1d(_2, c); //< Grid-node vy (m/s)
+      val = grid_block.val_1d(_2, c); //< Grid-node vy ([1m]/s)
     else
-      val = grid_block.val_1d(_3, c); //< Grid-node vz (m/s)
+      val = grid_block.val_1d(_3, c); //< Grid-node vz ([1m]/s)
     
     // Set element value in g2pbuffer (device)
     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
@@ -583,9 +583,9 @@ __global__ void g2p2g(float dt, float newDt,
     // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
     // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
     // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
-    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
-    float scale = g_length_x * g_length_x; //< Area scale (m^2)
-    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    float Dp_inv; //< Inverse Intertia-Like Tensor (m^-2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scale to scene lenths
     
     // Loop through 3x3x3 grid-nodes [i,j,k] for Quad. B-Spline shape-func.
 #pragma unroll 3
@@ -595,8 +595,8 @@ __global__ void g2p2g(float dt, float newDt,
 #pragma unroll 3
         for (char k = 0; k < 3; k++) {
           // Perform G2P transfer for grid-node [i,j,k] and particle
-          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< Position diff., (xi - xp)
-          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weight value for grid node [i,j,k] 
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos; //< (xi - xp)
+          float W = dws(0, i) * dws(1, j) * dws(2, k); //< Weighs for grid node [i,j,k] 
           
           // Pull grid node velocity vector from shared g2pbuffer memory
           vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
@@ -607,7 +607,8 @@ __global__ void g2p2g(float dt, float newDt,
                            [local_base_index[2] + k]}; //< Grid-node velocity, ([1m]/s)
           vel += vi * W; //< Particle velocity increment from grid-node ([1m]/s)
 
-          // Affine state (m^2 / s) increment for particle from grid-node [i,j,k]
+          // Affine state (m^2 / s)
+          // Increment for particle from grid-node [i,j,k]
           // Bp^n+1 = Sum_i( Wip^n * ~vi^n+1 * (xi - xp^n).T )
           C[0] += W * vi[0] * xixp[0] * scale;
           C[1] += W * vi[1] * xixp[0] * scale;
@@ -619,16 +620,16 @@ __global__ void g2p2g(float dt, float newDt,
           C[7] += W * vi[1] * xixp[2] * scale;
           C[8] += W * vi[2] * xixp[2] * scale;
         }
-    // Advect particle position increment from G2P B-Spline
-    pos += vel * dt; //< xp^n+1 = xp^n + (vp^n+1 * dt)
+    // Advect particle position increment
+    pos += vel * dt; //< xp^n+1 = xp^n + (vp^n+1 * dt) ([1m])
 
     /// Begin particle material update
     // Advance J^n (volume ratio, V/Vo, ||F^n||)
     // J^n+1 = (1 + tr(Bp^n+1) * Dp^-1 * dt) * J^n
     J = (1 + (C[0] + C[4] + C[8]) * Dp_inv * dt) * J;
     if (J < 0.1)
-      J = 0.1; //< Lower-bound
-    vec9 contrib;     //< Used for APIC matrix intermediates
+      J = 0.1;    //< Lower-bound V/Vo
+    vec9 contrib; //< Used for APIC matrix intermediates
     {
       // Update particle quantities
       // Vp^n+1 = Jp^n+1 * Vo 
@@ -676,7 +677,6 @@ __global__ void g2p2g(float dt, float newDt,
                               (local_base_index - 1) / g_blocksize); //< Particle index offset (n --> n+1)
       next_pbuffer.add_advection(partition, local_base_index - 1, dirtag,
                                  pidib); //< Update particle buffer advection tagging
-      // partition.add_advection(local_base_index - 1, dirtag, pidib);
     }
 
     // Begin Particle-to-Grid transfer
@@ -720,19 +720,19 @@ __global__ void g2p2g(float dt, float newDt,
                         [local_base_index[2] + k],
               wm * vel[0] + (contrib[0] * pos[0] + contrib[3] * pos[1] +
                              contrib[6] * pos[2]) *
-                                W); //< Momentum x increment (kg * m / s)
+                                W); //< Momentum x increment (kg * [1m] / s)
           atomicAdd(
               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[1] + (contrib[1] * pos[0] + contrib[4] * pos[1] +
                              contrib[7] * pos[2]) *
-                                W); //< Momentum y increment (kg * m / s)
+                                W); //< Momentum y increment (kg * [1m] / s)
           atomicAdd(
               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * vel[2] + (contrib[2] * pos[0] + contrib[5] * pos[1] +
                              contrib[8] * pos[2]) *
-                                W); //< Momentum z increment (kg * m / s)
+                                W); //< Momentum z increment (kg * [1m] / s)
         }
   }
   __syncthreads();
@@ -883,6 +883,15 @@ __global__ void g2p2g(float dt, float newDt,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+    
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
+    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
+    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length_x * g_length_x; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -898,15 +907,15 @@ __global__ void g2p2g(float dt, float newDt,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
@@ -914,7 +923,7 @@ __global__ void g2p2g(float dt, float newDt,
     for (int d = 0; d < 9; ++d)
       // dWip = Bp * Dp^-1 * dt + I
       // (m^2 / s) * (1 / m^2) * (s) = ( )
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * Dp_inv * dt + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -954,7 +963,7 @@ __global__ void g2p2g(float dt, float newDt,
                                     F, contrib);
       // Mass-flow rate (kg / s)
       // mp * Cp^n+1 = (Bp^n * mp - Tp * dt) * Dp^n+1
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -1155,6 +1164,15 @@ __global__ void g2p2g(float dt, float newDt,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+    
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
+    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
+    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (m^-2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1170,21 +1188,21 @@ __global__ void g2p2g(float dt, float newDt,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * Dp_inv * dt + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -1224,7 +1242,7 @@ __global__ void g2p2g(float dt, float newDt,
         particle_bin.val(_12, pidib % g_bin_capacity) = logJp;
       }
 
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -1233,9 +1251,7 @@ __global__ void g2p2g(float dt, float newDt,
                               (local_base_index - 1) / g_blocksize);
       next_pbuffer.add_advection(partition, local_base_index - 1, dirtag,
                                  pidib);
-      // partition.add_advection(local_base_index - 1, dirtag, pidib);
     }
-    // dws[d] = bspline_weight(local_pos[d]);
 
 #pragma unroll 3
     for (char dd = 0; dd < 3; ++dd) {
@@ -1425,6 +1441,15 @@ __global__ void g2p2g(float dt, float newDt,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+    
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    // Dp^n = Dp^n+1 = (1/3) * dx^2 * I (Cubic)
+    // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
+    // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1440,21 +1465,21 @@ __global__ void g2p2g(float dt, float newDt,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * Dp_inv * dt + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -1494,7 +1519,7 @@ __global__ void g2p2g(float dt, float newDt,
         particle_bin.val(_12, pidib % g_bin_capacity) = logJp;
       }
 
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -1665,7 +1690,7 @@ __global__ void check_table(uint32_t blockCount, Partition partition) {
     return;
   auto blockid = partition._activeKeys[blockno];
   if (partition.query(blockid) != blockno)
-    printf("FUCK, partition table is wrong!\n");
+    printf("ERROR, partition table is wrong!\n");
 }
 template <typename Grid> __global__ void sum_grid_mass(Grid grid, float *sum) {
   atomicAdd(sum, grid.ch(_0, blockIdx.x).val_1d(_0, threadIdx.x));
@@ -1685,7 +1710,7 @@ __global__ void check_partition(uint32_t blockCount, Partition partition) {
     return;
   ivec3 blockid = partition._activeKeys[idx];
   if (blockid[0] == 0 || blockid[1] == 0 || blockid[2] == 0)
-    printf("\tDAMN, encountered zero block record\n");
+    printf("\tERROR, encountered zero block record\n");
   if (partition.query(blockid) != idx) {
     int id = partition.query(blockid);
     ivec3 bid = partition._activeKeys[id];
@@ -1826,6 +1851,9 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
 
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
+    
+    vec9 F;
+    F.set(0.f);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
     parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
