@@ -278,6 +278,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   constexpr int numWarps = g_num_grid_blocks_per_cuda_block * 
     g_num_warps_per_grid_block; //< Warps per block
   constexpr unsigned activeMask = 0xffffffff;
+  
+  float gravity = grid.gravity;
+  float length = grid.length;
   //__shared__ float sh_maxvels[g_blockvolume * g_num_grid_blocks_per_cuda_block
   /// 32];
   
@@ -347,7 +350,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           // Set cell velocity (m/s) after grid-block boundary check
           vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
           vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
-          vel[1] += (g_gravity * dt ) / g_length;       //< Grav (raise?)
+          vel[1] += (gravity * dt ) / length;       //< Grav (raises?)          
           vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         }
         
@@ -584,7 +587,7 @@ __global__ void g2p2g(float dt, float newDt,
     // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
     // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
     float Dp_inv; //< Inverse Intertia-Like Tensor (m^-2)
-    float scale = g_length * g_length; //< Area scale (m^2)
+    float scale = grid.length * grid.length; //< Area scale (m^2)
     Dp_inv = g_D_inv / scale; //< Scale to scene lenths
     
     // Loop through 3x3x3 grid-nodes [i,j,k] for Quad. B-Spline shape-func.
@@ -639,7 +642,7 @@ __global__ void g2p2g(float dt, float newDt,
       // Add MacDonald-Tait for tangent bulk? Birch-Murnaghan? Other models?
       // P = (Ko/n) [(Vo/V)^(n) - 1] + Patm = (bulk/gamma) [J^(-gamma) - 1] + Patm
       float pressure = (pbuffer.bulk / pbuffer.gamma) * 
-        (powf(J, -pbuffer.gamma) - 1.f) + g_atm; //< Pressure (Pa)
+        (powf(J, -pbuffer.gamma) - 1.f) + grid.atm; //< Pressure (Pa)
       {
         // Torque matrix (N * m)
         // Tp = ((Bp + Bp.T) * Dp^-1 * visco - pressure * I) * Vp
@@ -889,7 +892,7 @@ __global__ void g2p2g(float dt, float newDt,
     // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
     // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
     float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
-    float scale = g_length_x * g_length_x; //< Area scale (m^2)
+    float scale = grid.length * grid.length; //< Area scale (m^2)
     Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
     
 #pragma unroll 3
@@ -1170,7 +1173,7 @@ __global__ void g2p2g(float dt, float newDt,
     // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
     // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
     float Dp_inv; //< Inverse Intertia-Like Tensor (m^-2)
-    float scale = g_length * g_length; //< Area scale (m^2)
+    float scale = grid.length * grid.length; //< Area scale (m^2)
     Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
     
 #pragma unroll 3
@@ -1447,7 +1450,7 @@ __global__ void g2p2g(float dt, float newDt,
     // Dp^n = Dp^n+1 = maybe singular, but...  (Trilinear)
     // Wip^n * (Dp^n)^-1 * (xi -xp^n) = dWip^n (Trilinear)
     float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
-    float scale = g_length * g_length; //< Area scale (m^2)
+    float scale = grid.length * grid.length; //< Area scale (m^2)
     Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
     
 #pragma unroll 3
@@ -1788,6 +1791,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
   auto advection_bucket =
       next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
   auto atm = g_atm; //< Atmospheric pressure (Pa)
+  auto length = g_length;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
     ivec3 source_blockid;
@@ -1803,9 +1807,9 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) (m) to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * length;
 
 
     if (1) {
@@ -1837,6 +1841,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto length = g_length;
   // auto particle_offset = pbuffer._binsts[blockIdx.x];
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -1853,9 +1858,9 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) (m) to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * length;
 
     // Deformation Gradient from particle buffer
     vec9 F;     //< Deformation Gradient
@@ -1936,6 +1941,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+    auto length = g_length;
   // auto particle_offset = pbuffer._binsts[blockIdx.x];
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -1982,6 +1988,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto length = g_length;
   // auto particle_offset = pbuffer._binsts[blockIdx.x];
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -2022,6 +2029,7 @@ template <typename Partition, typename Grid, typename GridArray>
 __global__ void retrieve_selected_grid_blocks(
     const ivec3 *__restrict__ prev_blockids, const Partition partition,
     const int *__restrict__ _marks, Grid prev_grid, GridArray garray) {
+  auto length = prev_grid.length;
   auto blockid = prev_blockids[blockIdx.x];
   if (_marks[blockIdx.x]) {
     auto blockno = partition.query(blockid);
@@ -2046,9 +2054,9 @@ __global__ void retrieve_selected_grid_blocks(
 
     /// Create temp values in threads for specific cells
     auto m   = sourceblock.val_1d(_0, threadIdx.x);            //< Mass (kg)
-    auto mvx = sourceblock.val_1d(_1, threadIdx.x) * g_length; //< mvx (kg m/s)
-    auto mvy = sourceblock.val_1d(_2, threadIdx.x) * g_length; //< mvx (kg m/s)
-    auto mvz = sourceblock.val_1d(_3, threadIdx.x) * g_length; //< mvx (kg m/s)
+    auto mvx = sourceblock.val_1d(_1, threadIdx.x) * length; //< mvx (kg m/s)
+    auto mvy = sourceblock.val_1d(_2, threadIdx.x) * length; //< mvx (kg m/s)
+    auto mvz = sourceblock.val_1d(_3, threadIdx.x) * length; //< mvx (kg m/s)
 
     /// Ensure temp values are populated in all threads
     __syncthreads();

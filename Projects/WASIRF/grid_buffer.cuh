@@ -26,7 +26,7 @@ using grid_buffer_ =
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_>;
 
-/// Structure to hold downsampled grid-block values in GridArrayDomain (device) (JB)
+/// Holds downsampled grid-block values in for frame output (device) (JB)
 using grid_array_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
@@ -45,6 +45,17 @@ struct GridBuffer : Instance<grid_buffer_> {
     if (capacity > _capacity)
       resize(capacity, capacity);
   }
+  float gravity = g_gravity;
+  float length = g_length;
+  float cfl = g_cfl;
+  float atm = g_atm;
+  void updateParameters(float gr, float lg, float cf, float at) {
+    gravity = gr;
+    length  = lg;
+    cfl = cf;
+    atm = at;
+  }
+
   template <typename CudaContext> void reset(int blockCnt, CudaContext &cuDev) {
     using namespace placeholder;
 #if 0

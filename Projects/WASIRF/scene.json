@@ -1,10 +1,15 @@
 {
  "simulation": {
         "gpuid": 0,
-        "gravity": -9.81,
         "fps": 120,
         "frames": 240,
-        "default_dt": 5e-06
+        "default_dt": 3e-05
+    },
+ "grid": {
+    "gravity": -9.81,
+    "length": 16.0,
+    "cfl": 0.5,
+    "atm": 0.0
     },
     "models": [
         {
@@ -14,7 +19,7 @@
 	    "ppc": 1,
 	    "volume": 0.00000381468,
 	    "rho": 1e3,
-	    "bulk_modulus": 2e9,
+	    "bulk_modulus": 5e7,
 	    "gamma": 7.1,
 	    "viscosity": 0.001,
             "offset": [
@@ -28,7 +33,7 @@
                 0.41
             ],
             "velocity": [
-                0.125,
+                0.0,
                 0.0,
                 0
             ]

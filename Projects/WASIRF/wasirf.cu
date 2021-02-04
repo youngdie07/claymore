@@ -1,4 +1,6 @@
 #include "gmpm_simulator.cuh"
+#include "settings.h"
+
 #include <MnBase/Geometry/GeometrySampler.h>
 #include <MnBase/Math/Vec.h>
 #include <MnSystem/Cuda/Cuda.h>
@@ -25,19 +27,6 @@ namespace rj = rapidjson;
 static const char *kTypeNames[] = {"Null",  "False",  "True",  "Object",
                                    "Array", "String", "Number"};
 
-// dragon_particles.bin, 775196
-// cube256_2.bin, 1048576
-// two_dragons.bin, 388950
-
-decltype(auto) load_model(std::size_t pcnt, std::string filename) {
-  std::vector<std::array<float, 3>> rawpos(pcnt);
-  auto addr_str = std::string(AssetDirPath) + "MpmParticles/";
-  auto f = fopen((addr_str + filename).c_str(), "rb");
-  std::fread((float *)rawpos.data(), sizeof(float), rawpos.size() * 3, f);
-  std::fclose(f);
-  return rawpos;
-}
-
 struct SimulatorConfigs {
   int _dim;
   float _dx, _dxInv;
@@ -45,6 +34,57 @@ struct SimulatorConfigs {
   float _gravity;
   std::vector<float> _offset;
 } simConfigs;
+
+void parse_scene(std::string fn, std::unique_ptr<mn::GmpmSimulator> &benchmark);
+
+int main(int argc, char *argv[]) {
+  using namespace mn;
+  using namespace config;
+  Cuda::startup();
+
+  cxxopts::Options options("Scene_Loader", "Read simulation scene");
+  options.add_options()(
+      "f,file", "Scene Configuration File",
+      cxxopts::value<std::string>()->default_value("scene.json"));
+  auto results = options.parse(argc, argv);
+  auto fn = results["file"].as<std::string>();
+  fmt::print("loading scene [{}]\n", fn);
+
+  std::unique_ptr<mn::GmpmSimulator> benchmark;
+  parse_scene(fn, benchmark);
+  if (false) {
+    benchmark = std::make_unique<mn::GmpmSimulator>(1, 1e-4, 24, 60);
+
+    constexpr auto LEN = 46;
+    constexpr auto STRIDE = 56;
+    constexpr auto MODEL_CNT = 1;
+    for (int did = 0; did < 1; ++did) {
+      std::vector<std::array<float, 3>> model;
+      for (int i = 0; i < MODEL_CNT; ++i) {
+        auto idx = (did * MODEL_CNT + i);
+        model = sample_uniform_box(
+            g_dx, ivec3{18 + (idx & 1 ? STRIDE : 0), 18, 18},
+            ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN, 18 + LEN});
+      }
+      benchmark->initModel<mn::material_e::FixedCorotated>(
+          model, vec<float, 3>{0.f, 0.f, 0.f});
+    }
+    /// Instantiate initial grid array on host (JB)
+    std::vector<std::array<float, 7>> graph(mn::config::g_max_active_block, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+
+    /// Launch initGrid in gmpm_simulator.cuh (JB)
+    benchmark->initGrid(graph);
+  }
+  //getchar();
+
+  benchmark->main_loop();
+  ///
+  IO::flush();
+  benchmark.reset();
+  ///
+  Cuda::shutdown();
+  return 0;
+}
 
 void parse_scene(std::string fn,
                  std::unique_ptr<mn::GmpmSimulator> &benchmark) {
@@ -85,9 +125,50 @@ void parse_scene(std::string fn,
           benchmark = std::make_unique<mn::GmpmSimulator>(
               sim["gpuid"].GetInt(), sim["default_dt"].GetFloat(),
               sim["fps"].GetInt(), sim["frames"].GetInt());
+          auto &gr = it->value;
+
         }
       }
-    } ///< end simulation parsing
+    } ///< End simulation parsing
+    {
+      auto it = doc.FindMember("grid");
+      if (it != doc.MemberEnd()) {
+        auto &gr = it->value;
+        if (gr.IsObject()) {
+          benchmark->updateGridParameters(
+            gr["gravity"].GetFloat(), gr["length"].GetFloat(),
+            gr["cfl"].GetFloat(), gr["atm"].GetFloat());
+          
+          fmt::print("About to set up graph in gmpm.cu\n");
+          auto initGrid = [&](auto &graph) {
+            benchmark->initGrid(graph);
+          };
+
+          /// Instantiate zero'd initial grid array on host (JB)
+          std::vector<std::array<float, 7>> graph;
+          for (int i = 0, size = mn::config::g_max_active_block; i < size; i++) {
+            graph.push_back(std::array<float, 7>{mn::config::g_grid_size_x, 
+                                                mn::config::g_grid_size_y, 
+                                                mn::config::g_grid_size_z,
+                                                0,0,0,0});
+          }
+          fmt::print("Set up graph in gmpm.cu\n");
+
+          /// Write initial grid to Partio (JB)
+          mn::IO::insert_job([&]() {
+            mn::write_partio_grid<float, 7>("grid.bgeo",
+                                        graph);
+          });
+          mn::IO::flush();
+          fmt::print("Exported graph in gmpm.cu\n");
+
+          /// Call initGrid() in gmpm_simulator.cuh (JB)
+          initGrid(graph);
+          fmt::print("Called initGrid from gmpm_simulator.cuh on graph in gmpm.cu\n");
+        }
+      
+      }
+    } ///< End grid parsing
     {
       auto it = doc.FindMember("models");
       if (it != doc.MemberEnd()) {
@@ -142,82 +223,9 @@ void parse_scene(std::string fn,
               mn::IO::flush();
               initModel(positions, velocity);
             }
-
-            fmt::print("About to set up graph in gmpm.cu\n");
-            auto initGrid = [&](auto &graph) {
-              benchmark->initGrid(graph);
-            };
-
-            /// Instantiate zero'd initial grid array on host (JB)
-            std::vector<std::array<float, 7>> graph;
-            for (int i = 0, size = mn::config::g_max_active_block; i < size; i++) {
-              graph.push_back(std::array<float, 7>{129,129,129,0,0,0,0});
-            }
-            fmt::print("Set up graph in gmpm.cu\n");
-
-            /// Write initial grid to Partio (JB)
-            mn::IO::insert_job([&]() {
-              mn::write_partio_grid<float, 7>("grid.bgeo",
-                                          graph);
-            });
-            mn::IO::flush();
-            fmt::print("Exported graph in gmpm.cu\n");
-
-            /// Call initGrid() in gmpm_simulator.cuh (JB)
-            initGrid(graph);
-            fmt::print("Called initGrid from gmpm_simulator.cuh on graph in gmpm.cu\n");
           }
         }
       }
-    } ///< end models parsing
+    } ///< End models parsing
   }
-}
-
-int main(int argc, char *argv[]) {
-  using namespace mn;
-  using namespace config;
-  Cuda::startup();
-
-  cxxopts::Options options("Scene_Loader", "Read simulation scene");
-  options.add_options()(
-      "f,file", "Scene Configuration File",
-      cxxopts::value<std::string>()->default_value("scene.json"));
-  auto results = options.parse(argc, argv);
-  auto fn = results["file"].as<std::string>();
-  fmt::print("loading scene [{}]\n", fn);
-
-  std::unique_ptr<mn::GmpmSimulator> benchmark;
-  parse_scene(fn, benchmark);
-  if (false) {
-    benchmark = std::make_unique<mn::GmpmSimulator>(1, 1e-4, 24, 60);
-
-    constexpr auto LEN = 46;
-    constexpr auto STRIDE = 56;
-    constexpr auto MODEL_CNT = 1;
-    for (int did = 0; did < 1; ++did) {
-      std::vector<std::array<float, 3>> model;
-      for (int i = 0; i < MODEL_CNT; ++i) {
-        auto idx = (did * MODEL_CNT + i);
-        model = sample_uniform_box(
-            g_dx, ivec3{18 + (idx & 1 ? STRIDE : 0), 18, 18},
-            ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN, 18 + LEN});
-      }
-      benchmark->initModel<mn::material_e::FixedCorotated>(
-          model, vec<float, 3>{0.f, 0.f, 0.f});
-    }
-    /// Instantiate initial grid array on host (JB)
-    std::vector<std::array<float, 7>> graph(mn::config::g_max_active_block, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
-
-    /// Launch initGrid in gmpm_simulator.cuh (JB)
-    benchmark->initGrid(graph);
-  }
-  //getchar();
-
-  benchmark->main_loop();
-  ///
-  IO::flush();
-  benchmark.reset();
-  ///
-  Cuda::shutdown();
-  return 0;
 }

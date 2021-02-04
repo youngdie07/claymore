@@ -187,6 +187,10 @@ struct GmpmSimulator {
                                                         xi);
                                   });
   }
+  void updateGridParameters(float gravity, float length, float cfl, float atm){
+    gridBlocks[0].updateParameters(gravity, length, cfl, atm);
+    gridBlocks[1].updateParameters(gravity, length, cfl, atm);
+  }
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
                 CudaContext &cuDev) {
@@ -702,6 +706,9 @@ struct GmpmSimulator {
 
   /// Basic simulation settings
   int gpuid, nframes, fps;
+
+  /// Basic physical settings
+  float gravity, length, cfl;
 
   /// Timing variables
   float dt, nextDt, dtDefault, curTime, maxVel;

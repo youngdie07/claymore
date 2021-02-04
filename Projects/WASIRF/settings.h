@@ -98,13 +98,13 @@ constexpr std::size_t g_max_halo_block = 4000; //< Max halo blocks (#)
 
 } // namespace config
 
+// Domains for grid structures
 using BlockDomain = compact_domain<char, config::g_blocksize,
-                                   config::g_blocksize, config::g_blocksize>;
-using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y, config::g_grid_size_z>;
-using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
-
-// Down-sampled output grid-block domain, used in grid_buffer.cuh (JB)
-using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
+                                   config::g_blocksize, config::g_blocksize>; //< Grid-Block SoA
+using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y, 
+                                  config::g_grid_size_z>; //< Grid-Block AoS
+using GridBufferDomain = compact_domain<int, config::g_max_active_block>; //< Grid-block buffer
+using GridArrayDomain = compact_domain<int, config::g_max_active_block>; //< Grid-block output array (JB)
 
 } // namespace mn
 
