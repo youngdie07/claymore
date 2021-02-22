@@ -1,0 +1,62 @@
+{
+ "simulation": {
+        "gpuid": 0,
+        "gravity": -9.81,
+        "fps": 60,
+        "frames": 60,
+        "default_dt": 2.5e-5
+    },
+    "models": [
+        {
+            "type": "particle",
+            "file": "Water/Cube.sdf",
+            "constitutive": "jfluid",
+	    "ppc": 2,
+	    "volume": 0.00000271444082519,
+	    "rho": 1e3,
+	    "bulk_modulus": 5e7,
+	    "gamma": 6.1,
+	    "viscosity": 0.001,
+            "offset": [
+                0.0625,
+                0.0625,
+                0.0625
+            ],
+            "span": [
+                0.25,
+                0.25,
+                0.25
+            ],
+            "velocity": [
+                0.0,
+                0.0,
+                0
+            ]
+        },
+        {
+            "type": "particle",
+            "file": "Flume/Cylinder_dx0.05_pad1.sdf",
+            "constitutive": "rigid",
+	    "ppc": 2,
+	    "volume": 0.00000271444082519,
+	    "rho": 1e3,
+	    "youngs_modulus": 1e7,
+	    "poisson_ratio": 0.4,
+            "offset": [
+                0.3125,
+                0.03125,
+                0.0625
+            ],
+            "span": [
+                0.25,
+                0.25,
+                0.25
+            ],
+            "velocity": [
+                0.0,
+                0.0,
+                0
+            ]
+        }
+    ]
+}
