@@ -14,7 +14,7 @@ using vec3x4 = vec<float, 3, 4>;
 using vec3x3x3 = vec<float, 3, 3, 3>;
 
 /// sand = Drucker Prager Plasticity, StvkHencky Elasticity
-enum class material_e { JFluid = 0, FixedCorotated, Sand, NACC, Rigid, Total };
+enum class material_e { JFluid = 0, FixedCorotated, Sand, NACC, Rigid, Piston, Total };
 
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
@@ -88,7 +88,7 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 
 /// only used on host
 constexpr int g_max_particle_num = 3000000;
-constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
+constexpr int g_max_active_block = 5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);

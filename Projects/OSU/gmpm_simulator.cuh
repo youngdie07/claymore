@@ -199,6 +199,18 @@ struct GmpmSimulator {
           pb.updateParameters(rho, vol, ym, pr);
         });
   }
+  void updatePistonParameters(float rho, float vol, float ym, float pr) {
+    match(particleBins[0].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Piston> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+    match(particleBins[1].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Piston> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+  }
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
                 CudaContext &cuDev) {
@@ -316,7 +328,7 @@ struct GmpmSimulator {
             // g2p2g
             match(particleBins[rollid][i])([&](const auto &pb) {
               cuDev.compute_launch({pbcnt, 128, (512 * 3 * 4) + (512 * 4 * 4)},
-                                   g2p2g, dt, nextDt, pb,
+                                   g2p2g, dt, nextDt, curTime, pb,
                                    get<typename std::decay_t<decltype(pb)>>(
                                        particleBins[rollid ^ 1][i]),
                                    partitions[rollid ^ 1], partitions[rollid],

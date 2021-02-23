@@ -137,6 +137,13 @@ void parse_scene(std::string fn,
                     model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
+              } else if (constitutive == "piston") {
+                benchmark->initModel<mn::material_e::Piston>(positions,
+                                                                     velocity);
+                benchmark->updatePistonParameters(
+                    model["rho"].GetFloat(), scaled_volume,
+                    model["youngs_modulus"].GetFloat(),
+                    model["poisson_ratio"].GetFloat());
               }
             };
             mn::vec<float, 3> offset, span, velocity;

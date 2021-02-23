@@ -39,6 +39,7 @@ struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin13_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin13_ {};
 template <> struct particle_bin_<material_e::Rigid> : particle_bin12_ {};
+template <> struct particle_bin_<material_e::Piston> : particle_bin12_ {};
 
 template <typename ParticleBin>
 using particle_buffer_ =
@@ -294,6 +295,32 @@ struct ParticleBuffer<material_e::Rigid>
       : base_t{allocator, count} {}
 };
 
+template <>
+struct ParticleBuffer<material_e::Piston>
+    : ParticleBufferImpl<material_e::Piston> {
+  using base_t = ParticleBufferImpl<material_e::Piston>;
+  float rho = DENSITY;
+  float volume = (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / MODEL_PPC);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  void updateParameters(float density, float vol, float E, float nu) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
+};
+
 /// conversion
 /// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
 using particle_buffer_t =
@@ -301,7 +328,8 @@ using particle_buffer_t =
             ParticleBuffer<material_e::FixedCorotated>,
             ParticleBuffer<material_e::Sand>, 
             ParticleBuffer<material_e::NACC>, 
-            ParticleBuffer<material_e::Rigid>>;
+            ParticleBuffer<material_e::Rigid>,
+            ParticleBuffer<material_e::Piston>>;
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;

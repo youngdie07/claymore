@@ -2,30 +2,30 @@
  "simulation": {
         "gpuid": 0,
         "gravity": -9.81,
-        "fps": 20,
-        "frames": 60,
+        "fps": 10,
+        "frames": 120,
         "default_dt": 1e-4
     },
     "models": [
         {
             "type": "particle",
-            "file": "Water/Water_x12_y0.2_z0.9_dx0.02_pad1.sdf",
+            "file": "Water/OSU_Water_x83.558_y2_z3.658_shifted_dx0.1_pad1.sdf",
             "constitutive": "jfluid",
 	    "ppc": 4,
 	    "volume": 0.00000271444082519,
 	    "rho": 1e3,
-	    "bulk_modulus": 5e5,
+	    "bulk_modulus": 5e4,
 	    "gamma": 6.1,
 	    "viscosity": 0.001,
             "offset": [
-                0.015625,
+                0.016625,
                 0.015625,
                 0.015625
             ],
             "span": [
-                0.375,
-                0.03125,
-                0.03125
+                0.63239,
+                0.01564,
+                0.028576
             ],
             "velocity": [
                 0.0,
@@ -35,22 +35,47 @@
         },
         {
             "type": "particle",
-            "file": "Flume/Cylinder_dx0.05_pad1.sdf",
+            "file": "Flume/OSU_Ramp_x43.896_y3.658_z3.658_shifted_dx0.1_pad1.sdf",
             "constitutive": "rigid",
 	    "ppc": 2,
+	    "volume": 0.00000271444082519,
+	    "rho": 2e3,
+	    "youngs_modulus": 1e5,
+	    "poisson_ratio": 0.4,
+            "offset": [
+                0.366,
+                0.015625,
+                0.015625
+            ],
+            "span": [
+                0.33222,
+                0.028576,
+                0.028576
+            ],
+            "velocity": [
+                0.0,
+                0.0,
+                0
+            ]
+        },
+        {
+            "type": "particle",
+            "file": "Flume/OSU_Piston_x0.5_y3.658_z3.658_dx0.1_pad1.sdf",
+            "constitutive": "piston",
+	    "ppc": 8,
 	    "volume": 0.00000271444082519,
 	    "rho": 1e3,
 	    "youngs_modulus": 1e5,
 	    "poisson_ratio": 0.4,
             "offset": [
-                0.4,
-                0.015625,
-                0.015625
+                0.010,
+                0.014625,
+                0.014625
             ],
             "span": [
-                0.015625,
-                0.015625,
-                0.015625
+                0.008,
+                0.028576,
+                0.028576
             ],
             "velocity": [
                 0.0,
