@@ -1,4 +1,5 @@
 #include "gmpm_simulator.cuh"
+#include "settings.h"
 #include <MnBase/Geometry/GeometrySampler.h>
 #include <MnBase/Math/Vec.h>
 #include <MnSystem/Cuda/Cuda.h>
@@ -101,24 +102,29 @@ void parse_scene(std::string fn,
             fs::path p{model["file"].GetString()};
 
             auto initModel = [&](auto &positions, auto &velocity) {
+              float length = mn::config::g_length;
+              float dx_inv = mn::config::g_dx_inv;
+              float scaled_volume = (length * length * length) / 
+                      (dx_inv * dx_inv * dx_inv) /
+                      model["ppc"].GetFloat();
               if (constitutive == "fixed_corotated") {
                 benchmark->initModel<mn::material_e::FixedCorotated>(positions,
                                                                      velocity);
                 benchmark->updateFRParameters(
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               } else if (constitutive == "jfluid") {
                 benchmark->initModel<mn::material_e::JFluid>(positions,
                                                              velocity);
                 benchmark->updateJFluidParameters(
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), scaled_volume,
                     model["bulk_modulus"].GetFloat(), model["gamma"].GetFloat(),
                     model["viscosity"].GetFloat());
               } else if (constitutive == "nacc") {
                 benchmark->initModel<mn::material_e::NACC>(positions, velocity);
                 benchmark->updateNACCParameters(
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat(), model["beta"].GetFloat(),
                     model["xi"].GetFloat());
@@ -128,7 +134,7 @@ void parse_scene(std::string fn,
                 benchmark->initModel<mn::material_e::Rigid>(positions,
                                                                      velocity);
                 benchmark->updateRigidParameters(
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               }

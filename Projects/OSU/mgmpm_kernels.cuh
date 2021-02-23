@@ -325,15 +325,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                   ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
                    (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
   
-  int flumez = g_grid_size_z >> 1;
-  int flumex = flumez << 1;
-  int flumey = flumex;
-
-  int isInFlume =  ((blockid[0] < bc || blockid[0] >= flumex) << 2) |
-                   ((blockid[1] < bc || blockid[1] >= flumey) << 1) |
-                    (blockid[2] < bc || blockid[2] >= flumez);
+  // int flumex = g_grid_size_x;
+  // int flumey = g_grid_size_y >> 4;
+  // int flumez = g_grid_size_z >> 4;
+  // int isInFlume =  ((blockid[0] < bc || blockid[0] >= flumex) << 2) |
+  //                  ((blockid[1] < bc || blockid[1] >= flumey) << 1) |
+  //                   (blockid[2] < bc || blockid[2] >= flumez);
   
-  isInBound |= isInFlume;
+  // isInBound |= isInFlume;
 
   // One element in shared vel.^2 per warp
   if (threadIdx.x < numWarps)
@@ -2003,6 +2002,8 @@ __global__ void g2p2g(float dt, float newDt,
     }
     vec3 vel;
     vel.set(0.f);
+    vec3 accel;
+    accel.set(0.f);
     vec9 C;
     C.set(0.f);
 #pragma unroll 3
@@ -2030,7 +2031,9 @@ __global__ void g2p2g(float dt, float newDt,
           C[7] += W * vi[1] * xixp[2];
           C[8] += W * vi[2] * xixp[2];
         }
-    vel[0] = -0.125;
+    
+    accel[0] = 0.1;
+    vel += accel * dt;
     pos += vel * dt;
 
 #pragma unroll 9

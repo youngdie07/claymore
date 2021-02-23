@@ -6,6 +6,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <math.h>
 
 namespace mn {
 
@@ -162,9 +163,21 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
   maxs = maxns.cast<float>() * levelsetDx;
 
   // Adjust *.sdf extents to simulation domainsize, select smallest ratio
-  scales = maxns.cast<float>() / domainsize;
+  //scales = maxns.cast<float>() / domainsize;
+  //mn::vec<float,3> lengths_vol = lengths.cast<float> * lengths.cast<float> * lengths.cast<float>;
+  //vec<float,3> maxns_vol = maxns.cast<float> * maxns.cast<float> * maxns.cast<float>;
+  //float domainsize_vol = domainsize * domainsize * domainsize;
+
+  //scales = pow(lengths.cast<float>(),3) / pow(maxns.cast<float>(),3) / pow(domainsize,3);
+  //scales = lengths_vol / maxns_vol / domainsize_vol;
+  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0], 3.f);
+  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1], 3.f);
+  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2], 3.f);
+
   float scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
+  printf("scale %f %f %f %f %f %f %f %f\n", scale, lengths[0],lengths[1],lengths[2],(float)maxns[0],(float)maxns[1],(float)maxns[2], (float)domainsize);
+
   float samplePerLevelsetCell = ppc * scale;
 
   // Output uniformly sampled sdf into samples

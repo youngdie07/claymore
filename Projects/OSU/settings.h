@@ -37,7 +37,7 @@ constexpr float g_model_ppc = MODEL_PPC; //< Model particles-per-cell
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 7
+#define DOMAIN_BITS 9
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -71,15 +71,15 @@ constexpr float g_atm = 101.325e3;  //< Atm. Pressure (Pa)
 
 // Domain size (meters)
 #define DOMAIN_VOLUME 0.4f
-constexpr float g_length   = 4.0f; //< Domain length(m)
-constexpr float g_length_x = 4.0f; //< Domain x length (m)
-constexpr float g_length_y = 4.0f;  //< Domain y length (m)
-constexpr float g_length_z = 2.0f;  //< Domain z length (m)
+constexpr float g_length   = 128.0f; //< Domain length(m)
+constexpr float g_length_x = 128.0f; //< Domain x length (m)
+constexpr float g_length_y = 8.0f;  //< Domain y length (m)
+constexpr float g_length_z = 8.0f;  //< Domain z length (m)
 
 // Domain ratio ( )
 constexpr float g_grid_ratio_x = 1.f;     //< Domain x ratio
-constexpr float g_grid_ratio_y = 1.f;     //< Domain y ratio
-constexpr float g_grid_ratio_z = 1.f/2.f; //< Domain z ratio
+constexpr float g_grid_ratio_y = 1.f/16.f;     //< Domain y ratio
+constexpr float g_grid_ratio_z = 1.f/16.f; //< Domain z ratio
 
 // Domain grid blocks (#)
 constexpr int g_grid_size_x = g_grid_size * g_grid_ratio_x; //< Domain x grid-blocks
