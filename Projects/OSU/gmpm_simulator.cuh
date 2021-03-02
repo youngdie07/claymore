@@ -211,6 +211,19 @@ struct GmpmSimulator {
           pb.updateParameters(rho, vol, ym, pr);
         });
   }
+  void updateIFluidParameters(float rho, float vol,
+                              float visco) {
+    match(particleBins[0].back())([&](auto &pb) {},
+                                  [&](ParticleBuffer<material_e::IFluid> &pb) {
+                                    pb.updateParameters(rho, vol,
+                                                        visco);
+                                  });
+    match(particleBins[1].back())([&](auto &pb) {},
+                                  [&](ParticleBuffer<material_e::IFluid> &pb) {
+                                    pb.updateParameters(rho, vol,
+                                                        visco);
+                                  });
+  }
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
                 CudaContext &cuDev) {

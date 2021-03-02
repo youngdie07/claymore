@@ -38,8 +38,9 @@ template <>
 struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin13_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin13_ {};
-template <> struct particle_bin_<material_e::Rigid> : particle_bin12_ {};
+template <> struct particle_bin_<material_e::Rigid> : particle_bin4_ {};
 template <> struct particle_bin_<material_e::Piston> : particle_bin12_ {};
+template <> struct particle_bin_<material_e::IFluid> : particle_bin4_ {};
 
 template <typename ParticleBin>
 using particle_buffer_ =
@@ -321,6 +322,27 @@ struct ParticleBuffer<material_e::Piston>
       : base_t{allocator, count} {}
 };
 
+template <material_e mt> struct ParticleBuffer;
+template <>
+struct ParticleBuffer<material_e::IFluid>
+    : ParticleBufferImpl<material_e::IFluid> {
+  using base_t = ParticleBufferImpl<material_e::IFluid>;
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
+  float visco = 0.01f;
+  void updateParameters(float density, float vol, float v) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    visco = v;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
+};
+
 /// conversion
 /// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
 using particle_buffer_t =
@@ -329,7 +351,8 @@ using particle_buffer_t =
             ParticleBuffer<material_e::Sand>, 
             ParticleBuffer<material_e::NACC>, 
             ParticleBuffer<material_e::Rigid>,
-            ParticleBuffer<material_e::Piston>>;
+            ParticleBuffer<material_e::Piston>,
+            ParticleBuffer<material_e::IFluid>>;
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;
