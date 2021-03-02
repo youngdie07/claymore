@@ -100,10 +100,12 @@ void parse_scene(std::string fn,
                        "model constitutive[{}], file[{}]\n", constitutive,
                        model["file"].GetString());
             fs::path p{model["file"].GetString()};
-
+            float length  = mn::config::g_length;
+            float dx_inv  = mn::config::g_dx_inv;
+            float dx      = mn::config::g_dx;
+            int bc        = mn::config::g_bc;
+            int blockbits = mn::config::g_blockbits;
             auto initModel = [&](auto &positions, auto &velocity) {
-              float length = mn::config::g_length;
-              float dx_inv = mn::config::g_dx_inv;
               float scaled_volume = (length * length * length) / 
                       (dx_inv * dx_inv * dx_inv) /
                       model["ppc"].GetFloat();
@@ -153,10 +155,19 @@ void parse_scene(std::string fn,
               }
             };
             mn::vec<float, 3> offset, span, velocity;
-            for (int d = 0; d < 3; ++d)
-              offset[d] = model["offset"].GetArray()[d].GetFloat(),
-              span[d] = model["span"].GetArray()[d].GetFloat(),
+            for (int d = 0; d < 3; ++d) {
+              // Pull initial position and velocity arrays from JSON (m)
+              offset[d]   = model["offset"].GetArray()[d].GetFloat();
+              span[d]     = model["span"].GetArray()[d].GetFloat();
               velocity[d] = model["velocity"].GetArray()[d].GetFloat();
+
+              // Scale to domain ([1m])
+              offset[d]   = (offset[d]  / length) + 
+                            dx * ((float)(bc * (1 << blockbits)));
+              span[d]     = span[d]     / length;
+              velocity[d] = velocity[d] / length;
+            }
+            
             if (p.extension() == ".sdf") {
               auto positions = mn::read_sdf(
                   model["file"].GetString(), model["ppc"].GetFloat(),

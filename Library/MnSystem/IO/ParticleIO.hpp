@@ -170,9 +170,9 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   //scales = pow(lengths.cast<float>(),3) / pow(maxns.cast<float>(),3) / pow(domainsize,3);
   //scales = lengths_vol / maxns_vol / domainsize_vol;
-  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0], 3.f);
-  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1], 3.f);
-  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2], 3.f);
+  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0] - 1.f, 3.f);
+  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1] - 1.f, 3.f);
+  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2] - 1.f, 3.f);
 
   float scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
@@ -185,9 +185,17 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   // Adjust lengths to extents of the *.sdf, select smallest ratio
   //scales = lengths / (maxs - mins) / maxns.cast<float>();
-  scales = lengths /  maxns.cast<float>();
+  //scales = lengths /  maxns.cast<float>();
+  scales[0] = lengths[0] / ((float)maxns[0] - 1.f);
+  scales[1] = lengths[1] / ((float)maxns[1] - 1.f);
+  scales[2] = lengths[2] / ((float)maxns[2] - 1.f);
   scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
+
+  offset[0] -= lengths[0] / (float)maxns[0];
+  offset[1] -= lengths[1] / (float)maxns[1];
+  offset[2] -= lengths[2] / (float)maxns[2];
+
 
   // Loop through samples
   for (int i = 0, size = samples.size() / 3; i < size; i++) {
@@ -196,6 +204,7 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
     
     // Scale positions, add-in offset from JSON
     p = (p - mins) * scale + offset;
+;
 
     // Add (x,y,z) to data
     data.push_back(std::array<float, 3>{p[0], p[1], p[2]});

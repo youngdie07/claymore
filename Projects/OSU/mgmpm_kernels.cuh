@@ -364,15 +364,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
                   ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
                    (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
-  
-  int flumex = g_grid_size_x;
-  int flumey = 12;
-  int flumez = 12;
-  int isInFlume =  ((blockid[0] < bc || blockid[0] >= flumex) << 2) |
-                   ((blockid[1] < bc || blockid[1] >= flumey) << 1) |
-                    (blockid[2] < bc || blockid[2] >= flumez);
-  
-  isInBound |= isInFlume;
 
   // One element in shared vel.^2 per warp
   if (threadIdx.x < numWarps)
@@ -400,33 +391,23 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       float zc = (4*blockid[2]*g_dx) + (k*g_dx);
 
 #endif
+        // Offset condition for Off-by-2
+        // Note that for some grid dimension you
+        // should subtract 16 nodes from total
+        // (or 4 grid blocks) to have available
+        float offset = (8.f*g_dx);
 
-        // Boundary surface normal
-        vec3 ns;
-        ns[0] = -1.f;
-        ns[1] = 12.f;
-        ns[2] = 0.f;
-        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns[0] = ns[0] / ns_mag;
-        ns[1] = ns[1] / ns_mag;
-        ns[2] = ns[2] / ns_mag;
-
-        // y = 1/12(x - xo) + yo
-        float xs = xc;
-        float ys = 1.f/12.f * (xc - 0.4);
-
-        // Boundary thickness, distance, decay
-        float h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-        float yd = (1.f - r/h) * (1.f - r/h);
-        float ySF;
-        if (yc > ys + h) {
-          ySF = 0.f;
-        } else if (yc < ys){
-          ySF = 1.f;
-        } else {
-          ySF = yd;
-        }
+        // OSU Large Wave Flume Boundary (Slip)
+        // Acts on individual grid nodes
+        // https://wave.oregonstate.edu/large-wave-flume
+        float flumex = 104 / g_length;
+        float flumey = 4.6 / g_length;
+        float flumez = 3.7 / g_length;
+        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
+                         ((yc < offset || yc >= flumey + offset) << 1) |
+                          (zc < offset || zc >= flumez + offset);
+        // Updates with regular boundary for efficiency
+        isInBound |= isInFlume;
 
         // Retrieve grid momentums (kg*m/s2)
         vel[0] = grid_block.val_1d(_1, cidib); //< mvx
@@ -442,17 +423,48 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         }
         
-        // fbc = -fint - fext - (1/dt)*p
-        // a = (1 / mass) * (fint + fext + ySf*fbc) 
-        vel[0] = vel[0] - ySF * vel[0];
-        vel[1] = vel[1] - ySF * vel[1];
-        vel[2] = vel[2] - ySF * vel[2];
-
         ///< Sticky contact
         if (0){
           if (isInBound) ///< sticky
             vel.set(0.f);
         }
+
+        
+        // Ramp boundary surface normal
+        vec3 ns;
+        ns[0] = -1.f;
+        ns[1] = 12.f;
+        ns[2] = 0.f;
+        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+        ns[0] = ns[0] / ns_mag;
+        ns[1] = ns[1] / ns_mag;
+        ns[2] = ns[2] / ns_mag;
+
+        // y = 1/12(x - xo) + yo
+        float xo = (39.663 / g_length) + offset;
+        float yo = offset;
+        float xs = xc;
+        float ys = 1.f/12.f * (xc - xo) + yo;
+
+        // Boundary thickness and cell distance
+        float h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+        float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+        // Decay coefficient
+        float ySF;
+        if (yc > ys + h) {
+          ySF = 0.f;
+        } else if (yc < ys){
+          ySF = 1.f;
+        } else {
+          ySF = (1.f - r/h) * (1.f - r/h);
+        }
+
+        // fbc = -fint - fext - (1/dt)*p
+        // a = (1 / mass) * (fint + fext + ySf*fbc) 
+        vel[0] = vel[0] - ySF * vel[0];
+        vel[1] = vel[1] - ySF * vel[1];
+        vel[2] = vel[2] - ySF * vel[2];
         
         // Set grid buffer momentum to velocity (m/s) for G2P transfer
         grid_block.val_1d(_1, cidib) = vel[0]; //< vx
