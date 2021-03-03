@@ -37,7 +37,7 @@ constexpr float g_model_ppc = MODEL_PPC; //< Model particles-per-cell
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 10
+#define DOMAIN_BITS 11
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -51,7 +51,7 @@ constexpr int g_blockmask = ((1 << BLOCK_BITS) - 1);
 constexpr int g_blockvolume = (1 << (BLOCK_BITS * 3));
 constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
-constexpr int g_num_nodes = g_domain_size * g_domain_size * g_domain_size;
+//constexpr int g_num_nodes = g_domain_size * g_domain_size * g_domain_size;
 
 // particle
 #define MAX_PPC 128
@@ -88,7 +88,7 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 
 /// only used on host
 constexpr int g_max_particle_num = 1000000;
-constexpr int g_max_active_block = 10000; /// 62500 bytes for active mask
+constexpr int g_max_active_block = 17000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);

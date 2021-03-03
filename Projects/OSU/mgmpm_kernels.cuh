@@ -2452,7 +2452,7 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
                                     F, contrib);
       // Mass-flow rate (kg / s)
       // mp * Cp^n+1 = (Bp^n * mp - Tp * dt) * Dp^n+1
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass) * g_D_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
