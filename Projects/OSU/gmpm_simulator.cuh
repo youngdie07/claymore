@@ -43,6 +43,7 @@ struct GmpmSimulator {
     }
     cuDev.syncStream<streamIdx::Compute>();
     curNumActiveBlocks = config::g_max_active_block;
+    curNumActiveBlocks_arr = config::g_max_active_block_arr;
   }
   GmpmSimulator(int gpu = 0, float dt = 1e-4, int fp = 24, int frames = 60)
       : gpuid{gpu}, dtDefault{dt}, curTime{0.f}, rollid{0},
@@ -94,16 +95,16 @@ struct GmpmSimulator {
   /// Output initial positions as *.bgeo file
   template <material_e m>
   void initModel(const std::vector<std::array<float, 3>> &model,
-                 const mn::vec<float, 3> &v0) {
+                 const mn::vec<float, 3> &v0, int modelID) {
     auto &cuDev = Cuda::ref_cuda_context(gpuid);
     /// Establish double-buffered particle structures (device)
     /// Set proper material 
     for (int copyid = 0; copyid < 2; ++copyid) {
       particleBins[copyid].emplace_back(ParticleBuffer<m>(
           device_allocator{},
-          model.size() / config::g_bin_capacity + config::g_max_active_block));
+          model.size() / config::g_bin_capacity + config::g_max_active_block_arr[modelID]));
       match(particleBins[copyid].back())([&](auto &pb) {
-        pb.reserveBuckets(device_allocator{}, config::g_max_active_block);
+        pb.reserveBuckets(device_allocator{}, config::g_max_active_block_arr[modelID]);
       });
     }
     /// Set initial velocity vector (host) (host --> host)
@@ -253,15 +254,22 @@ struct GmpmSimulator {
       curNumActiveBlocks = curNumActiveBlocks * 3 / 2;
       checkedCnts[0] = 2;
       fmt::print(fmt::emphasis::bold, "resizing blocks {} -> {}\n", ebcnt,
-                 curNumActiveBlocks);
+                curNumActiveBlocks);
     }
-    for (int i = 0; i < getModelCnt(); ++i)
+    for (int i = 0; i < getModelCnt(); ++i) {
+      // if (ebcnt_arr[i] > curNumActiveBlocks_arr[i] * 3 / 4) {
+      //   curNumActiveBlocks_arr[i] = curNumActiveBlocks_arr[i] * 3 / 2;
+      //   checkedCnts[0] = 2;
+      //   fmt::print(fmt::emphasis::bold, "resizing model blocks {} -> {}\n", ebcnt_arr[i],
+      //             curNumActiveBlocks_arr[i]);
+      // }
       if (bincnt[i] > curNumActiveBins[i] * 3 / 4 && checkedBinCnts[i] == 0) {
         curNumActiveBins[i] = curNumActiveBins[i] * 3 / 2;
         checkedBinCnts[i] = 2;
         fmt::print(fmt::emphasis::bold, "resizing bins {} -> {}\n", bincnt[i],
                    curNumActiveBins[i]);
       }
+    }
   }
   void main_loop() {
     /// initial
@@ -320,24 +328,29 @@ struct GmpmSimulator {
           CudaTimer timer{cuDev.stream_compute()};
 
           /// check capacity
-          for (int i = 0; i < getModelCnt(); ++i)
+          for (int i = 0; i < getModelCnt(); ++i){
+            fmt::print(fmt::emphasis::bold, "Model {}, NumActive Bins {}.\n", i, curNumActiveBins[i]);
             if (checkedBinCnts[i] > 0) {
               match(particleBins[rollid ^ 1][i])([&](auto &pb) {
                 pb.resize(device_allocator{}, curNumActiveBins[i]);
               });
               checkedBinCnts[i]--;
             }
+          }
+          //fmt::print("Checked particle bin capacities.\n");
 
           timer.tick();
           // grid
           gridBlocks[1].reset(nbcnt, cuDev);
           // adv map
           for (int i = 0; i < getModelCnt(); ++i) {
+            //fmt::print(fmt::emphasis::bold, "Model {}, ebcnt_arr {}, curNumActiveBins {}.\n", i, ebcnt, curNumActiveBins[i]);
             match(particleBins[rollid ^ 1][i])([&](auto &pb) {
               checkCudaErrors(cudaMemsetAsync(
                   pb._ppcs, 0, sizeof(int) * ebcnt * g_blockvolume,
                   cuDev.stream_compute()));
             });
+            //fmt::print(fmt::emphasis::bold, "Starting g2p2g.\n");
             // g2p2g
             match(particleBins[rollid][i])([&](const auto &pb) {
               cuDev.compute_launch({pbcnt, 128, (512 * 3 * 4) + (512 * 4 * 4)},
@@ -347,8 +360,11 @@ struct GmpmSimulator {
                                    partitions[rollid ^ 1], partitions[rollid],
                                    gridBlocks[0], gridBlocks[1]);
             });
+            //fmt::print(fmt::emphasis::bold, "Finished g2p2g.\n");
           }
           cuDev.syncStream<streamIdx::Compute>();
+          
+          //fmt::print(fmt::emphasis::bold, "Synch g2p2g.\n");
           timer.tock(fmt::format("GPU[{}] frame {} step {} g2p2g", gpuid,
                                  curFrame, curStep));
           if (checkedCnts[0] > 0) {
@@ -406,6 +422,17 @@ struct GmpmSimulator {
           checkCudaErrors(cudaMemcpyAsync(&pbcnt, destinations + ebcnt,
                                           sizeof(int), cudaMemcpyDefault,
                                           cuDev.stream_compute()));
+          // (JB)
+          // for (int i = 0; i < getModelCnt(); ++i) {
+          //   checkCudaErrors(cudaMemcpyAsync(&pbcnt_arr[i], destinations + ebcnt_arr[i],
+          //                                   sizeof(int), cudaMemcpyDefault,
+          //                                   cuDev.stream_compute()));
+          // }
+          // pbcnt_arr[0] = pbcnt; 
+          // pbcnt_arr[1] = pbcnt / 2; 
+          // pbcnt_arr[2] = pbcnt / 6; 
+          // pbcnt_arr[3] = pbcnt / 12; 
+
           cuDev.compute_launch({(ebcnt + 255) / 256, 256},
                                exclusive_scan_inverse, ebcnt,
                                (const int *)destinations, sources);
@@ -489,11 +516,21 @@ struct GmpmSimulator {
                                           sizeof(int), cudaMemcpyDefault,
                                           cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
+          
+          // Probably ordering issue with model+grid operation
+          // ~Half (varies) of model[1]'s particles disappear in a frame
+          // ebcnt_arr[0] = ebcnt; 
+          // ebcnt_arr[1] = ebcnt / 2; 
+          // ebcnt_arr[2] = ebcnt / 6; 
+          // ebcnt_arr[3] = ebcnt / 12; 
 
-          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
-                     "block count on device {}: {}, {}, {} [{}]\n", gpuid,
-                     pbcnt, nbcnt, ebcnt, curNumActiveBlocks);
+
           for (int i = 0; i < getModelCnt(); ++i) {
+
+            fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
+                     "block count on device {}: model {}: {}, {}, {} [{}]\n", gpuid, i,
+                     pbcnt, nbcnt, ebcnt, curNumActiveBlocks);
+
             fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
                        "bin count on device {}: model {}: {} [{}]\n", gpuid, i,
                        bincnt[i], curNumActiveBins[i]);
@@ -641,6 +678,11 @@ struct GmpmSimulator {
                                       cuDev.stream_compute()));
       timer.tock(fmt::format("GPU[{}] step {} init_table", gpuid, curStep));
 
+      // pbcnt_arr[0] = pbcnt; 
+      // pbcnt_arr[1] = pbcnt / 2; 
+      // pbcnt_arr[2] = pbcnt / 6; 
+      // pbcnt_arr[3] = pbcnt / 12; 
+
       timer.tick();
       cuDev.resetMem();
       // particle block
@@ -690,6 +732,12 @@ struct GmpmSimulator {
                                       sizeof(int), cudaMemcpyDefault,
                                       cuDev.stream_compute()));
       cuDev.syncStream<streamIdx::Compute>();
+
+      // ebcnt_arr[0] = ebcnt; 
+      // ebcnt_arr[1] = ebcnt / 2; 
+      // ebcnt_arr[2] = ebcnt / 6; 
+      // ebcnt_arr[3] = ebcnt / 12; 
+
       timer.tock(fmt::format("GPU[{}] step {} init_partition", gpuid, curStep));
 
       fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
@@ -784,11 +832,15 @@ struct GmpmSimulator {
                 "block index type is not int");
   char rollid; ///< ID to switch between n and n+1
   std::size_t curNumActiveBlocks;            ///< num active grid-blocks
+  std::array<std::size_t, 5> curNumActiveBlocks_arr;            ///< num active grid-blocks
   std::vector<std::size_t> curNumActiveBins; ///< num active particle? bins
   std::array<std::size_t, 2> checkedCnts;
   std::vector<std::size_t> checkedBinCnts;
   float maxVels;
   int pbcnt, nbcnt, ebcnt;        ///< Number of particle, neighbor, and exterior blocks
+  std::array<int, 5> pbcnt_arr;
+  std::array<int, 5> nbcnt_arr;
+  std::array<int, 5> ebcnt_arr;
   std::vector<int> bincnt;        ///< Number of particle bins
   std::vector<uint32_t> pcnt;     ///< Number of particles
   std::vector<uint32_t> node_cnt; ///< Number of grid nodes (JB)

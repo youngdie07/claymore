@@ -402,7 +402,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // https://wave.oregonstate.edu/large-wave-flume
         float flumex = 104 / g_length;
         float flumey = 4.6 / g_length;
-        float flumez = 3.7 / g_length;
+        float flumez = 3.67 / g_length;
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
@@ -432,8 +432,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         
         // Ramp boundary surface normal
         vec3 ns;
-        ns[0] = -1.f;
-        ns[1] = 12.f;
+        ns[0] = -1.f/12.f;
+        ns[1] = 1.f;
         ns[2] = 0.f;
         float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
         ns[0] = ns[0] / ns_mag;
@@ -452,20 +452,46 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Decay coefficient
         float ySF;
-        if (yc > ys + h) {
+        // if (yc > ys + h) {
+        //   ySF = 0.f;
+        // } else if (yc < ys){
+        //   ySF = 1.f;
+        // } else {
+        //   ySF = (1.f - r/h) * (1.f - r/h);
+        // }
+        if (yc > ys) {
           ySF = 0.f;
-        } else if (yc < ys){
+        } else if (yc <= ys){
           ySF = 1.f;
-        } else {
-          ySF = (1.f - r/h) * (1.f - r/h);
         }
-
         // fbc = -fint - fext - (1/dt)*p
         // a = (1 / mass) * (fint + fext + ySf*fbc) 
-        vel[0] = vel[0] - ySF * vel[0];
-        vel[1] = vel[1] - ySF * vel[1];
-        vel[2] = vel[2] - ySF * vel[2];
+
+        // Velocity normal and perp. to surface
+        // v|| = -n x (n x v)
+        // vT = (v . n)n
+        // v = v|| + vT
+        // v|| = v - vT = v - (v . n)n
+        if (0) {
+          if (ySF == 1.f) {
+            vel[0] = 0.f;
+            vel[1] = 0.f;
+            vel[2] = 0.f;
+          } else if (ySF > 0.f && ySF < 1.f) {
+            float vdotns;
+            vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
+            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
+            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
+          }
+        }
         
+        if (1) {
+          vel[0] = vel[0] - ySF * (vel[0]);
+          vel[1] = vel[1] - ySF * (vel[1]);
+          vel[2] = vel[2] - ySF * (vel[2]);
+        }
+
         // Set grid buffer momentum to velocity (m/s) for G2P transfer
         grid_block.val_1d(_1, cidib) = vel[0]; //< vx
         velSqr += vel[0] * vel[0];
@@ -2340,15 +2366,12 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
           pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     vec3 pos;
-    vec3 static_pos;
+    float length = mn::config::g_length;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);
-      static_pos[0] = pos[0];
-      static_pos[1] = pos[1];
-      static_pos[2] = pos[2];
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -2369,8 +2392,8 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
     }
     vec3 vel;
     vel.set(0.f);
-    vec3 accel;
-    accel.set(0.f);
+    // vec3 accel;
+    // accel.set(0.f);
     vec9 C;
     C.set(0.f);
 #pragma unroll 3
@@ -2400,11 +2423,11 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
         }
     
     //accel[0] = 0.1;
-    if (curTime < 1.f || curTime > 2.f){
+    if (curTime < 3.f || curTime > 5.f){
       vel[0] = 0.f;
     }
     else {
-      vel[0] = 1.f/32.f;
+      vel[0] = 4.f * (1.f/length);
     }
     pos += vel * dt;
 
@@ -2416,40 +2439,40 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
 
     vec9 contrib;
     {
-      vec9 F; //< Deformation Gradient, Fp^n+1
+      // vec9 F; //< Deformation Gradient, Fp^n+1
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       // Set Deformation Gradient, Fp^n
-      contrib[0] = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
-      contrib[1] = source_particle_bin.val(_4, source_pidib % g_bin_capacity);
-      contrib[2] = source_particle_bin.val(_5, source_pidib % g_bin_capacity);
-      contrib[3] = source_particle_bin.val(_6, source_pidib % g_bin_capacity);
-      contrib[4] = source_particle_bin.val(_7, source_pidib % g_bin_capacity);
-      contrib[5] = source_particle_bin.val(_8, source_pidib % g_bin_capacity);
-      contrib[6] = source_particle_bin.val(_9, source_pidib % g_bin_capacity);
-      contrib[7] = source_particle_bin.val(_10, source_pidib % g_bin_capacity);
-      contrib[8] = source_particle_bin.val(_11, source_pidib % g_bin_capacity);
-      // Set F = Fp^n+1 using dWip^n+1 and Fp^n
-      matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
+      // contrib[0] = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
+      // contrib[1] = source_particle_bin.val(_4, source_pidib % g_bin_capacity);
+      // contrib[2] = source_particle_bin.val(_5, source_pidib % g_bin_capacity);
+      // contrib[3] = source_particle_bin.val(_6, source_pidib % g_bin_capacity);
+      // contrib[4] = source_particle_bin.val(_7, source_pidib % g_bin_capacity);
+      // contrib[5] = source_particle_bin.val(_8, source_pidib % g_bin_capacity);
+      // contrib[6] = source_particle_bin.val(_9, source_pidib % g_bin_capacity);
+      // contrib[7] = source_particle_bin.val(_10, source_pidib % g_bin_capacity);
+      // contrib[8] = source_particle_bin.val(_11, source_pidib % g_bin_capacity);
+      // // Set F = Fp^n+1 using dWip^n+1 and Fp^n
+      // matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
       {
         auto particle_bin = next_pbuffer.ch(
             _0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0,  pidib % g_bin_capacity) = pos[0]; //< x (m)
         particle_bin.val(_1,  pidib % g_bin_capacity) = pos[1]; //< y (m)
         particle_bin.val(_2,  pidib % g_bin_capacity) = pos[2]; //< z (m)
-        particle_bin.val(_3,  pidib % g_bin_capacity) = F[0];
-        particle_bin.val(_4,  pidib % g_bin_capacity) = F[1];
-        particle_bin.val(_5,  pidib % g_bin_capacity) = F[2];
-        particle_bin.val(_6,  pidib % g_bin_capacity) = F[3];
-        particle_bin.val(_7,  pidib % g_bin_capacity) = F[4];
-        particle_bin.val(_8,  pidib % g_bin_capacity) = F[5];
-        particle_bin.val(_9,  pidib % g_bin_capacity) = F[6];
-        particle_bin.val(_10, pidib % g_bin_capacity) = F[7];
-        particle_bin.val(_11, pidib % g_bin_capacity) = F[8];
+      //   particle_bin.val(_3,  pidib % g_bin_capacity) = F[0];
+      //   particle_bin.val(_4,  pidib % g_bin_capacity) = F[1];
+      //   particle_bin.val(_5,  pidib % g_bin_capacity) = F[2];
+      //   particle_bin.val(_6,  pidib % g_bin_capacity) = F[3];
+      //   particle_bin.val(_7,  pidib % g_bin_capacity) = F[4];
+      //   particle_bin.val(_8,  pidib % g_bin_capacity) = F[5];
+      //   particle_bin.val(_9,  pidib % g_bin_capacity) = F[6];
+      //   particle_bin.val(_10, pidib % g_bin_capacity) = F[7];
+      //   particle_bin.val(_11, pidib % g_bin_capacity) = F[8];
       }
       // Torque matrix (N * m)
       // Tp = Stress * Volume
-      compute_stress_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
-                                    F, contrib);
+      // compute_stress_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
+      //                               F, contrib);
       // Mass-flow rate (kg / s)
       // mp * Cp^n+1 = (Bp^n * mp - Tp * dt) * Dp^n+1
       contrib = (C * pbuffer.mass) * g_D_inv;
@@ -3736,7 +3759,7 @@ retrieve_particle_buffer_attributes(Partition partition, Partition prev_partitio
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block;
-  auto atm = g_atm; //< Atmospheric pressure (Pa)
+  //auto atm = g_atm; //< Atmospheric pressure (Pa)
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
     ivec3 source_blockid;

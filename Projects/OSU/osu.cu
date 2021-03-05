@@ -90,6 +90,7 @@ void parse_scene(std::string fn,
       }
     } ///< end simulation parsing
     {
+      int ID = 0;
       auto it = doc.FindMember("models");
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
@@ -105,50 +106,50 @@ void parse_scene(std::string fn,
             float dx      = mn::config::g_dx;
             int bc        = mn::config::g_bc;
             int blockbits = mn::config::g_blockbits;
-            auto initModel = [&](auto &positions, auto &velocity) {
+            auto initModel = [&](auto &positions, auto &velocity, int mID) {
               float scaled_volume = (length * length * length) / 
                       (dx_inv * dx_inv * dx_inv) /
                       model["ppc"].GetFloat();
               if (constitutive == "fixed_corotated") {
                 benchmark->initModel<mn::material_e::FixedCorotated>(positions,
-                                                                     velocity);
+                                                                     velocity, mID);
                 benchmark->updateFRParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               } else if (constitutive == "jfluid") {
                 benchmark->initModel<mn::material_e::JFluid>(positions,
-                                                             velocity);
+                                                             velocity, mID);
                 benchmark->updateJFluidParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["bulk_modulus"].GetFloat(), model["gamma"].GetFloat(),
                     model["viscosity"].GetFloat());
               } else if (constitutive == "nacc") {
-                benchmark->initModel<mn::material_e::NACC>(positions, velocity);
+                benchmark->initModel<mn::material_e::NACC>(positions, velocity, mID);
                 benchmark->updateNACCParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat(), model["beta"].GetFloat(),
                     model["xi"].GetFloat());
               } else if (constitutive == "sand") {
-                benchmark->initModel<mn::material_e::Sand>(positions, velocity);
+                benchmark->initModel<mn::material_e::Sand>(positions, velocity, mID);
               } else if (constitutive == "rigid") {
                 benchmark->initModel<mn::material_e::Rigid>(positions,
-                                                                     velocity);
+                                                                     velocity, mID);
                 benchmark->updateRigidParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               } else if (constitutive == "piston") {
                 benchmark->initModel<mn::material_e::Piston>(positions,
-                                                                     velocity);
+                                                                     velocity, mID);
                 benchmark->updatePistonParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               } else if (constitutive == "ifluid") {
                 benchmark->initModel<mn::material_e::IFluid>(positions,
-                                                             velocity);
+                                                             velocity, mID);
                 benchmark->updateIFluidParameters(
                     model["rho"].GetFloat(), scaled_volume,
                     model["viscosity"].GetFloat());
@@ -177,8 +178,10 @@ void parse_scene(std::string fn,
                                            positions);
               });
               mn::IO::flush();
-              initModel(positions, velocity);
+              initModel(positions, velocity, ID);
             }
+
+            ID += 1;
 
             fmt::print("About to set up graph in gmpm.cu\n");
             auto initGrid = [&](auto &graph) {
@@ -240,7 +243,7 @@ int main(int argc, char *argv[]) {
             ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN, 18 + LEN});
       }
       benchmark->initModel<mn::material_e::FixedCorotated>(
-          model, vec<float, 3>{0.f, 0.f, 0.f});
+          model, vec<float, 3>{0.f, 0.f, 0.f}, 0);
     }
     /// Instantiate initial grid array on host (JB)
     std::vector<std::array<float, 7>> graph(mn::config::g_max_active_block, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
