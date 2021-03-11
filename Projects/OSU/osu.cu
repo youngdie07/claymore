@@ -183,6 +183,8 @@ void parse_scene(std::string fn,
 
             ID += 1;
 
+            /// ---------------
+            /// Grid
             fmt::print("About to set up graph in gmpm.cu\n");
             auto initGrid = [&](auto &graph) {
               benchmark->initGrid(graph);
@@ -206,6 +208,32 @@ void parse_scene(std::string fn,
             /// Call initGrid() in gmpm_simulator.cuh (JB)
             initGrid(graph);
             fmt::print("Called initGrid from gmpm_simulator.cuh on graph in gmpm.cu\n");
+
+            /// ------------
+            /// Target
+            fmt::print("About to set up target in gmpm.cu\n");
+            auto initGridTarget = [&](auto &h_gridTarget) {
+              benchmark->initGridTarget(h_gridTarget);
+            };
+
+            /// Instantiate zero'd initial grid target on host (JB)
+            std::vector<std::array<float, 7>> h_gridTarget;
+            for (int i = 0, size = mn::config::g_target_cells; i < size; i++) {
+              h_gridTarget.push_back(std::array<float, 7>{0,0,0,0,0,0,0});
+            }
+            fmt::print("Set up graph in gmpm.cu\n");
+
+            /// Write initial target to Partio (JB)
+            mn::IO::insert_job([&]() {
+              mn::write_partio_grid<float, 7>("gridTarget.bgeo",
+                                          h_gridTarget);
+            });
+            mn::IO::flush();
+            fmt::print("Exported target in gmpm.cu\n");
+            
+            /// Call initGridTarget() in gmpm_simulator.cuh (JB)
+            initGridTarget(h_gridTarget);
+            fmt::print("Called initGridTarget from gmpm_simulator.cuh on target in gmpm.cu\n");
           }
         }
       }
@@ -213,6 +241,7 @@ void parse_scene(std::string fn,
   }
 }
 
+//< Program starts here
 int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
@@ -228,6 +257,8 @@ int main(int argc, char *argv[]) {
 
   std::unique_ptr<mn::GmpmSimulator> benchmark;
   parse_scene(fn, benchmark);
+  
+  // Benchmark to use if the JSON based input isn't working
   if (false) {
     benchmark = std::make_unique<mn::GmpmSimulator>(1, 1e-4, 24, 60);
 
@@ -247,9 +278,11 @@ int main(int argc, char *argv[]) {
     }
     /// Instantiate initial grid array on host (JB)
     std::vector<std::array<float, 7>> graph(mn::config::g_max_active_block, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+    std::vector<std::array<float, 7>> h_gridTarget(mn::config::g_target_cells, std::array<float, 7>{0.f,0.f,0.f,0.f,0.f,0.f,0.f});
 
     /// Launch initGrid in gmpm_simulator.cuh (JB)
     benchmark->initGrid(graph);
+    benchmark->initGridTarget(h_gridTarget);
   }
   //getchar();
 

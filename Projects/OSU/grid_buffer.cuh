@@ -9,30 +9,61 @@
 
 namespace mn {
 
-/// Structure of values held by grid-nodes in a BlockDomain (device)
+// Grid-block data structure (device). 
+// Each channel is a value (mass, momentum/velocity) for a grid-node
 using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_>;
+
+// Grid buffer data structure (device). Each channel (one) contains a grid-block
+// Dense (non-dynamic) structure
 using grid_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridDomain, attrib_layout::aos, grid_block_>;
+
+// Grid buffer data structure (device). Each channel (one) contains a grid-block
+// Dynamic structure
 using grid_buffer_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_>;
 
-/// Structure to hold downsampled grid-block values in GridArrayDomain (device) (JB)
+// Two colocated grid buffers (device). Each channel (two) contains a grid-block
+// Dynamic structure
+using grid_buffer_double_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridBufferDomain, attrib_layout::aos, grid_block_, grid_block_>;
+
+// Three colocated grid buffers (device). Each channel (three) contains a grid-block
+// Dynamic structure
+using grid_buffer_triple_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridBufferDomain, attrib_layout::aos, grid_block_, grid_block_, grid_block_>;
+
+// Structure to hold downsampled grid-block values for ouput (device)
+// Dynamic structure
 using grid_array_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridArrayDomain, attrib_layout::aos, f32_, f32_, f32_, f32_, f32_, f32_, f32_>;
 
+// Structure to hold grid-cell target values for ouput (device)
+// Dynamic structure
+using grid_target_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridTargetDomain, attrib_layout::aos, f32_, f32_, f32_, f32_, f32_, f32_, f32_>;
 
 struct GridBuffer : Instance<grid_buffer_> {
   using base_t = Instance<grid_buffer_>;
@@ -64,6 +95,16 @@ struct GridArray : Instance<grid_array_> {
     return *this;
   }
   GridArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
+};
+
+/// 1D GridTarget structure for device instantiation (JB)
+struct GridTarget : Instance<grid_target_> {
+  using base_t = Instance<grid_target_>;
+  GridTarget &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  GridTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 
 } // namespace mn

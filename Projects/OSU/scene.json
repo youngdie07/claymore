@@ -4,28 +4,28 @@
         "gravity": -9.81,
         "fps": 10,
         "frames": 200,
-        "default_dt": 8e-5
+        "default_dt": 1e-4
     },
     "models": [
         {
             "type": "particle",
-            "file": "Water/OSU_Water_x83.558_y2_z3.658_shifted_dx0.1_pad1.sdf",
+            "file": "Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf",
             "constitutive": "jfluid",
-	    "ppc": 8,
-	    "volume": 0.00000271444082519,
-	    "rho": 1e3,
-	    "bulk_modulus": 4e5,
-	    "gamma": 6.1,
-	    "viscosity": 0.001,
+            "ppc": 1,
+            "volume": 0.00000271444082519,
+            "rho": 1e3,
+            "bulk_modulus": 4e5,
+            "gamma": 6.1,
+            "viscosity": 0.001,
             "offset": [
                 0.6,
                 0.0,
                 0.0
             ],
             "span": [
-                83.558,
-                2.0,
-                3.658
+                82.85,
+                1.7526,
+                3.6576
             ],
             "velocity": [
                 0.0,
@@ -37,95 +37,20 @@
             "type": "particle",
             "file": "Flume/OSU_Piston_x0.5_y3.658_z3.658_dx0.1_pad1.sdf",
             "constitutive": "piston",
-	    "ppc": 2,
-	    "volume": 0.00000271444082519,
-	    "rho": 1e3,
-	    "youngs_modulus": 1e3,
-	    "poisson_ratio": 0.3,
+            "ppc": 2,
+            "volume": 0.00000271444082519,
+            "rho": 1e3,
+            "youngs_modulus": 1e3,
+            "poisson_ratio": 0.3,
             "offset": [
                 0.0,
                 -0.15,
-                0.0
+                -0.15
             ],
             "span": [
                 0.6,
                 4,
                 4
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 500,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                20,
-                2.0,
-                1.5
-            ],
-            "span": [
-                1,
-                1,
-                1
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 500,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                30,
-                2.0,
-                1.5
-            ],
-            "span": [
-                1,
-                1,
-                1
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 500,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                40,
-                2.0,
-                1.5
-            ],
-            "span": [
-                1,
-                1,
-                1
             ],
             "velocity": [
                 0.0,

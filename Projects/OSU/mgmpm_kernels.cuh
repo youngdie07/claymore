@@ -341,7 +341,8 @@ __global__ void array_to_buffer(ParticleArray parray,
   }
 }
 
-
+// Update grid velocities, apply boundary conditions, determine max grid velocity
+// Use this function to interact with the grid
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
@@ -383,14 +384,16 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       if (mass > 0.f) {
         mass = 1.f / mass; //< Invert mass, avoids division operator
 #if 1
+      // Grid node coordinate [i,j,k] in grid-block
       int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
       int j = (cidib >> g_blockbits) & g_blockmask;
       int k = cidib & g_blockmask;
+      // Grid node position [x,y,z] in entire domain
       float xc = (4*blockid[0]*g_dx) + (i*g_dx);
       float yc = (4*blockid[1]*g_dx) + (j*g_dx);
       float zc = (4*blockid[2]*g_dx) + (k*g_dx);
-
 #endif
+
         // Offset condition for Off-by-2
         // Note that for some grid dimension you
         // should subtract 16 nodes from total
@@ -406,52 +409,139 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
-        // Updates with regular boundary for efficiency
-        isInBound |= isInFlume;
+        isInBound |= isInFlume; // Updates with regular boundary for efficiency
+
+
+        // Add grid-cell boundary for structural block, OSU flume
+        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
+        struct_dim[0] = (0.7871f) / g_length;
+        struct_dim[1] = (0.3935f) / g_length;
+        struct_dim[2] = (0.7871f) / g_length;
+        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
+        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
+        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+
+        // 3 digits for grid-cell, e.g. 011 means y and z coll., but not x 
+        // Must be 111 for grid-node to be in structural block
+        int isOutStruct  = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                           ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                            (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+        isInBound |= isOutStruct; // Update with regular boundary for efficiency
+
 
         // Retrieve grid momentums (kg*m/s2)
         vel[0] = grid_block.val_1d(_1, cidib); //< mvx
         vel[1] = grid_block.val_1d(_2, cidib); //< mvy
         vel[2] = grid_block.val_1d(_3, cidib); //< mvz
 
-        ///< Slip contact
-        if (1){
-          // Set cell velocity (m/s) after grid-block boundary check
-          vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
-          vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
-          vel[1] += (g_gravity / g_length) * dt;  //< Grav. effect
-          vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
-        }
-        
+#if 1
+        ///< Slip contact        
+        // Set cell velocity after grid-block/cell boundary check
+        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
+        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
+        vel[1] += isInBound & 2 ? 0.f : (g_gravity / g_length) * dt;  //< Grav. effect
+        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
+#endif        
+
+#if 0
         ///< Sticky contact
-        if (0){
-          if (isInBound) ///< sticky
-            vel.set(0.f);
+        if (isInBound) ///< sticky
+          vel.set(0.f);
+#endif
+
+        vec3 ns; //< Ramp boundary surface normal
+        float ys;
+        float xs;
+        float xo;
+
+        // Start ramp segment definition for OSU flume
+        // Based on bathymetry diagram, February
+        if (xc < (14.2748/g_length)+offset) {
+          // Flat, 0' elev., 0' - 46'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
+          // Flat (adjustable), 0' elev., 46'10 - 58'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (14.2748 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
+          // 1:12, 0' elev., 58'10 - 94'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (17.9324 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
+          // 1:24, 3' elev., 94'10 - 142'10
+          ns[0] = -1.f/24.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (28.905 / g_length) + offset;
+          float yo = (0.9144 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/24.f * (xc - xo) + yo;
+
+        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
+          // Flat, 5' elev., 142'10 - 262'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (43.5356 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
+          // 1:12, 5' elev., 262'10 - 286'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (80.1116 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else {
+          // Flat, 7' elev., 286'10 onward
+          ns[0]=0.f;
+          ns[1]=1.f;
+          ns[2]=0.f;
+          float yo = (2.1336 / g_length) + offset;
+          ys = yo;        
         }
 
-        
-        // Ramp boundary surface normal
-        vec3 ns;
-        ns[0] = -1.f/12.f;
-        ns[1] = 1.f;
-        ns[2] = 0.f;
         float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns[0] = ns[0] / ns_mag;
-        ns[1] = ns[1] / ns_mag;
-        ns[2] = ns[2] / ns_mag;
-
-        // y = 1/12(x - xo) + yo
-        float xo = (39.663 / g_length) + offset;
-        float yo = offset;
-        float xs = xc;
-        float ys = 1.f/12.f * (xc - xo) + yo;
+        ns = ns / ns_mag;
+        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
 
         // Boundary thickness and cell distance
-        float h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
 
         // Decay coefficient
         float ySF;
+        if (yc > ys) {
+          ySF = 0.f;
+        } else if (yc <= ys){
+          ySF = 1.f;
+        }
         // if (yc > ys + h) {
         //   ySF = 0.f;
         // } else if (yc < ys){
@@ -459,51 +549,37 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // } else {
         //   ySF = (1.f - r/h) * (1.f - r/h);
         // }
-        if (yc > ys) {
-          ySF = 0.f;
-        } else if (yc <= ys){
-          ySF = 1.f;
-        }
+
         // fbc = -fint - fext - (1/dt)*p
         // a = (1 / mass) * (fint + fext + ySf*fbc) 
 
-        // Velocity normal and perp. to surface
-        // v|| = -n x (n x v)
-        // vT = (v . n)n
-        // v = v|| + vT
-        // v|| = v - vT = v - (v . n)n
+        // Adjust velocity relative to surface
         if (0) {
+          // Normal adjustment in decay layer, fix below
           if (ySF == 1.f) {
-            vel[0] = 0.f;
-            vel[1] = 0.f;
-            vel[2] = 0.f;
+            vel.set(0.f);
           } else if (ySF > 0.f && ySF < 1.f) {
-            float vdotns;
-            vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
             vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
             vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
             vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
           }
         }
-        
         if (1) {
-          vel[0] = vel[0] - ySF * (vel[0]);
-          vel[1] = vel[1] - ySF * (vel[1]);
-          vel[2] = vel[2] - ySF * (vel[2]);
+          // Free above surface, normal adjusted below
+          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
+          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
+          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
         }
 
         // Set grid buffer momentum to velocity (m/s) for G2P transfer
         grid_block.val_1d(_1, cidib) = vel[0]; //< vx
         velSqr += vel[0] * vel[0];
-
         grid_block.val_1d(_2, cidib) = vel[1]; //< vy
         velSqr += vel[1] * vel[1];
-
         grid_block.val_1d(_3, cidib) = vel[2]; //< vz
         velSqr += vel[2] * vel[2];
       }
-      // Reduce velocity^2 from threads
-      // Loop 
+      // Reduce velocity^2 from threads, loop
       for (int iter = 1; iter % 32; iter <<= 1) {
         float tmp = __shfl_down_sync(activeMask, velSqr, iter, 32);
         if ((threadIdx.x % 32) + iter < 32)
@@ -514,7 +590,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
     }
   }
   __syncthreads();
-  /// various assumptions
+  // Various assumptions
   for (int interval = numWarps >> 1; interval > 0; interval >>= 1) {
     if (threadIdx.x < interval) {
       if (sh_maxvels[threadIdx.x + interval] > sh_maxvels[threadIdx.x])
@@ -534,10 +610,10 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
                       const Grid grid, Grid next_grid) {
   //============================================================
   // Grid-to-Particle-to Grid Kernel for JFluid material
-  // Transfer Scheme:  Affine Particle-in-Cell
+  // Transfer Scheme:  Affine Particle-in-Cell (MLS-MPM)
   // Shape-function:   Quadratic B-Spline
   // Time Integration: Explicit
-  // Material:         JFluid, weakly incompressible fluid
+  // Material:         JFluid, Weakly incompressible fluid
   //============================================================
 
   //+-----------------------------------+
@@ -572,7 +648,6 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
   
   // Each particle-block transfers to arena of grid-blocks
   // Arena is 2x2x2 grid-blocks (G2P2G, Quad B-Spline)
-  // 
   
   // Grid-to-particle buffer size set-up
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;  //< Velocities per block
@@ -2423,7 +2498,7 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
         }
     
     //accel[0] = 0.1;
-    if (curTime < 3.f || curTime > 5.f){
+    if (curTime < 2.f || curTime > 3.f){
       vel[0] = 0.f;
     }
     else {
@@ -3389,7 +3464,7 @@ __global__ void check_table(uint32_t blockCount, Partition partition) {
     return;
   auto blockid = partition._activeKeys[blockno];
   if (partition.query(blockid) != blockno)
-    printf("FUCK, partition table is wrong!\n");
+    printf("ERROR, partition table is wrong!\n");
 }
 template <typename Grid> __global__ void sum_grid_mass(Grid grid, float *sum) {
   atomicAdd(sum, grid.ch(_0, blockIdx.x).val_1d(_0, threadIdx.x));
@@ -3409,7 +3484,7 @@ __global__ void check_partition(uint32_t blockCount, Partition partition) {
     return;
   ivec3 blockid = partition._activeKeys[idx];
   if (blockid[0] == 0 || blockid[1] == 0 || blockid[2] == 0)
-    printf("\tDAMN, encountered zero block record\n");
+    printf("\tERROR, encountered zero block record\n");
   if (partition.query(blockid) != idx) {
     int id = partition.query(blockid);
     ivec3 bid = partition._activeKeys[id];
@@ -3839,6 +3914,86 @@ __global__ void retrieve_selected_grid_blocks(
   }
 }
 
+/// Retrieve selected grid-cell values from grid buffer to grid array (JB)
+template <typename Partition, typename Grid, typename GridTarget>
+__global__ void retrieve_selected_grid_cells(
+    const ivec3 *__restrict__ prev_blockids, const Partition partition,
+    const int *__restrict__ _marks, Grid prev_grid, GridTarget garray) {
+  auto blockid = prev_blockids[blockIdx.x]; //< 3D grid-block ID
+  float offset = (8.f*g_dx);
+  vec3 point_a;
+  vec3 point_b;
+  point_a[0] = 142.833f * 0.3048f / g_length + offset;
+  point_a[1] = 5.75f    * 0.3048f / g_length + offset;
+  point_a[2] = ((3.67f / g_length) - (0.7871f /g_length)) / 2.f + offset;
+  point_b[0] = 0.7871f / g_length + point_a[0];
+  point_b[1] = 0.3935f / g_length + point_a[1];
+  point_b[2] = 0.7871f / g_length + point_a[2];
+
+  // Add +1 to each? For point_b ~= point_a...
+  ivec3 maxNodes_coord;
+  maxNodes_coord[0] = (int)((point_b[0] - point_a[0]) * g_dx_inv + 0.5);
+  maxNodes_coord[1] = (int)((point_b[1] - point_a[1]) * g_dx_inv + 0.5);
+  maxNodes_coord[2] = (int)((point_b[2] - point_a[2]) * g_dx_inv + 0.5);
+  
+  int maxNodes;
+  maxNodes = maxNodes_coord[0] * maxNodes_coord[1] * maxNodes_coord[2];
+  if (maxNodes >= g_target_cells) {
+    printf("Not enough nodes allocated to gridTarget!\n");
+  }
+
+  // If block is active
+  if (_marks[blockIdx.x]) {
+    auto blockno = partition.query(blockid); // Block number in partition
+    if (blockno == -1)
+      return;
+
+    // Within-warp computations
+    //if (blockno < blockCount) {
+    auto sourceblock = prev_grid.ch(_0, blockIdx.x); //< Set grid-block by block index
+
+    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+
+      // Grid node coordinate [i,j,k] in grid-block
+      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+      int j = (cidib >> g_blockbits) & g_blockmask;
+      int k = cidib & g_blockmask;
+
+      // Grid node position [x,y,z] in entire domain 
+      float xc = (4*blockid[0]*g_dx) + (i*g_dx);
+      float yc = (4*blockid[1]*g_dx) + (j*g_dx);
+      float zc = (4*blockid[2]*g_dx) + (k*g_dx);
+
+      if (xc < point_a[0] || xc > point_b[0]) {
+        return;
+      }
+      if (yc < point_a[1] || yc > point_b[1]) {
+        return;
+      }
+      if (zc < point_a[2] || zc > point_b[2]) {
+        return;
+      }
+
+      int node_id;
+      node_id = ((int)((zc - point_a[2]) * g_dx_inv + 0.5f) * maxNodes_coord[1] * maxNodes_coord[0]) +
+                ((int)((yc - point_a[1]) * g_dx_inv + 0.5f) * maxNodes_coord[0]) +
+                ((int)((xc - point_a[0]) * g_dx_inv + 0.5f));
+      if (node_id > g_target_cells){
+        printf("node_id bigger than g_target_cells!");
+      }
+
+      /// Set values in grid-array to specific cell from grid-buffer
+      garray.val(_0, node_id) = xc;
+      garray.val(_1, node_id) = yc;
+      garray.val(_2, node_id) = zc;
+      garray.val(_3, node_id) = sourceblock.val_1d(_0, threadIdx.x);
+      garray.val(_4, node_id) = sourceblock.val_1d(_1, threadIdx.x);
+      garray.val(_5, node_id) = sourceblock.val_1d(_2, threadIdx.x);
+      garray.val(_6, node_id) = sourceblock.val_1d(_3, threadIdx.x);
+    }
+  }
+}
 
 } // namespace mn
 
