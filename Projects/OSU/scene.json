@@ -11,7 +11,7 @@
             "type": "particle",
             "file": "Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf",
             "constitutive": "jfluid",
-            "ppc": 8,
+            "ppc": 1,
             "volume": 0.00000271444082519,
             "rho": 1e3,
             "bulk_modulus": 4e5,
@@ -37,7 +37,7 @@
             "type": "particle",
             "file": "Flume/OSU_Piston_x0.5_y3.658_z3.658_dx0.1_pad1.sdf",
             "constitutive": "piston",
-            "ppc": 2,
+            "ppc": 1,
             "volume": 0.00000271444082519,
             "rho": 1e3,
             "youngs_modulus": 1e3,
@@ -51,81 +51,6 @@
                 0.6,
                 4,
                 4
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 900,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                20,
-                1.753,
-                1.335
-            ],
-            "span": [
-                0.5,
-                0.5,
-                0.5
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 900,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                30,
-                1.753,
-                1.335
-            ],
-            "span": [
-                0.5,
-                0.5,
-                0.5
-            ],
-            "velocity": [
-                0.0,
-                0.0,
-                0
-            ]
-        },
-        {
-            "type": "particle",
-            "file": "Debris/Cube.sdf",
-            "constitutive": "fixed_corotated",
-	    "ppc": 32,
-	    "volume": 0.000271444082519,
-	    "rho": 900,
-	    "youngs_modulus": 1e5,
-	    "poisson_ratio": 0.4,
-            "offset": [
-                40,
-                1.753,
-                1.335
-            ],
-            "span": [
-                0.5,
-                0.5,
-                0.5
             ],
             "velocity": [
                 0.0,
