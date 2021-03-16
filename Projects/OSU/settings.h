@@ -39,7 +39,7 @@ constexpr float g_model_ppc = MODEL_PPC; //< Model particles-per-cell
 
 // Background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 10
+#define DOMAIN_BITS 9
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -88,15 +88,15 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 // Common source of crashes, memory is constrained by specific GPU
 // Playing with these values can improve program memory 
 constexpr int g_max_particle_num = 1000000;
-constexpr int g_max_active_block = 10000; /// 62500 bytes for active mask
-constexpr std::array<size_t, 5> g_max_active_block_arr = {10000, 10000, 3500, 3500, 3500};
+constexpr int g_max_active_block = 3000; /// 62500 bytes for active mask
+constexpr std::array<size_t, 5> g_max_active_block_arr = {3000, 3000, 3000, 3000, 3000};
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity; //< Max particle bins (#)
 constexpr std::size_t g_max_halo_block = 4000; //< Max halo blocks (#)
-constexpr int g_target_cells = 1000; //< Max nodes in grid-cell target
+constexpr int g_target_cells = 200; //< Max nodes in grid-cell target
 } // namespace config
 
 // Domain descriptions for different grid data-structures

@@ -710,7 +710,7 @@ struct GmpmSimulator {
 
     /// Copy down-sampled grid value from buffer (device) to target (device)
     cuDev.compute_launch(
-              {nbcnt, g_blockvolume}, retrieve_selected_grid_cells,
+              {ebcnt, g_blockvolume}, retrieve_selected_grid_cells,
               (const ivec3 *)partitions[rollid]._activeKeys,
               partitions[rollid ^ 1], (const int *)activeBlockMarks,
               gridBlocks[1], d_gridTarget[0]);
