@@ -4,21 +4,21 @@
         "gravity": -9.81,
         "fps": 10,
         "frames": 200,
-        "default_dt": 1e-4
+        "default_dt": 7e-5
     },
     "models": [
         {
             "type": "particle",
             "file": "Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf",
             "constitutive": "jfluid",
-            "ppc": 1,
+            "ppc": 8,
             "volume": 0.00000271444082519,
             "rho": 1e3,
             "bulk_modulus": 4e5,
             "gamma": 6.1,
             "viscosity": 0.001,
             "offset": [
-                0.6,
+                0.0,
                 0.0,
                 0.0
             ],
@@ -43,7 +43,7 @@
             "youngs_modulus": 1e3,
             "poisson_ratio": 0.3,
             "offset": [
-                0.0,
+                -0.6,
                 -0.15,
                 -0.15
             ],
@@ -51,6 +51,31 @@
                 0.6,
                 4,
                 4
+            ],
+            "velocity": [
+                0.0,
+                0.0,
+                0
+            ]
+        },
+        {
+            "type": "particle",
+            "file": "Debris/OSU_AL1_dx0.005_pad1.sdf",
+            "constitutive": "fixed_corotated",
+	    "ppc": 600,
+	    "volume": 0.000271444082519,
+	    "rho": 900,
+	    "youngs_modulus": 1e5,
+	    "poisson_ratio": 0.4,
+            "offset": [
+                40,
+                1.9,
+                1.8
+            ],
+            "span": [
+                0.5,
+                0.1,
+                0.1
             ],
             "velocity": [
                 0.0,

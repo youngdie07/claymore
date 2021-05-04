@@ -39,7 +39,7 @@ constexpr float g_model_ppc = MODEL_PPC; //< Model particles-per-cell
 
 // Background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 9
+#define DOMAIN_BITS 10
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -68,15 +68,18 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3))); //
 constexpr float g_cfl = 0.5f; //< CFL condition
 
 // Ambient external field settings
-constexpr float g_gravity = -9.81f; //< Gravity (m/s2)
+constexpr float g_gravity = 0.f; //< Gravity (m/s2)
 constexpr float g_atm = 101.325e3;  //< Atm. Pressure (Pa)
+
+// Grid layers
+//constexpr 
 
 // Domain size
 #define DOMAIN_VOLUME 0.4f
-constexpr float g_length   = 128.0f; //< Domain full length (m)
-constexpr float g_length_x = 128.0f; //< Domain x length (m)
-constexpr float g_length_y = 8.f;   //< Domain y length (m)
-constexpr float g_length_z = 8.f;   //< Domain z length (m)
+constexpr float g_length   = 1.0f; //< Domain full length (m)
+constexpr float g_length_x = 1.0f; //< Domain x length (m)
+constexpr float g_length_y = 1.f;   //< Domain y length (m)
+constexpr float g_length_z = 1.f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -87,22 +90,29 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 // Only used on host, preallocates memory for the data-structures
 // Common source of crashes, memory is constrained by specific GPU
 // Playing with these values can improve program memory 
-constexpr int g_max_particle_num = 1500000;
-constexpr int g_max_active_block = 10000; /// 62500 bytes for active mask
-constexpr std::array<size_t, 5> g_max_active_block_arr = {10000, 10000, 10000, 10000, 10000};
+constexpr int g_max_particle_num = 1000000;
+constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
+constexpr std::array<size_t, 5> g_max_active_block_arr = {15000, 10000, 25000, 3000, 2000};
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity; //< Max particle bins (#)
 constexpr std::size_t g_max_halo_block = 4000; //< Max halo blocks (#)
-constexpr int g_target_cells = 1000; //< Max nodes in grid-cell target
+constexpr int g_target_cells = 50000; //< Max nodes in grid-cell target
 } // namespace config
 
 // Domain descriptions for different grid data-structures
 // Used primarily in grid_buffer.cuh
 using BlockDomain = compact_domain<char, config::g_blocksize,
                                    config::g_blocksize, config::g_blocksize>;
+using BlockDomainLayer0 = compact_domain<char, config::g_blocksize << 0,
+                                   config::g_blocksize << 0, config::g_blocksize << 0>;
+using BlockDomainLayer1 = compact_domain<char, config::g_blocksize << 1,
+                                   config::g_blocksize << 1, config::g_blocksize << 1>;
+using BlockDomainLayer2 = compact_domain<char, config::g_blocksize << 2,
+                                   config::g_blocksize << 2, config::g_blocksize << 2>;
+
 using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y, config::g_grid_size_z>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 
