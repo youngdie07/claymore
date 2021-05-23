@@ -56,18 +56,23 @@ void init_models(
   } break;
   case 3: {
     constexpr auto LEN = 32; // 54;
-    constexpr auto STRIDE = (g_domain_size / 2);
+    constexpr auto STRIDE = (g_domain_size / 4);
     constexpr auto MODEL_CNT = 1;
     for (int did = 0; did < g_device_cnt; ++did) {
       models[did].clear();
       std::vector<std::array<float, 3>> model;
       for (int i = 0; i < MODEL_CNT; ++i) {
         auto idx = (did * MODEL_CNT + i);
+        // model = sample_uniform_box(
+        //     g_dx,
+        //     ivec3{18 + (idx & 1 ? STRIDE : 0), 18, 18 + (idx & 2 ? STRIDE : 0)},
+        //     ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN / 3,
+        //           18 + (idx & 2 ? STRIDE : 0) + LEN});
         model = sample_uniform_box(
             g_dx,
-            ivec3{18 + (idx & 1 ? STRIDE : 0), 18, 18 + (idx & 2 ? STRIDE : 0)},
-            ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN / 3,
-                  18 + (idx & 2 ? STRIDE : 0) + LEN});
+            ivec3{8 + (idx & 1 ? STRIDE : 0), 8, 8},
+            ivec3{8 + (idx & 1 ? STRIDE : 0) + LEN, 8 + LEN / 3,
+                  8 + LEN});
         models[did].insert(models[did].end(), model.begin(), model.end());
       }
     }

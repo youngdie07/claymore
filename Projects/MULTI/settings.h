@@ -39,7 +39,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 8
+#define DOMAIN_BITS 10
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -54,8 +54,8 @@ constexpr int g_blockvolume = (1 << (BLOCK_BITS * 3));
 constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 constexpr int g_grid_size_x = g_grid_size;
-constexpr int g_grid_size_y = g_grid_size / 4;
-constexpr int g_grid_size_z = g_grid_size / 4;
+constexpr int g_grid_size_y = g_grid_size / 16;
+constexpr int g_grid_size_z = g_grid_size / 16;
 
 
 // partition domains
@@ -104,7 +104,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 #define POISSON_RATIO 0.4f
 
 //
-constexpr float g_gravity = -9.8f * 0.5;
+constexpr float g_gravity = -9.81f;
 
 /// only used on host
 constexpr int g_max_particle_num = 2000000;
