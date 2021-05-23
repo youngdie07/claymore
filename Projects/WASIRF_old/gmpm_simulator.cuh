@@ -43,7 +43,6 @@ struct GmpmSimulator {
     }
     cuDev.syncStream<streamIdx::Compute>();
     curNumActiveBlocks = config::g_max_active_block;
-    curNumActiveBlocks_arr = config::g_max_active_block_arr;
   }
   GmpmSimulator(int gpu = 0, float dt = 1e-4, int fp = 24, int frames = 60)
       : gpuid{gpu}, dtDefault{dt}, curTime{0.f}, rollid{0},
@@ -58,71 +57,35 @@ struct GmpmSimulator {
   /// Still inefficient for debugging purposes
   void initGrid(const std::vector<std::array<float, 7>> &graph) {
     auto &cuDev = Cuda::ref_cuda_context(gpuid);
+
     fmt::print("Just entered initGrid in gmpm_simulator.cuh!\n");
 
     /// Populate nodes (device) with appropiate grid_ structure and memory size (JB)
     nodes.emplace_back(
         std::move(GridArray{spawn<grid_array_, orphan_signature>(
             device_allocator{}, sizeof(float) * 7 * graph.size())}));
+    
     fmt::print("Created nodes structure in initGrid gmpm_simulator.cuh!\n");
 
     /// Set size
     node_cnt.emplace_back(graph.size());
+
 
     /// Populate nodes (device) with data from graph (host) (JB)
     cudaMemcpyAsync((void *)&nodes.back().val_1d(_0, 0), graph.data(),
                     sizeof(std::array<float, 7>) * graph.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
+
     fmt::print("Populated nodes with graph in initGrid gmpm_simulator.cuh!\n");
+
 
     /// Write graph data to a *.bgeo output file using Partio  
     std::string fn = std::string{"grid"} + "_frame[0].bgeo";
     IO::insert_job([fn, graph]() { write_partio_grid<float, 7>(fn, graph); });
     IO::flush();
-
+    
     fmt::print("Exiting initGrid in gmpm_simulator.cuh!\n");
-  }
-
-  /// Initialize target from host (CPU) setting (&h_gridTarget), output as *.bgeo (JB)
-  void initGridTarget(const std::vector<std::array<float, 10>> &h_gridTarget, 
-                      const mn::vec<float, 3> &h_point_a, 
-                      const mn::vec<float, 3> &h_point_b, const float target_freq) {
-    auto &cuDev = Cuda::ref_cuda_context(gpuid);
-    fmt::print("Just entered initGridTarget in gmpm_simulator.cuh!\n");
-
-    // Set output frequency for target (host) in gmpm_simulator.cuh
-    h_target_freq = target_freq;
-
-    // Set points a/b (device) for grid-target volume using (host, from JSON)
-    for (int d = 0; d < 3; d++){
-      d_point_a[d] = h_point_a[d];
-      d_point_b[d] = h_point_b[d];
-    }
-
-    /// Populate target (device) with appropiate grid_ structure and memory size (JB)
-    d_gridTarget.emplace_back(
-        std::move(GridTarget{spawn<grid_target_, orphan_signature>(
-            device_allocator{}, sizeof(float) * 10 * h_gridTarget.size())}));
-    fmt::print("Created structure in initGridTarget gmpm_simulator.cuh!\n");
-
-    /// Set size
-    target_cnt.emplace_back(h_gridTarget.size());
-
-    /// Populate target (device) with data from target (host) (JB)
-    cudaMemcpyAsync((void *)&d_gridTarget.back().val_1d(_0, 0), h_gridTarget.data(),
-                    sizeof(std::array<float, 10>) * h_gridTarget.size(),
-                    cudaMemcpyDefault, cuDev.stream_compute());
-    cuDev.syncStream<streamIdx::Compute>();
-
-    fmt::print("Populated target in initGridTarget gmpm_simulator.cuh!\n");
-
-    /// Write target data to a *.bgeo output file using Partio  
-    std::string fn = std::string{"gridTarget"} + "_frame[0].bgeo";
-    IO::insert_job([fn, h_gridTarget]() { write_partio_gridTarget<float, 10>(fn, h_gridTarget); });
-    IO::flush();
-
-    fmt::print("Exiting initGridTarget in gmpm_simulator.cuh!\n");
   }
 
   /// Initialize (host --> device) particle position objects (&model --> particles) 
@@ -131,16 +94,16 @@ struct GmpmSimulator {
   /// Output initial positions as *.bgeo file
   template <material_e m>
   void initModel(const std::vector<std::array<float, 3>> &model,
-                 const mn::vec<float, 3> &v0, int modelID) {
+                 const mn::vec<float, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(gpuid);
     /// Establish double-buffered particle structures (device)
     /// Set proper material 
     for (int copyid = 0; copyid < 2; ++copyid) {
       particleBins[copyid].emplace_back(ParticleBuffer<m>(
           device_allocator{},
-          model.size() / config::g_bin_capacity + config::g_max_active_block_arr[modelID]));
+          model.size() / config::g_bin_capacity + config::g_max_active_block));
       match(particleBins[copyid].back())([&](auto &pb) {
-        pb.reserveBuckets(device_allocator{}, config::g_max_active_block_arr[modelID]);
+        pb.reserveBuckets(device_allocator{}, config::g_max_active_block);
       });
     }
     /// Set initial velocity vector (host) (host --> host)
@@ -179,7 +142,7 @@ struct GmpmSimulator {
     cuDev.syncStream<streamIdx::Compute>();
 
     /// Write model data (host) to *.bgeo binary output (disk) using Partio
-    /// Functions found in Library/MnSystem/IO/ParticleIO.hpp 
+    /// Functions found in Library/MnSystem/IO/ParticleIO.hpp (JB)
     std::string fn = std::string{"model"} + "_id[" +
                      std::to_string(particleBins[0].size() - 1) +
                      "]_frame[0].bgeo";
@@ -224,42 +187,9 @@ struct GmpmSimulator {
                                                         xi);
                                   });
   }
-  void updateRigidParameters(float rho, float vol, float ym, float pr) {
-    match(particleBins[0].back())(
-        [&](auto &pb) {},
-        [&](ParticleBuffer<material_e::Rigid> &pb) {
-          pb.updateParameters(rho, vol, ym, pr);
-        });
-    match(particleBins[1].back())(
-        [&](auto &pb) {},
-        [&](ParticleBuffer<material_e::Rigid> &pb) {
-          pb.updateParameters(rho, vol, ym, pr);
-        });
-  }
-  void updatePistonParameters(float rho, float vol, float ym, float pr) {
-    match(particleBins[0].back())(
-        [&](auto &pb) {},
-        [&](ParticleBuffer<material_e::Piston> &pb) {
-          pb.updateParameters(rho, vol, ym, pr);
-        });
-    match(particleBins[1].back())(
-        [&](auto &pb) {},
-        [&](ParticleBuffer<material_e::Piston> &pb) {
-          pb.updateParameters(rho, vol, ym, pr);
-        });
-  }
-  void updateIFluidParameters(float rho, float vol,
-                              float visco) {
-    match(particleBins[0].back())([&](auto &pb) {},
-                                  [&](ParticleBuffer<material_e::IFluid> &pb) {
-                                    pb.updateParameters(rho, vol,
-                                                        visco);
-                                  });
-    match(particleBins[1].back())([&](auto &pb) {},
-                                  [&](ParticleBuffer<material_e::IFluid> &pb) {
-                                    pb.updateParameters(rho, vol,
-                                                        visco);
-                                  });
+  void updateGridParameters(float gravity, float length, float cfl, float atm){
+    gridBlocks[0].updateParameters(gravity, length, cfl, atm);
+    gridBlocks[1].updateParameters(gravity, length, cfl, atm);
   }
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
@@ -290,16 +220,15 @@ struct GmpmSimulator {
       curNumActiveBlocks = curNumActiveBlocks * 3 / 2;
       checkedCnts[0] = 2;
       fmt::print(fmt::emphasis::bold, "resizing blocks {} -> {}\n", ebcnt,
-                curNumActiveBlocks);
+                 curNumActiveBlocks);
     }
-    for (int i = 0; i < getModelCnt(); ++i) {
+    for (int i = 0; i < getModelCnt(); ++i)
       if (bincnt[i] > curNumActiveBins[i] * 3 / 4 && checkedBinCnts[i] == 0) {
         curNumActiveBins[i] = curNumActiveBins[i] * 3 / 2;
         checkedBinCnts[i] = 2;
         fmt::print(fmt::emphasis::bold, "resizing bins {} -> {}\n", bincnt[i],
                    curNumActiveBins[i]);
       }
-    }
   }
   void main_loop() {
     /// initial
@@ -317,7 +246,6 @@ struct GmpmSimulator {
                dt, nextTime, dtDefault);
     initial_setup();
     curTime = dt;
-    freq_step = 0;
     for (curFrame = 1; curFrame <= nframes; ++curFrame) {
       for (; curTime < nextTime; curTime += dt, curStep++) {
         /// max grid vel
@@ -326,7 +254,6 @@ struct GmpmSimulator {
           /// check capacity
           checkCapacity();
           float *d_maxVel = tmps.d_maxVel;
-          int layer = 0; //< Grid refinement (0 is dx, 1 is dx^2, 2 is dx^2^2)
           CudaTimer timer{cuDev.stream_compute()};
           timer.tick();
           checkCudaErrors(cudaMemsetAsync(d_maxVel, 0, sizeof(float),
@@ -336,7 +263,7 @@ struct GmpmSimulator {
                                 g_num_warps_per_cuda_block * 32,
                                 g_num_warps_per_cuda_block},
                                update_grid_velocity_query_max, (uint32_t)nbcnt,
-                               gridBlocks[0], partitions[rollid], dt, d_maxVel, layer);
+                               gridBlocks[0], partitions[rollid], dt, d_maxVel);
           checkCudaErrors(cudaMemcpyAsync(&maxVels, d_maxVel, sizeof(float),
                                           cudaMemcpyDefault,
                                           cuDev.stream_compute()));
@@ -360,43 +287,35 @@ struct GmpmSimulator {
           CudaTimer timer{cuDev.stream_compute()};
 
           /// check capacity
-          for (int i = 0; i < getModelCnt(); ++i){
-            fmt::print(fmt::emphasis::bold, "Model {}, NumActive Bins {}.\n", i, curNumActiveBins[i]);
+          for (int i = 0; i < getModelCnt(); ++i)
             if (checkedBinCnts[i] > 0) {
               match(particleBins[rollid ^ 1][i])([&](auto &pb) {
                 pb.resize(device_allocator{}, curNumActiveBins[i]);
               });
               checkedBinCnts[i]--;
             }
-          }
-          //fmt::print("Checked particle bin capacities.\n");
 
           timer.tick();
           // grid
           gridBlocks[1].reset(nbcnt, cuDev);
           // adv map
           for (int i = 0; i < getModelCnt(); ++i) {
-            //fmt::print(fmt::emphasis::bold, "Model {}, ebcnt_arr {}, curNumActiveBins {}.\n", i, ebcnt, curNumActiveBins[i]);
             match(particleBins[rollid ^ 1][i])([&](auto &pb) {
               checkCudaErrors(cudaMemsetAsync(
                   pb._ppcs, 0, sizeof(int) * ebcnt * g_blockvolume,
                   cuDev.stream_compute()));
             });
-            //fmt::print(fmt::emphasis::bold, "Starting g2p2g.\n");
             // g2p2g
             match(particleBins[rollid][i])([&](const auto &pb) {
               cuDev.compute_launch({pbcnt, 128, (512 * 3 * 4) + (512 * 4 * 4)},
-                                   g2p2g, dt, nextDt, curTime, pb,
+                                   g2p2g, dt, nextDt, pb,
                                    get<typename std::decay_t<decltype(pb)>>(
                                        particleBins[rollid ^ 1][i]),
                                    partitions[rollid ^ 1], partitions[rollid],
                                    gridBlocks[0], gridBlocks[1]);
             });
-            //fmt::print(fmt::emphasis::bold, "Finished g2p2g.\n");
           }
           cuDev.syncStream<streamIdx::Compute>();
-          
-          //fmt::print(fmt::emphasis::bold, "Synch g2p2g.\n");
           timer.tock(fmt::format("GPU[{}] frame {} step {} g2p2g", gpuid,
                                  curFrame, curStep));
           if (checkedCnts[0] > 0) {
@@ -454,7 +373,6 @@ struct GmpmSimulator {
           checkCudaErrors(cudaMemcpyAsync(&pbcnt, destinations + ebcnt,
                                           sizeof(int), cudaMemcpyDefault,
                                           cuDev.stream_compute()));
-
           cuDev.compute_launch({(ebcnt + 255) / 256, 256},
                                exclusive_scan_inverse, ebcnt,
                                (const int *)destinations, sources);
@@ -539,12 +457,10 @@ struct GmpmSimulator {
                                           cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
 
-          for (int i = 0; i < getModelCnt(); ++i) {
-
-            fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
-                     "block count on device {}: model {}: {}, {}, {} [{}]\n", gpuid, i,
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
+                     "block count on device {}: {}, {}, {} [{}]\n", gpuid,
                      pbcnt, nbcnt, ebcnt, curNumActiveBlocks);
-
+          for (int i = 0; i < getModelCnt(); ++i) {
             fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
                        "bin count on device {}: model {}: {} [{}]\n", gpuid, i,
                        bincnt[i], curNumActiveBins[i]);
@@ -553,22 +469,8 @@ struct GmpmSimulator {
               "GPU[{}] frame {} step {} build_partition_for_particles", gpuid,
               curFrame, curStep));
         }
-        rollid ^= 1; // Update Roll ID (0 --> 1, 1 --> 0)
-        dt = nextDt; // Update time-step
-      
-        // Output gridTarget
-        {
-          // Set appropiate output frequency rate
-          int maxFreqStep = (int)(1.f / dtDefault / fps / h_target_freq);
-
-          // Check current step aligns with output frequency
-          if (curStep % maxFreqStep == 0){
-            freq_step += 1; // Iterate freq_step           
-            IO::flush();    // Clear IO
-            output_gridcell_target(); // Output gridTarget as *.bgeo
-          }
-        }
-
+        rollid ^= 1;
+        dt = nextDt;
       }
       // Restart frame's output scheme
       IO::flush();
@@ -576,9 +478,9 @@ struct GmpmSimulator {
       // Output material point position and attribute data (JB)
       output_model();
       
-      // Output grid-block data (JB)
+      // Output grid block data (JB)
       output_grid();
-      
+
       // Step forward, terminal print
       nextTime = 1.f * (curFrame + 1) / fps;
       fmt::print(fmt::emphasis::bold | fg(fmt::color::red),
@@ -649,26 +551,26 @@ struct GmpmSimulator {
     timer.tick();
 
     int node_cnt, *d_node_cnt = (int *)cuDev.borrow(sizeof(int));
-    node_cnt = curNumActiveBlocks;
-
-    /// Reset memory
+    
+    /// Reserve memory
     checkCudaErrors(
         cudaMemsetAsync(d_node_cnt, 0, sizeof(int), cuDev.stream_compute()));
-
-    checkCudaErrors(
-        cudaMemsetAsync((void *)&nodes[0].val_1d(_0,0), 0, sizeof(std::array<float, 7>) * node_cnt, cuDev.stream_compute()));
-        
+    
     /// Use previously set active block marks for efficiency
     int *activeBlockMarks = tmps.activeBlockMarks;
 
     /// Copy down-sampled grid value from buffer (device) to nodes (device)
     cuDev.compute_launch(
-              {curNumActiveBlocks, g_blockvolume}, retrieve_selected_grid_blocks,
+              {nbcnt, g_blockvolume}, retrieve_selected_grid_blocks,
               (const ivec3 *)partitions[rollid]._activeKeys,
-              partitions[rollid], (const int *)activeBlockMarks,
+              partitions[rollid ^ 1], (const int *)activeBlockMarks,
               gridBlocks[1], nodes[0]);
     cuDev.syncStream<streamIdx::Compute>();
-  
+    
+    /// Should change to use a d_node_cnt synch for better active count
+    /// For now set to neighboring block count
+    node_cnt = nbcnt;
+
     fmt::print(fg(fmt::color::red), "total number of nodes {}\n", node_cnt);
     
     /// graph defined at bottom as std::vector<std::array<float,7>>
@@ -689,86 +591,6 @@ struct GmpmSimulator {
                            curFrame, curStep));
   }
 
-  /// Output data from grid blocks (mass, momentum) to *.bgeo (JB)
-  void output_gridcell_target() {
-    auto &cuDev = Cuda::ref_cuda_context(gpuid);
-    CudaTimer timer{cuDev.stream_compute()};
-    timer.tick();
-    fmt::print(fg(fmt::color::red), "Entered output_gridcell_target\n");
-
-
-    int target_cnt, *d_target_cnt = (int *)cuDev.borrow(sizeof(int));
-    
-    /// Reserve memory
-    checkCudaErrors(
-        cudaMemsetAsync(d_target_cnt, 0, sizeof(int), cuDev.stream_compute()));
-    
-    /// Use previously set active block marks for efficiency
-    int *activeBlockMarks = tmps.activeBlockMarks;
-    target_cnt = g_target_cells;
-
-    // Setup forceSum on device and host
-    // Used to add up all forces within the grid-target in a kernel
-    // Will be output to a *.csv
-    float forceSum, *d_forceSum = (float *)cuDev.borrow(sizeof(float));
-    checkCudaErrors(
-        cudaMemsetAsync(d_forceSum, 0, sizeof(float), cuDev.stream_compute()));
-    
-    // Reset gridTarget (device) to zeroes asynchronously
-    checkCudaErrors(
-        cudaMemsetAsync((void *)&d_gridTarget[0].val_1d(_0, 0), 0,
-                        sizeof(std::array<float, 10>) * (target_cnt),
-                        cuDev.stream_compute()));
-
-    fmt::print(fg(fmt::color::red), "About to launch retrieve_selected_grid_cells\n");
-
-    /// Copy down-sampled grid value from buffer (device) to target (device)
-    cuDev.compute_launch(
-              {curNumActiveBlocks, 32}, retrieve_selected_grid_cells, (uint32_t)nbcnt,
-              (const ivec3 *)partitions[rollid]._activeKeys,
-              partitions[rollid], (const int *)activeBlockMarks,
-              gridBlocks[0], d_gridTarget[0],
-              dt, d_forceSum, d_point_a, d_point_b);
-    cuDev.syncStream<streamIdx::Compute>();
-    
-
-    fmt::print(fg(fmt::color::red), "About to launch process_grid_target_forces\n");
-
-
-    // Copy force summation to host
-    checkCudaErrors(cudaMemcpyAsync(&forceSum, d_forceSum, sizeof(float),
-                                    cudaMemcpyDefault,
-                                    cuDev.stream_compute()));
-    cuDev.syncStream<streamIdx::Compute>();
-
-    fmt::print(fg(fmt::color::red), "Force summation in gridTarget: {} N\n", forceSum);
-
-    /// Should later change to be dynamic by using a counter on the device
-
-    fmt::print(fg(fmt::color::red), "total number of target target {}\n", target_cnt);
-    
-    /// graph defined at bottom as std::vector<std::array<float,7>>
-    h_gridTarget.resize(target_cnt);
-
-    // Asynchronously copy data from target (device) to target (host)
-    checkCudaErrors(
-        cudaMemcpyAsync(h_gridTarget.data(), (void *)&d_gridTarget[0].val_1d(_0, 0),
-                        sizeof(std::array<float, 10>) * (target_cnt),
-                        cudaMemcpyDefault, cuDev.stream_compute()));
-    cuDev.syncStream<streamIdx::Compute>();
-
-    /// Output to Partio as 'gridTarget_frame[i].bgeo'
-    //int out_step = freq_step + max_freq_step * (curFrame - 1);
-    std::string fn = std::string{"gridTarget"} + "_frame[" + std::to_string(freq_step) + "].bgeo";
-    IO::insert_job([fn, m = h_gridTarget]() { write_partio_gridTarget<float, 10>(fn, m); });
-
-    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_cells", gpuid,
-                           curFrame, curStep));
-
-    forceFile.open ("force_time_series.csv", std::ios::out | std::ios::app);
-    forceFile << curTime << "," << forceSum << ",\n";
-    forceFile.close();
-  }
 
   void initial_setup() {
     {
@@ -785,6 +607,7 @@ struct GmpmSimulator {
                                       sizeof(int), cudaMemcpyDefault,
                                       cuDev.stream_compute()));
       timer.tock(fmt::format("GPU[{}] step {} init_table", gpuid, curStep));
+
       timer.tick();
       cuDev.resetMem();
       // particle block
@@ -834,7 +657,6 @@ struct GmpmSimulator {
                                       sizeof(int), cudaMemcpyDefault,
                                       cuDev.stream_compute()));
       cuDev.syncStream<streamIdx::Compute>();
-
       timer.tock(fmt::format("GPU[{}] step {} init_partition", gpuid, curStep));
 
       fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
@@ -885,6 +707,9 @@ struct GmpmSimulator {
   /// Basic simulation settings
   int gpuid, nframes, fps;
 
+  /// Basic physical settings
+  float gravity, length, cfl;
+
   /// Timing variables
   float dt, nextDt, dtDefault, curTime, maxVel;
   uint64_t curFrame, curStep;
@@ -894,10 +719,6 @@ struct GmpmSimulator {
   std::vector<particle_buffer_t> particleBins[2];
   std::vector<Partition<1>> partitions; ///< with halo info  
   std::vector<GridArray>     nodes;     ///< Node array structure on device, 4+ f32 (ID+, mass, mx,my,mz) (JB)
-  std::vector<GridTarget> d_gridTarget; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
-
-  vec3 d_point_a; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
-  vec3 d_point_b; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
   std::vector<ParticleArray> particles; ///< Particle array structure on device,  three f32 (x,y,z) (JB)
   std::vector<ParticleArray> pattribs;  ///< Particle atrrib structure on device, three f32 (.,.,.) (JB)  
   struct Intermediates {
@@ -933,32 +754,18 @@ struct GmpmSimulator {
                 "block index type is not int");
   char rollid; ///< ID to switch between n and n+1
   std::size_t curNumActiveBlocks;            ///< num active grid-blocks
-  std::array<std::size_t, 5> curNumActiveBlocks_arr; ///< num active grid-blocks
   std::vector<std::size_t> curNumActiveBins; ///< num active particle? bins
   std::array<std::size_t, 2> checkedCnts;
   std::vector<std::size_t> checkedBinCnts;
   float maxVels;
-  // float forceSum;
   int pbcnt, nbcnt, ebcnt;        ///< Number of particle, neighbor, and exterior blocks
-  std::array<int, 5> pbcnt_arr;
-  std::array<int, 5> nbcnt_arr;
-  std::array<int, 5> ebcnt_arr;
   std::vector<int> bincnt;        ///< Number of particle bins
   std::vector<uint32_t> pcnt;     ///< Number of particles
   std::vector<uint32_t> node_cnt; ///< Number of grid nodes (JB)
-  std::vector<uint32_t> target_cnt; ///< Number of grid nodes (JB)
   std::vector<std::array<float, 3>> model;   ///< Particle info (x,y,z) on host (JB)
   std::vector<std::array<float, 3>> attribs; ///< Particle attributes on host (JB)
   std::vector<std::array<float, 7>> graph;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  std::vector<std::array<float, 10>> h_gridTarget;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  vec3 h_point_a;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  vec3 h_point_b;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  float h_target_freq;
   std::vector<vec3> vel0; ///< Initial velocity vector on host
-
-  int freq_step;
-  std::ofstream forceFile;
-
 };
 
 struct Simulator {};

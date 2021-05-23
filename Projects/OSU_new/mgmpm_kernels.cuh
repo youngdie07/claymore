@@ -424,9 +424,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // WASIRF Harris Flume (Slip)
         // Acts on individual grid-cell velocities
         // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
-        float flumex = 2.f / g_length; // Actually 12m, added run-in/out
-        float flumey = 2.f / g_length; // 1.22m Depth
-        float flumez = 2.f / g_length; // 0.91m Width
+        float flumex = 104.f / g_length; // Actually 12m, added run-in/out
+        float flumey = 4.6f / g_length; // 1.22m Depth
+        float flumez = 3.67f / g_length; // 0.91m Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
@@ -435,14 +435,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Add grid-cell boundary for structural block, WASIRF flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (1.f) / g_length;
-        struct_dim[1] = (1.f) / g_length;
-        struct_dim[2] = (1.f) / g_length;
+        struct_dim[0] = (0.7871f) / g_length;
+        struct_dim[1] = (0.3935f) / g_length;
+        struct_dim[2] = (0.7871f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        struct_pos[0] = (1.0f) / g_length + offset;
-        struct_pos[1] = (0.5f) / g_length + offset;
-        struct_pos[2] = (0.5f) / g_length + offset;
-        float t = 1.01f * g_dx; // Slip-layer thickness of structural box
+        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
+        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+        float t = 1.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
@@ -519,6 +519,128 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (isInBound) ///< sticky
           vel.set(0.f);
 #endif
+
+
+        vec3 ns; //< Ramp boundary surface normal
+        float ys;
+        float xs;
+        float xo;
+
+        // Start ramp segment definition for OSU flume
+        // Based on bathymetry diagram, February
+        if (xc < (14.2748/g_length)+offset) {
+          // Flat, 0' elev., 0' - 46'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
+          // Flat (adjustable), 0' elev., 46'10 - 58'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (14.2748 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
+          // 1:12, 0' elev., 58'10 - 94'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (17.9324 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
+          // 1:24, 3' elev., 94'10 - 142'10
+          ns[0] = -1.f/24.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (28.905 / g_length) + offset;
+          float yo = (0.9144 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/24.f * (xc - xo) + yo;
+
+        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
+          // Flat, 5' elev., 142'10 - 262'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (43.5356 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
+          // 1:12, 5' elev., 262'10 - 286'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (80.1116 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else {
+          // Flat, 7' elev., 286'10 onward
+          ns[0]=0.f;
+          ns[1]=1.f;
+          ns[2]=0.f;
+          float yo = (2.1336 / g_length) + offset;
+          ys = yo;        
+        }
+
+        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+        ns = ns / ns_mag;
+        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+
+        // Boundary thickness and cell distance
+        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+        // Decay coefficient
+        float ySF;
+        if (yc > ys) {
+          ySF = 0.f;
+        } else if (yc <= ys){
+          ySF = 1.f;
+        }
+        // if (yc > ys + h) {
+        //   ySF = 0.f;
+        // } else if (yc < ys){
+        //   ySF = 1.f;
+        // } else {
+        //   ySF = (1.f - r/h) * (1.f - r/h);
+        // }
+
+        // fbc = -fint - fext - (1/dt)*p
+        // a = (1 / mass) * (fint + fext + ySf*fbc) 
+
+        // Adjust velocity relative to surface
+        if (0) {
+          // Normal adjustment in decay layer, fix below
+          if (ySF == 1.f) {
+            vel.set(0.f);
+          } else if (ySF > 0.f && ySF < 1.f) {
+            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
+            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
+            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
+          }
+        }
+        if (1) {
+          // Free above surface, normal adjusted below
+          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
+          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
+          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
+        }
+
 
         // Set grid buffer momentum to velocity (m/s) for G2P transfer
         grid_block.val_1d(_1, cidib) = vel[0]; //< vx
@@ -1058,8 +1180,8 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          vel[1] = 0.f;
-          vel[2] = 0.f;
+          //vel[1] = 0.f;
+          //vel[2] = 0.f;
           C[0] += W * vi[0] * xixp[0];
           C[1] += W * vi[1] * xixp[0];
           C[2] += W * vi[2] * xixp[0];
