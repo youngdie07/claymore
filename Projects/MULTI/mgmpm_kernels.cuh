@@ -303,24 +303,234 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       float mass = grid_block.val_1d(_0, cidib), velSqr = 0.f, vel[3];
       if (mass > 0.f) {
         mass = 1.f / mass;
+
+        // Grid node coordinate [i,j,k] in grid-block
+        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+        int j = (cidib >> g_blockbits) & g_blockmask;
+        int k = cidib & g_blockmask;
+        // Grid node position [x,y,z] in entire domain
+        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+
+        // Offset condition for Off-by-2 (see Xinlei & Fang et al.)
+        // Note you should subtract 16 nodes from total
+        // (or 4 grid blocks) to have total available length
+        float offset = (8.f*g_dx);
+
+        // Retrieve grid momentums (kg*m/s2)
+        vel[0] = grid_block.val_1d(_1, cidib); //< mvx
+        vel[1] = grid_block.val_1d(_2, cidib); //< mvy
+        vel[2] = grid_block.val_1d(_3, cidib); //< mvz
+
+
+        // WASIRF Harris Flume (Slip)
+        // Acts on individual grid-cell velocities
+        // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
+        float flumex = 104.f / g_length; // Actually 12m, added run-in/out
+        float flumey = 4.6f / g_length; // 1.22m Depth
+        float flumez = 3.67f / g_length; // 0.91m Width
+        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
+                         ((yc < offset || yc >= flumey + offset) << 1) |
+                          (zc < offset || zc >= flumez + offset);
+        isInBound |= isInFlume; // Update with regular boundary for efficiency
+
+
+        // Add grid-cell boundary for structural block, WASIRF flume
+        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
+        struct_dim[0] = (0.7871f) / g_length;
+        struct_dim[1] = (0.3935f) / g_length;
+        struct_dim[2] = (0.7871f) / g_length;
+        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
+        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
+        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+        float t = 1.0f * g_dx;
+
+        // Check if grid-cell is within sticky interior of structural box
+        // Subtract slip-layer thickness from structural box dimension for geometry
+        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
+                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
+                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
+        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+        isInBound |= isOutStruct; // Update with regular boundary for efficiency
+        
+        // Check exterior slip-layer of structural block(OSU Flume)
+        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+        int isOnStructFace[6];
+        // Right (z+)
+        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
+        // Left (z-)
+        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
+        // Top (y+)
+        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Bottom (y-)
+        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Back (x+)
+        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Front (x-)
+        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
+        // Reduce results from box faces to single result
+        int isOnStruct = 0; // Collision reduction variable
+        for (int iter=0; iter<6; iter++) {
+          if (isOnStructFace[iter] != 7) {
+            // Check if 111 (7), set 000 (0) otherwise
+            isOnStructFace[iter] = 0;
+          } else {
+            isOnStructFace[iter] = (1 << iter / 2);
+          }
+          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
+        }
+        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
+        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
+        isInBound |= isOnStruct; // Update with regular boundary for efficiency
+
+
+#if 1
+        ///< Slip contact        
+        // Set cell velocity after grid-block/cell boundary check
+        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
+        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
+        vel[1] += isInBound & 2 ? 0.f : (g_gravity / g_length) * dt;  //< Grav. effect
+        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
+#endif        
+
 #if 0
-      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-      int j = (cidib >> g_blockbits) & g_blockmask;
-      int k = cidib & g_blockmask;
+        ///< Sticky contact
+        if (isInBound) ///< sticky
+          vel.set(0.f);
 #endif
-        vel[0] = grid_block.val_1d(_1, cidib);
-        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass;
+
+
+        vec3 ns; //< Ramp boundary surface normal
+        float ys;
+        float xs;
+        float xo;
+
+        // Start ramp segment definition for OSU flume
+        // Based on bathymetry diagram, February
+        if (xc < (14.2748/g_length)+offset) {
+          // Flat, 0' elev., 0' - 46'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
+          // Flat (adjustable), 0' elev., 46'10 - 58'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (14.2748 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
+          // 1:12, 0' elev., 58'10 - 94'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (17.9324 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
+          // 1:24, 3' elev., 94'10 - 142'10
+          ns[0] = -1.f/24.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (28.905 / g_length) + offset;
+          float yo = (0.9144 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/24.f * (xc - xo) + yo;
+
+        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
+          // Flat, 5' elev., 142'10 - 262'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (43.5356 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
+          // 1:12, 5' elev., 262'10 - 286'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (80.1116 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else {
+          // Flat, 7' elev., 286'10 onward
+          ns[0]=0.f;
+          ns[1]=1.f;
+          ns[2]=0.f;
+          float yo = (2.1336 / g_length) + offset;
+          ys = yo;        
+        }
+
+        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+        ns = ns / ns_mag;
+        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+
+        // Boundary thickness and cell distance
+        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+        // Decay coefficient
+        float ySF;
+        if (yc > ys) {
+          ySF = 0.f;
+        } else if (yc <= ys){
+          ySF = 1.f;
+        }
+
+        // fbc = -fint - fext - (1/dt)*p
+        // a = (1 / mass) * (fint + fext + ySf*fbc) 
+
+        // Adjust velocity relative to surface
+        if (0) {
+          // Normal adjustment in decay layer, fix below
+          if (ySF == 1.f) {
+            vel[0] = vel[1] = vel[2] = 0.f;
+          } else if (ySF > 0.f && ySF < 1.f) {
+            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
+            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
+            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
+          }
+        }
+        if (1) {
+          // Free above surface, normal adjusted below
+          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
+          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
+          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
+        }
+
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
-
-        vel[1] = grid_block.val_1d(_2, cidib);
-        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass;
-        vel[1] += g_gravity * dt;
         grid_block.val_1d(_2, cidib) = vel[1];
         velSqr += vel[1] * vel[1];
-
-        vel[2] = grid_block.val_1d(_3, cidib);
-        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass;
         grid_block.val_1d(_3, cidib) = vel[2];
         velSqr += vel[2] * vel[2];
       }
@@ -377,20 +587,230 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       vec3 vel;
       if (mass > 0.f) {
         mass = 1.f / mass;
+
+        // Grid node coordinate [i,j,k] in grid-block
+        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+        int j = (cidib >> g_blockbits) & g_blockmask;
+        int k = cidib & g_blockmask;
+        // Grid node position [x,y,z] in entire domain
+        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+
+        // Offset condition for Off-by-2 (see Xinlei & Fang et al.)
+        // Note you should subtract 16 nodes from total
+        // (or 4 grid blocks) to have total available length
+        float offset = (8.f*g_dx);
+
+        // Retrieve grid momentums (kg*m/s2)
+        vel[0] = grid_block.val_1d(_1, cidib); //< mvx
+        vel[1] = grid_block.val_1d(_2, cidib); //< mvy
+        vel[2] = grid_block.val_1d(_3, cidib); //< mvz
+
+
+        // WASIRF Harris Flume (Slip)
+        // Acts on individual grid-cell velocities
+        // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
+        float flumex = 104.f / g_length; // Actually 12m, added run-in/out
+        float flumey = 4.6f / g_length; // 1.22m Depth
+        float flumez = 3.67f / g_length; // 0.91m Width
+        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
+                         ((yc < offset || yc >= flumey + offset) << 1) |
+                          (zc < offset || zc >= flumez + offset);
+        isInBound |= isInFlume; // Update with regular boundary for efficiency
+
+
+        // Add grid-cell boundary for structural block, WASIRF flume
+        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
+        struct_dim[0] = (0.7871f) / g_length;
+        struct_dim[1] = (0.3935f) / g_length;
+        struct_dim[2] = (0.7871f) / g_length;
+        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
+        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
+        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+        float t = 1.0f * g_dx;
+
+        // Check if grid-cell is within sticky interior of structural box
+        // Subtract slip-layer thickness from structural box dimension for geometry
+        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
+                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
+                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
+        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+        isInBound |= isOutStruct; // Update with regular boundary for efficiency
+        
+        // Check exterior slip-layer of structural block(OSU Flume)
+        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+        int isOnStructFace[6];
+        // Right (z+)
+        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
+        // Left (z-)
+        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
+        // Top (y+)
+        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Bottom (y-)
+        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Back (x+)
+        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Front (x-)
+        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
+        // Reduce results from box faces to single result
+        int isOnStruct = 0; // Collision reduction variable
+        for (int iter=0; iter<6; iter++) {
+          if (isOnStructFace[iter] != 7) {
+            // Check if 111 (7), set 000 (0) otherwise
+            isOnStructFace[iter] = 0;
+          } else {
+            isOnStructFace[iter] = (1 << iter / 2);
+          }
+          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
+        }
+        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
+        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
+        isInBound |= isOnStruct; // Update with regular boundary for efficiency
+
+
+#if 1
+        ///< Slip contact        
+        // Set cell velocity after grid-block/cell boundary check
+        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
+        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
+        vel[1] += isInBound & 2 ? 0.f : (g_gravity / g_length) * dt;  //< Grav. effect
+        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
+#endif        
+
 #if 0
-      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-      int j = (cidib >> g_blockbits) & g_blockmask;
-      int k = cidib & g_blockmask;
+        ///< Sticky contact
+        if (isInBound) ///< sticky
+          vel.set(0.f);
 #endif
-        vel[0] = grid_block.val_1d(_1, cidib);
-        vel[0] = isInBound & 4 ? 0.f : vel[0] * mass;
 
-        vel[1] = grid_block.val_1d(_2, cidib);
-        vel[1] = isInBound & 2 ? 0.f : vel[1] * mass;
-        vel[1] += g_gravity * dt;
 
-        vel[2] = grid_block.val_1d(_3, cidib);
-        vel[2] = isInBound & 1 ? 0.f : vel[2] * mass;
+        vec3 ns; //< Ramp boundary surface normal
+        float ys;
+        float xs;
+        float xo;
+
+        // Start ramp segment definition for OSU flume
+        // Based on bathymetry diagram, February
+        if (xc < (14.2748/g_length)+offset) {
+          // Flat, 0' elev., 0' - 46'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
+          // Flat (adjustable), 0' elev., 46'10 - 58'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (14.2748 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
+          // 1:12, 0' elev., 58'10 - 94'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (17.9324 / g_length) + offset;
+          float yo = offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
+          // 1:24, 3' elev., 94'10 - 142'10
+          ns[0] = -1.f/24.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (28.905 / g_length) + offset;
+          float yo = (0.9144 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/24.f * (xc - xo) + yo;
+
+        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
+          // Flat, 5' elev., 142'10 - 262'10
+          ns[0] = 0.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (43.5356 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = yo;
+
+        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
+          // 1:12, 5' elev., 262'10 - 286'10
+          ns[0] = -1.f/12.f;
+          ns[1] = 1.f;
+          ns[2] = 0.f;
+          xo = (80.1116 / g_length) + offset;
+          float yo = (1.524 / g_length) + offset;
+          xs = xc;
+          ys = 1.f/12.f * (xc - xo) + yo;
+
+        } else {
+          // Flat, 7' elev., 286'10 onward
+          ns[0]=0.f;
+          ns[1]=1.f;
+          ns[2]=0.f;
+          float yo = (2.1336 / g_length) + offset;
+          ys = yo;        
+        }
+
+        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+        ns = ns / ns_mag;
+        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+
+        // Boundary thickness and cell distance
+        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+        // Decay coefficient
+        float ySF;
+        if (yc > ys) {
+          ySF = 0.f;
+        } else if (yc <= ys){
+          ySF = 1.f;
+        }
+
+        // fbc = -fint - fext - (1/dt)*p
+        // a = (1 / mass) * (fint + fext + ySf*fbc) 
+
+        // Adjust velocity relative to surface
+        if (0) {
+          // Normal adjustment in decay layer, fix below
+          if (ySF == 1.f) {
+            vel.set(0.f);
+          } else if (ySF > 0.f && ySF < 1.f) {
+            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
+            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
+            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
+          }
+        }
+        if (1) {
+          // Free above surface, normal adjusted below
+          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
+          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
+          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
+        }
+
 
         ivec3 cellid{(cidib & 0x30) >> 4, (cidib & 0xc) >> 2, cidib & 0x3};
         boundary.detect_and_resolve_collision(blockid, cellid, 0.f, vel);

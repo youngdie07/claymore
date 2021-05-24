@@ -53,9 +53,22 @@ constexpr int g_blockmask = ((1 << BLOCK_BITS) - 1);
 constexpr int g_blockvolume = (1 << (BLOCK_BITS * 3));
 constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
-constexpr int g_grid_size_x = g_grid_size;
-constexpr int g_grid_size_y = g_grid_size / 16;
-constexpr int g_grid_size_z = g_grid_size / 16;
+// constexpr int g_grid_size_x = g_grid_size;
+// constexpr int g_grid_size_y = g_grid_size / 16;
+// constexpr int g_grid_size_z = g_grid_size / 16;
+
+// Domain size
+#define DOMAIN_VOLUME 0.4f
+constexpr float g_length   = 128.0f; //< Domain full length (m)
+constexpr float g_length_x = 128.0f; //< Domain x length (m)
+constexpr float g_length_y = 8.f;   //< Domain y length (m)
+constexpr float g_length_z = 8.f;   //< Domain z length (m)
+constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
+constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
+constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
+constexpr int g_grid_size_x = g_grid_size * g_grid_ratio_x; //< Domain x grid-blocks
+constexpr int g_grid_size_y = g_grid_size * g_grid_ratio_y; //< Domain y grid-blocks
+constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-blocks
 
 
 // partition domains
@@ -78,15 +91,31 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
     else if (did == 1)
       //domain._min[0] = len + 1;
       domain._min[0] = g_grid_size_x / 2 + 1;
-  } else if (g_device_cnt <= 4 && g_device_cnt >= 3) {
+  } else if (g_device_cnt == 4) {
     // domain._min[0] = (did & 2) ? len + 1 : 0;
     // domain._min[2] = (did & 1) ? len + 1 : 0;
     // domain._max[0] = (did & 2) ? g_grid_size - 1 : len;
     // domain._max[2] = (did & 1) ? g_grid_size - 1 : len;
-    domain._min[0] = (did & 2) ? g_grid_size_x / 2 + 1 : 0;
-    domain._min[2] = (did & 1) ? g_grid_size_z / 2 + 1 : 0;
-    domain._max[0] = (did & 2) ? g_grid_size_x - 1 : g_grid_size_x;
-    domain._max[2] = (did & 1) ? g_grid_size_z - 1 : g_grid_size_z;
+    if (did == 0) {
+      domain._min[0] = 0;
+      domain._max[0] = g_grid_size_x / 4;
+    }
+    else if (did == 1) {
+      domain._min[0] = g_grid_size_x / 4 + 1;
+      domain._max[0] = 2 * g_grid_size_x / 4;
+    }
+    else if (did == 2) {
+      domain._min[0] = 2 * g_grid_size_x / 4 + 1;
+      domain._max[0] = 3 * g_grid_size_x / 4;
+    }
+    else if (did == 3) {
+      domain._min[0] = 3 * g_grid_size_x / 4 + 1;
+      domain._max[0] = g_grid_size_x - 1;
+    }    
+    // domain._min[0] = (did & 2) ? g_grid_size_x / 2 + 1 : 0;
+    // domain._min[2] = (did & 1) ? g_grid_size_z / 2 + 1 : 0;
+    // domain._max[0] = (did & 2) ? g_grid_size_x - 1 : g_grid_size_x;
+    // domain._max[2] = (did & 1) ? g_grid_size_z - 1 : g_grid_size_z;
   } else
     domain._max[0] = domain._max[1] = domain._max[2] = -3;
   return domain;
@@ -108,7 +137,7 @@ constexpr float g_gravity = -9.81f;
 
 /// only used on host
 constexpr int g_max_particle_num = 2000000;
-constexpr int g_max_active_block = 12000; /// 62500 bytes for active mask
+constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);

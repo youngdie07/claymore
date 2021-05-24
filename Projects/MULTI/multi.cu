@@ -73,10 +73,20 @@ void init_models(
             ivec3{8 + (idx & 1 ? STRIDE : 0), 8, 8},
             ivec3{8 + (idx & 1 ? STRIDE : 0) + LEN, 8 + LEN / 3,
                   8 + LEN});
+                  
         models[did].insert(models[did].end(), model.begin(), model.end());
       }
     }
   } break;
+  case 4: {
+      float off = 8.f * g_dx;
+      float length_x = 82.85f / g_length / 4.f;
+      float length_y = 1.7526f / g_length / 4.f;
+      float length_z = 3.6576f / g_length / 4.f;
+      models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf"}, 1.f, g_dx,
+                        vec<float, 3>{off, off, off},
+                        vec<float, 3>{length_x, length_y, length_z});
+  }
   default:
     break;
   }
@@ -91,7 +101,7 @@ int main() {
 
   auto benchmark = std::make_unique<mgsp_benchmark>();
   /// init
-  init_models(models, 3);
+  init_models(models, 4);
 
   for (int did = 0; did < g_device_cnt; ++did)
     benchmark->initModel(did, models[did]);
