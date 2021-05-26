@@ -85,17 +85,17 @@ void init_models(
       float length_z = 3.6576f / g_length * 0.3048f;
       float spacing = 1.7526f / 4 / g_length * 0.3048f;
       models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z3_dx0.2_pad1.sdf"}, 1.f, g_dx,
-                        vec<float, 3>{off, off, off},
+                        vec<float, 3>{off, off, (off+0.f*spacing},
                         vec<float, 3>{length_x, length_y, length_z});
       models[1] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z3_dx0.2_pad1.sdf"}, 1.f, g_dx,
-                        vec<float, 3>{off, off, off},
-                        vec<float, 3>{length_x, length_y, (length_z + spacing)});
+                        vec<float, 3>{off, off, (off+1.f*spacing)},
+                        vec<float, 3>{length_x, length_y, length_z});
       models[2] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z3_dx0.2_pad1.sdf"}, 1.f, g_dx,
-                        vec<float, 3>{off, off, off},
-                        vec<float, 3>{length_x, length_y, (length_z + 2.f*spacing)});
+                        vec<float, 3>{off, off, (off+2.f*spacing)},
+                        vec<float, 3>{length_x, length_y, length_z});
       models[3] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z3_dx0.2_pad1.sdf"}, 1.f, g_dx,
-                        vec<float, 3>{off, off, off},
-                        vec<float, 3>{length_x, length_y, (length_z + 3.f*spacing)});
+                        vec<float, 3>{off, off, (off+3.f*spacing)},
+                        vec<float, 3>{length_x, length_y, length_z});
   }
   default:
     break;
