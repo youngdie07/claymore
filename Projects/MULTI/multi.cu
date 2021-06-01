@@ -80,7 +80,7 @@ void init_models(
   } break;
   case 4: {
       float off = 8.f * g_dx;
-      float f = 0.2f;
+      float f = 0.225f;
       float off_z1 = 1.f * (3.6576f / g_length) * f + off;
       float off_z2 = 2.f * (3.6576f / g_length) * f + off;
       float off_z3 = 3.f * (3.6576f / g_length) * f + off;
