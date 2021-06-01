@@ -236,7 +236,7 @@ struct mgsp_benchmark {
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
                 // gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel);
                 gridBlocks[0][did], partitions[rollid][did], dt,
-                (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel);
+                (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime);
           else
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
@@ -244,7 +244,7 @@ struct mgsp_benchmark {
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
                 // gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel);
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime);
           checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
                                           sizeof(float), cudaMemcpyDefault,
                                           cuDev.stream_compute()));

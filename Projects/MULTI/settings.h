@@ -96,21 +96,37 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
     // domain._min[2] = (did & 1) ? len + 1 : 0;
     // domain._max[0] = (did & 2) ? g_grid_size - 1 : len;
     // domain._max[2] = (did & 1) ? g_grid_size - 1 : len;
+    // if (did == 0) {
+    //   domain._min[0] = 0;
+    //   domain._max[0] = g_grid_size_x / 4;
+    // }
+    // else if (did == 1) {
+    //   domain._min[0] = g_grid_size_x / 4 + 1;
+    //   domain._max[0] = 2 * g_grid_size_x / 4;
+    // }
+    // else if (did == 2) {
+    //   domain._min[0] = 2 * g_grid_size_x / 4 + 1;
+    //   domain._max[0] = 3 * g_grid_size_x / 4;
+    // }
+    // else if (did == 3) {
+    //   domain._min[0] = 3 * g_grid_size_x / 4 + 1;
+    //   domain._max[0] = g_grid_size_x - 1;
+    // }    
     if (did == 0) {
-      domain._min[0] = 0;
-      domain._max[0] = g_grid_size_x / 4;
+      domain._min[1] = 0;
+      domain._max[1] = g_grid_size_z / 4;
     }
     else if (did == 1) {
-      domain._min[0] = g_grid_size_x / 4 + 1;
-      domain._max[0] = 2 * g_grid_size_x / 4;
+      domain._min[1] = g_grid_size_z / 4 + 1;
+      domain._max[1] = 2 * g_grid_size_z / 4;
     }
     else if (did == 2) {
-      domain._min[0] = 2 * g_grid_size_x / 4 + 1;
-      domain._max[0] = 3 * g_grid_size_x / 4;
+      domain._min[1] = 2 * g_grid_size_z / 4 + 1;
+      domain._max[1] = 3 * g_grid_size_z / 4;
     }
     else if (did == 3) {
-      domain._min[0] = 3 * g_grid_size_x / 4 + 1;
-      domain._max[0] = g_grid_size_x - 1;
+      domain._min[1] = 3 * g_grid_size_z / 4 + 1;
+      domain._max[1] = g_grid_size_z - 1;
     }    
     // domain._min[0] = (did & 2) ? g_grid_size_x / 2 + 1 : 0;
     // domain._min[2] = (did & 1) ? g_grid_size_z / 2 + 1 : 0;

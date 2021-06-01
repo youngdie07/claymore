@@ -80,7 +80,7 @@ void init_models(
   } break;
   case 4: {
       float off = 8.f * g_dx;
-      float f = 0.25f;
+      float f = 0.2f;
       float off_z1 = 1.f * (3.6576f / g_length) * f + off;
       float off_z2 = 2.f * (3.6576f / g_length) * f + off;
       float off_z3 = 3.f * (3.6576f / g_length) * f + off;
@@ -100,6 +100,10 @@ void init_models(
       models[3] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 1.f, g_dx,
                         vec<float, 3>{off, off, off_z3},
                         vec<float, 3>{length_x, length_y, length_z});
+      // float length_z = 3.6576f / g_length * f;
+      // models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf"}, 1.f, g_dx,
+      //                   vec<float, 3>{off, off, off},
+      //                   vec<float, 3>{length_x, length_y, length_z});
   }
   default:
     break;

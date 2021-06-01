@@ -2292,7 +2292,7 @@ __global__ void g2p2g(float dt, float newDt, float curTime,
       vel[0] = 0.f;
     }
     else {
-      vel[0] = 2.f * (1.f/length);
+      vel[0] = 1.375f * (1.f/length);
     }
     pos += vel * dt;
 

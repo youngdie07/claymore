@@ -278,7 +278,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel) {
+                                               float *maxVel, float curTime) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -527,6 +527,21 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel[2] = vel[2] - ySF * (vdotns * ns[2]);
         }
 
+
+        // OSU Wave-Maker
+        float wm_pos;
+        float wm_vel;
+        if (curTime >= 1.f && curTime < 3.f){
+          wm_vel = 2.f / g_length;
+          wm_pos = (curTime - 1.f) * 2.f / g_length + offset;
+        } else {
+          wm_vel = 0.f;
+          wm_pos = offset;
+        }
+        if (xc < wm_pos) {
+          vel[0] = wm_vel;
+        }
+
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
         grid_block.val_1d(_2, cidib) = vel[1];
@@ -561,7 +576,7 @@ template <typename Grid, typename Partition, typename Boundary>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
                                                Boundary boundary,
-                                               float *maxVel) {
+                                               float *maxVel, float curTime) {
   constexpr int bc = 2;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;

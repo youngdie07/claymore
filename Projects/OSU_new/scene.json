@@ -11,10 +11,10 @@
                "type": "particle",
                "file": "Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf",
                "constitutive": "jfluid",
-               "ppc": 4,
+               "ppc": 1.4,
                "volume": 0.00000271444082519,
                "rho": 1e3,
-               "bulk_modulus": 2e8,
+               "bulk_modulus": 4e6,
                "gamma": 6.1,
                "viscosity": 0.001,
                "offset": [
