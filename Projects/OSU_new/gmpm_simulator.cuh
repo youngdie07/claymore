@@ -336,7 +336,7 @@ struct GmpmSimulator {
                                 g_num_warps_per_cuda_block * 32,
                                 g_num_warps_per_cuda_block},
                                update_grid_velocity_query_max, (uint32_t)nbcnt,
-                               gridBlocks[0], partitions[rollid], dt, d_maxVel, layer);
+                               gridBlocks[0], partitions[rollid], dt, d_maxVel, layer, curTime);
           checkCudaErrors(cudaMemcpyAsync(&maxVels, d_maxVel, sizeof(float),
                                           cudaMemcpyDefault,
                                           cuDev.stream_compute()));

@@ -363,7 +363,7 @@ __global__ void update_grid_hierarchy(uint32_t blockCount,
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, int layer) {
+                                               float *maxVel, int layer, float curTime) {
   constexpr int bc = g_bc; //< Num of 'buffer' grid-blocks at domain exterior
   constexpr int numWarps = g_num_grid_blocks_per_cuda_block * 
     g_num_warps_per_grid_block; //< Warps per block
@@ -641,7 +641,23 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel[2] = vel[2] - ySF * (vdotns * ns[2]);
         }
 
-
+        // OSU Wave-Maker
+        float wm_pos;
+        float wm_vel;
+        if (curTime >= 1.f && curTime < 3.f){
+          wm_vel = 2.f / g_length;
+          wm_pos = (curTime - 1.f) * 2.f / g_length + offset;
+        } else if (curTime >= 3.f) {
+          wm_vel = 0.f;
+          wm_pos = (3.f - 1.f) * 2.f / g_length + offset;
+        } else {
+          wm_vel = 0.f;
+          wm_pos = offset;
+        }
+        if (xc < wm_pos) {
+          vel[0] = wm_vel;
+        }
+        
         // Set grid buffer momentum to velocity (m/s) for G2P transfer
         grid_block.val_1d(_1, cidib) = vel[0]; //< vx
         velSqr += vel[0] * vel[0];

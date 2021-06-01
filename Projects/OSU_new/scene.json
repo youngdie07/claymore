@@ -32,31 +32,6 @@
                    0.0,
                    0
                ]
-           },
-           {
-               "type": "particle",
-               "file": "Flume/OSU_Piston_x0.5_y3.658_z3.658_dx0.1_pad1.sdf",
-               "constitutive": "piston",
-               "ppc": 1.4,
-               "volume": 0.00000271444082519,
-               "rho": 1e3,
-               "youngs_modulus": 1e3,
-               "poisson_ratio": 0.3,
-               "offset": [
-                   -0.6,
-                   -0.15,
-                   -0.15
-               ],
-               "span": [
-                   0.6,
-                   4,
-                   4
-               ],
-               "velocity": [
-                   0.0,
-                   0.0,
-                   0
-               ]
            }
         ],
     "targets": [

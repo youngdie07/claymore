@@ -534,6 +534,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (curTime >= 1.f && curTime < 3.f){
           wm_vel = 2.f / g_length;
           wm_pos = (curTime - 1.f) * 2.f / g_length + offset;
+        } else if (curTime >= 3.f) {
+          wm_vel = 0.f;
+          wm_pos = (3.f - 1.f) * 2.f / g_length + offset;
         } else {
           wm_vel = 0.f;
           wm_pos = offset;

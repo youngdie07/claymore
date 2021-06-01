@@ -33,7 +33,7 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 8.f
+#define MODEL_PPC 2.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
@@ -58,7 +58,7 @@ constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 // constexpr int g_grid_size_z = g_grid_size / 16;
 
 // Domain size
-#define DOMAIN_VOLUME 0.4f
+#define DOMAIN_VOLUME 8192.f
 constexpr float g_length   = 128.0f; //< Domain full length (m)
 constexpr float g_length_x = 128.0f; //< Domain x length (m)
 constexpr float g_length_y = 8.f;   //< Domain y length (m)

@@ -67,8 +67,8 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{2e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
-        fps{24}, bRunning{true} {
+      : dtDefault{1e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+        fps{10}, bRunning{true} {
     // data
     _hostData =
         spawn<signed_distance_field_, orphan_signature>(host_allocator{});
