@@ -1002,15 +1002,15 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
@@ -1020,7 +1020,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vec9 contrib;
     {
       float voln = J * pbuffer.volume;
-      float pressure = pbuffer.bulk * (powf(J, -pbuffer.gamma) - 1.f);
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f);
       {
         contrib[0] =
             ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;

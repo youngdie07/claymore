@@ -73,9 +73,9 @@ struct ParticleBuffer<material_e::JFluid>
       (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
        MODEL_PPC);
   static constexpr float mass = (volume * rho);
-  static constexpr float bulk = 4e4;
-  static constexpr float gamma = 7.15f;
-  static constexpr float visco = 0.01f;
+  static constexpr float bulk = 4e6;
+  static constexpr float gamma = 6.1f;
+  static constexpr float visco = 0.001f;
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
