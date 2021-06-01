@@ -25,7 +25,7 @@ constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
   return type;
 }
-constexpr int g_total_frame_cnt = 60;
+constexpr int g_total_frame_cnt = 200;
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
