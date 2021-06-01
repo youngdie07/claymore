@@ -981,6 +981,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1008,7 +1014,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         }
     pos += vel * dt;
 
-    J = (1 + (C[0] + C[4] + C[8]) * dt * g_D_inv) * J;
+    J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
     if (J < 0.1)
       J = 0.1;
     vec9 contrib;
@@ -1017,21 +1023,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       float pressure = pbuffer.bulk * (powf(J, -pbuffer.gamma) - 1.f);
       {
         contrib[0] =
-            ((C[0] + C[0]) * g_D_inv * pbuffer.visco - pressure) * voln;
-        contrib[1] = (C[1] + C[3]) * g_D_inv * pbuffer.visco * voln;
-        contrib[2] = (C[2] + C[6]) * g_D_inv * pbuffer.visco * voln;
+            ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[1] = (C[1] + C[3]) * Dp_inv * pbuffer.visco * voln;
+        contrib[2] = (C[2] + C[6]) * Dp_inv * pbuffer.visco * voln;
 
-        contrib[3] = (C[3] + C[1]) * g_D_inv * pbuffer.visco * voln;
+        contrib[3] = (C[3] + C[1]) * Dp_inv * pbuffer.visco * voln;
         contrib[4] =
-            ((C[4] + C[4]) * g_D_inv * pbuffer.visco - pressure) * voln;
-        contrib[5] = (C[5] + C[7]) * g_D_inv * pbuffer.visco * voln;
+            ((C[4] + C[4]) * Dp_inv * pbuffer.visco - pressure) * voln;
+        contrib[5] = (C[5] + C[7]) * Dp_inv * pbuffer.visco * voln;
 
-        contrib[6] = (C[6] + C[2]) * g_D_inv * pbuffer.visco * voln;
-        contrib[7] = (C[7] + C[5]) * g_D_inv * pbuffer.visco * voln;
+        contrib[6] = (C[6] + C[2]) * Dp_inv * pbuffer.visco * voln;
+        contrib[7] = (C[7] + C[5]) * Dp_inv * pbuffer.visco * voln;
         contrib[8] =
-            ((C[8] + C[8]) * g_D_inv * pbuffer.visco - pressure) * voln;
+            ((C[8] + C[8]) * Dp_inv * pbuffer.visco - pressure) * voln;
       }
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
         auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
                                                     pidib / g_bin_capacity);
