@@ -531,12 +531,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // OSU Wave-Maker
         float wm_pos;
         float wm_vel;
-        if (curTime >= 1.f && curTime < 3.f){
+        if (curTime >= 2.f && curTime < 4.f){
           wm_vel = 2.f / g_length;
-          wm_pos = (curTime - 1.f) * 2.f / g_length + offset;
-        } else if (curTime >= 3.f) {
+          wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
+        } else if (curTime >= 4.f) {
           wm_vel = 0.f;
-          wm_pos = (3.f - 1.f) * 2.f / g_length + offset;
+          wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
         } else {
           wm_vel = 0.f;
           wm_pos = offset;
@@ -2107,6 +2107,177 @@ __global__ void retrieve_particle_buffer(Partition partition,
     parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
   }
 }
+
+
+/// Functions to retrieve particle positions and attributes (JB)
+/// Copies from particle buffer to two particle arrays (device --> device)
+/// Depends on material model (JFluid, FixedCorotated, NACC, Sand) 
+/// Copy/paste/modify function for new material
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::JFluid> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleArray pattrib,
+                                         int *_parcnt) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
+      float J = source_bin.val(_3, _source_pidib);
+      float pressure = (pbuffer.bulk / pbuffer.gamma) * 
+        (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
+      pattrib.val(_0, parid) = J;              //< J (V/Vo)
+      pattrib.val(_1, parid) = pressure;       //< Pressure (Pa)
+      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::FixedCorotated> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleArray pattrib,
+                                         int *_parcnt) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes to pattribs (device --> device) 
+      pattrib.val(_0, parid) = 0.f;  
+      pattrib.val(_1, parid) = 0.f; 
+      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::NACC> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleArray pattrib,
+                                         int *_parcnt) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes to pattribs (device --> device)
+      pattrib.val(_0, parid) = 0.f; 
+      pattrib.val(_1, parid) = 0.f; 
+      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    }
+  }
+}
+
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::Sand> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleArray pattrib,
+                                         int *_parcnt) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes to pattribs (device --> device)
+      pattrib.val(_0, parid) = 0.f;    
+      pattrib.val(_1, parid) = 0.f; 
+      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    }
+  }
+}
+
+
+
 
 } // namespace mn
 

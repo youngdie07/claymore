@@ -58,6 +58,7 @@ struct mgsp_benchmark {
     inputHaloGridBlocks.emplace_back(g_device_cnt);
     outputHaloGridBlocks.emplace_back(g_device_cnt);
     particles[I] = spawn<particle_array_, orphan_signature>(device_allocator{});
+    pattribs[I] = spawn<particle_array_, orphan_signature>(device_allocator{}); //< Particle attributes on device
     checkedCnts[I][0] = 0;
     checkedCnts[I][1] = 0;
     curNumActiveBlocks[I] = config::g_max_active_block;
@@ -106,6 +107,12 @@ struct mgsp_benchmark {
                     sizeof(std::array<float, 3>) * model.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
+
+    cudaMemcpyAsync((void *)&pattribs[devid].val_1d(_0, 0), model.data(),
+                    sizeof(std::array<float, 3>) * model.size(),
+                    cudaMemcpyDefault, cuDev.stream_compute());
+    cuDev.syncStream<streamIdx::Compute>();
+
 
     std::string fn = std::string{"model"} + "_dev[" + std::to_string(devid) +
                      "]_frame[0].bgeo";
@@ -475,10 +482,15 @@ struct mgsp_benchmark {
     int parcnt, *d_parcnt = (int *)cuDev.borrow(sizeof(int));
     checkCudaErrors(
         cudaMemsetAsync(d_parcnt, 0, sizeof(int), cuDev.stream_compute()));
+    // match(particleBins[rollid][did])([&](const auto &pb) {
+    //   cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer,
+    //                        partitions[rollid][did], partitions[rollid ^ 1][did],
+    //                        pb, particles[did], d_parcnt);
+    // });
     match(particleBins[rollid][did])([&](const auto &pb) {
-      cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer,
+      cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes,
                            partitions[rollid][did], partitions[rollid ^ 1][did],
-                           pb, particles[did], d_parcnt);
+                           pb, particles[did], pattribs[did], d_parcnt);
     });
     checkCudaErrors(cudaMemcpyAsync(&parcnt, d_parcnt, sizeof(int),
                                     cudaMemcpyDefault, cuDev.stream_compute()));
@@ -490,10 +502,18 @@ struct mgsp_benchmark {
                                     sizeof(std::array<float, 3>) * (parcnt),
                                     cudaMemcpyDefault, cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
+
+    attribs[did].resize(parcnt);
+    checkCudaErrors(cudaMemcpyAsync(attribs[did].data(),
+                                    (void *)&pattribs[did].val_1d(_0, 0),
+                                    sizeof(std::array<float, 3>) * (parcnt),
+                                    cudaMemcpyDefault, cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+
     std::string fn = std::string{"model"} + "_dev[" + std::to_string(did) +
                      "]_frame[" + std::to_string(curFrame) + "].bgeo";
     IO::insert_job(
-        [fn, model = models[did]]() { write_partio<float, 3>(fn, model); });
+        [fn, m = models[did], a = attribs[did]]() { write_partio_particles<float, 3>(fn, m, a); });
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particles", did,
                            curFrame, curStep));
   }
@@ -743,6 +763,8 @@ struct mgsp_benchmark {
   // std::vector<HaloParticleBlocks> inputHaloParticleBlocks,
   // outputHaloParticleBlocks;
   vec<ParticleArray, config::g_device_cnt> particles;
+  vec<ParticleArray, config::g_device_cnt> pattribs;
+
   struct {
     void *base;
     float *d_maxVel;
@@ -784,6 +806,8 @@ struct mgsp_benchmark {
   vec<uint32_t, config::g_device_cnt> pcnt;                   ///< num particles
   std::vector<float> durations[config::g_device_cnt + 1];
   std::vector<std::array<float, 3>> models[config::g_device_cnt];
+  std::vector<std::array<float, 3>> attribs[config::g_device_cnt];
+
   Instance<signed_distance_field_> _hostData;
 
   /// control
