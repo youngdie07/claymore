@@ -49,8 +49,8 @@ struct mgsp_benchmark {
     tmps[I].alloc(config::g_max_active_block);
     for (int copyid = 0; copyid < 2; copyid++) {
       gridBlocks[copyid].emplace_back(device_allocator{});
-      particleBins[copyid].emplace_back(
-          ParticleBuffer<get_material_type(I)>{device_allocator{}});
+      // particleBins[copyid].emplace_back(
+      //     ParticleBuffer<get_material_type(I)>{device_allocator{}});
       particleBins[copyid].emplace_back(
           ParticleBuffer<config::g_material_list[I]>{device_allocator{}});
       partitions[copyid].emplace_back(device_allocator{},

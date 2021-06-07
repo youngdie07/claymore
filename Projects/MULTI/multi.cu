@@ -89,9 +89,9 @@ void init_models(
 
       if (g_device_cnt >= 4) {
         water_lengths[2] = 3.6576f / g_length * f / 4.f;
-        float off_z1 = 1.f * (3.6576f / g_length) * f + off;
-        float off_z2 = 2.f * (3.6576f / g_length) * f + off;
-        float off_z3 = 3.f * (3.6576f / g_length) * f + off;
+        float off_z1 = 1.f/4.f * (3.6576f / g_length) * f + off;
+        float off_z2 = 2.f/4.f * (3.6576f / g_length) * f + off;
+        float off_z3 = 3.f/4.f * (3.6576f / g_length) * f + off;
         models[0] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
                           water_ppc, g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off},
