@@ -68,14 +68,21 @@ template <>
 struct ParticleBuffer<material_e::JFluid>
     : ParticleBufferImpl<material_e::JFluid> {
   using base_t = ParticleBufferImpl<material_e::JFluid>;
-  static constexpr float rho = DENSITY;
-  static constexpr float volume = DOMAIN_VOLUME *
-      (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float mass = (volume * rho);
-  static constexpr float bulk = 4e6;
-  static constexpr float gamma = 6.1f;
-  static constexpr float visco = 0.001f;
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
+  float bulk = 4e5;
+  float gamma = 6.1f;
+  float visco = 0.001f;
+  void updateParameters(float density, float vol, float b, float g, float v) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    bulk = b;
+    gamma = g;
+    visco = v;
+  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -84,19 +91,22 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated>
     : ParticleBufferImpl<material_e::FixedCorotated> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated>;
-  static constexpr float rho = DENSITY;
-  static constexpr float volume =
-      (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float mass =
-      (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float E = YOUNGS_MODULUS;
-  static constexpr float nu = POISSON_RATIO;
-  static constexpr float lambda =
-      YOUNGS_MODULUS * POISSON_RATIO /
-      ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  static constexpr float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC_FC);
+  float mass = (volume * DENSITY);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  void updateParameters(float density, float vol, float E, float nu) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -104,19 +114,17 @@ struct ParticleBuffer<material_e::FixedCorotated>
 template <>
 struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   using base_t = ParticleBufferImpl<material_e::Sand>;
-  static constexpr float rho = DENSITY;
-  static constexpr float volume =
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * 
       (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
        MODEL_PPC);
-  static constexpr float mass =
-      (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float E = YOUNGS_MODULUS;
-  static constexpr float nu = POISSON_RATIO;
-  static constexpr float lambda =
+  float mass = (volume * DENSITY);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda =
       YOUNGS_MODULUS * POISSON_RATIO /
       ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  static constexpr float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
   static constexpr float logJp0 = 0.f;
   static constexpr float frictionAngle = 30.f;
@@ -128,7 +136,13 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   static constexpr float yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
   static constexpr bool volumeCorrection = true;
-
+  void updateParameters(float density, float vol, float E, float nu) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -136,29 +150,24 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
 template <>
 struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   using base_t = ParticleBufferImpl<material_e::NACC>;
-  static constexpr float rho = DENSITY;
-  static constexpr float volume =
-      (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float mass =
-      (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
-  static constexpr float E = YOUNGS_MODULUS;
-  static constexpr float nu = POISSON_RATIO;
-  static constexpr float lambda =
-      YOUNGS_MODULUS * POISSON_RATIO /
-      ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  static constexpr float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  static constexpr float frictionAngle = 45.f;
-  static constexpr float bm =
-      2.f / 3.f * (YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO))) +
-      (YOUNGS_MODULUS * POISSON_RATIO /
-       ((1 + POISSON_RATIO) *
-        (1 - 2 * POISSON_RATIO)));  ///< bulk modulus, kappa
-  static constexpr float xi = 0.8f; ///< hardening factor
+  float frictionAngle = 45.f;
+  float bm = 2.f / 3.f * (YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO))) +
+             (YOUNGS_MODULUS * POISSON_RATIO /
+              ((1 + POISSON_RATIO) *
+               (1 - 2 * POISSON_RATIO))); ///< bulk modulus, kappa
+  float xi = 0.8f;                        ///< hardening factor
   static constexpr float logJp0 = -0.01f;
-  static constexpr float beta = 0.5f;
+  float beta = 0.5f;
   static constexpr float mohrColumbFriction =
       0.503599787772409; //< sqrt((T)2 / (T)3) * (T)2 * sin_phi / ((T)3 -
                          // sin_phi);
@@ -168,6 +177,18 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   static constexpr float Msqr = 3.423772074299613;
   static constexpr bool hardeningOn = true;
 
+  void updateParameters(float density, float vol, float E, float nu, float be,
+                        float x) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+    bm =
+        2.f / 3.f * (E / (2 * (1 + nu))) + (E * nu / ((1 + nu) * (1 - 2 * nu)));
+    beta = be;
+    xi = x;
+  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };

@@ -73,6 +73,7 @@ using grid_array_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridArrayDomain, attrib_layout::aos, f32_, f32_, f32_, f32_, f32_, f32_, f32_>;
+               // x, y, z, mass, Mx, My, Mz
 
 // Structure to hold grid-cell target values for ouput (device)
 // Dynamic structure

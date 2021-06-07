@@ -3,6 +3,7 @@
 #include "mgmpm_kernels.cuh"
 #include "settings.h"
 #include <MnSystem/Cuda/HostUtils.hpp>
+#include <MnBase/Meta/Polymorphism.h>
 
 namespace mn {
 
@@ -11,6 +12,8 @@ using BlockDomain = compact_domain<char, config::g_blocksize,
 using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size,
                                   config::g_grid_size>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
+using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
+using GridTargetDomain = compact_domain<int, config::g_target_cells>;
 
 using grid_block_ =
     structural<structural_type::dense,
@@ -27,6 +30,26 @@ using grid_buffer_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_>;
+
+// Structure to hold downsampled grid-block values for ouput (device)
+// Dynamic structure
+using grid_array_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridArrayDomain, attrib_layout::aos, f32_, f32_, f32_, f32_, f32_, f32_, f32_>;
+               // x, y, z, mass, Mx, My, Mz
+
+// Structure to hold grid-cell target values for ouput (device)
+// Dynamic structure
+using grid_target_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridTargetDomain, attrib_layout::aos, f32_, f32_, f32_, 
+               f32_, f32_, f32_, f32_, 
+               f32_, f32_, f32_>;
+               // x, y, z, mass, Mx, My, Mz, fx, fy, fz
 
 struct GridBuffer : Instance<grid_buffer_> {
   using base_t = Instance<grid_buffer_>;
@@ -48,6 +71,28 @@ struct GridBuffer : Instance<grid_buffer_> {
     cuDev.compute_launch({blockCnt, config::g_blockvolume}, clear_grid, *this);
 #endif
   }
+};
+
+/// 1D GridArray structure for device instantiation (JB)
+struct GridArray : Instance<grid_array_> {
+  using base_t = Instance<grid_array_>;
+  GridArray &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  GridArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
+};
+
+/// 1D GridTarget structure for device instantiation (JB)
+struct GridTarget : Instance<grid_target_> {
+  using base_t = Instance<grid_target_>;
+  GridTarget &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  GridTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
+  // template <typename Allocator>
+  // GridTarget(Allocator allocator) : base_t{allocator} {}
 };
 
 } // namespace mn

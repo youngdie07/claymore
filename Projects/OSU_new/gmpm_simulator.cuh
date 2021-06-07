@@ -702,9 +702,7 @@ struct GmpmSimulator {
     /// Reserve memory
     checkCudaErrors(
         cudaMemsetAsync(d_target_cnt, 0, sizeof(int), cuDev.stream_compute()));
-    
-    /// Use previously set active block marks for efficiency
-    int *activeBlockMarks = tmps.activeBlockMarks;
+
     target_cnt = g_target_cells;
 
     // Setup forceSum on device and host
@@ -726,7 +724,7 @@ struct GmpmSimulator {
     cuDev.compute_launch(
               {curNumActiveBlocks, 32}, retrieve_selected_grid_cells, (uint32_t)nbcnt,
               (const ivec3 *)partitions[rollid]._activeKeys,
-              partitions[rollid], (const int *)activeBlockMarks,
+              partitions[rollid],
               gridBlocks[0], d_gridTarget[0],
               dt, d_forceSum, d_point_a, d_point_b);
     cuDev.syncStream<streamIdx::Compute>();
@@ -894,10 +892,9 @@ struct GmpmSimulator {
   std::vector<particle_buffer_t> particleBins[2];
   std::vector<Partition<1>> partitions; ///< with halo info  
   std::vector<GridArray>     nodes;     ///< Node array structure on device, 4+ f32 (ID+, mass, mx,my,mz) (JB)
-  std::vector<GridTarget> d_gridTarget; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
-
-  vec3 d_point_a; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
-  vec3 d_point_b; ///< Node array structure on device, 4+ f32 (x,y,z, mass, mx,my,mz) (JB)
+  std::vector<GridTarget> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
+  vec3 d_point_a; ///< Point A of target (JB)
+  vec3 d_point_b; ///< Point B of target (JB)
   std::vector<ParticleArray> particles; ///< Particle array structure on device,  three f32 (x,y,z) (JB)
   std::vector<ParticleArray> pattribs;  ///< Particle atrrib structure on device, three f32 (.,.,.) (JB)  
   struct Intermediates {
@@ -950,9 +947,9 @@ struct GmpmSimulator {
   std::vector<std::array<float, 3>> model;   ///< Particle info (x,y,z) on host (JB)
   std::vector<std::array<float, 3>> attribs; ///< Particle attributes on host (JB)
   std::vector<std::array<float, 7>> graph;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  std::vector<std::array<float, 10>> h_gridTarget;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  vec3 h_point_a;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
-  vec3 h_point_b;   ///< Grid info (x,y,z,m,mx,my,mz) on host (JB)
+  std::vector<std::array<float, 10>> h_gridTarget;   ///< Grid target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
+  vec3 h_point_a;   ///< Point A of target on host (JB)
+  vec3 h_point_b;   ///< Point B of target on host (JB)
   float h_target_freq;
   std::vector<vec3> vel0; ///< Initial velocity vector on host
 

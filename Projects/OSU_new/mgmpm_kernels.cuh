@@ -3749,7 +3749,7 @@ __global__ void retrieve_selected_grid_blocks(
 template <typename Partition, typename Grid, typename GridTarget>
 __global__ void retrieve_selected_grid_cells(
     uint32_t blockCount, const ivec3 *__restrict__ prev_blockids, const Partition partition,
-    const int *__restrict__ _marks, Grid prev_grid, GridTarget garray,
+    Grid prev_grid, GridTarget garray,
     float dt, float *forceSum, vec3 point_a, vec3 point_b) {
 
   auto blockno = blockIdx.x;  //< Block number in partition
@@ -3799,9 +3799,6 @@ __global__ void retrieve_selected_grid_cells(
 
         // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
         int node_id;
-        // node_id = ((int)((zc - point_a[2] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[1] * maxNodes_coord[0]) +
-        //           ((int)((yc - point_a[1] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[0]) +
-        //           ((int)((xc - point_a[0] + tol) * g_dx_inv + 0.5f));
         node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[1] * maxNodes_coord[2]) +
                   ((int)((yc - point_a[1] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[2]) +
                   ((int)((zc - point_a[2] + tol) * g_dx_inv + 0.5f));

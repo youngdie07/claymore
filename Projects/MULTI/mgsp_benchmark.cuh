@@ -51,14 +51,23 @@ struct mgsp_benchmark {
       gridBlocks[copyid].emplace_back(device_allocator{});
       particleBins[copyid].emplace_back(
           ParticleBuffer<get_material_type(I)>{device_allocator{}});
+      particleBins[copyid].emplace_back(
+          ParticleBuffer<config::g_material_list[I]>{device_allocator{}});
       partitions[copyid].emplace_back(device_allocator{},
                                       config::g_max_active_block);
     }
+    
     cuDev.syncStream<streamIdx::Compute>();
     inputHaloGridBlocks.emplace_back(g_device_cnt);
     outputHaloGridBlocks.emplace_back(g_device_cnt);
     particles[I] = spawn<particle_array_, orphan_signature>(device_allocator{});
     pattribs[I] = spawn<particle_array_, orphan_signature>(device_allocator{}); //< Particle attributes on device
+    //d_gridTarget[I] = spawn<grid_target_, orphan_signature>(device_allocator{}); //< GridTarget on device
+    // d_gridTarget.emplace_back(
+    //       device_allocator{}, sizeof(float) * 10 * config::g_target_cells);
+    d_gridTarget.emplace_back(
+        std::move(GridTarget{spawn<grid_target_, orphan_signature>(
+            device_allocator{}, sizeof(float) * 10 * config::g_target_cells)}));
     checkedCnts[I][0] = 0;
     checkedCnts[I][1] = 0;
     curNumActiveBlocks[I] = config::g_max_active_block;
@@ -133,6 +142,44 @@ struct mgsp_benchmark {
       cuDev.syncStream<streamIdx::Compute>();
     }
   }
+
+
+  /// Initialize target from host setting (&h_gridTarget), output as *.bgeo (JB)
+  void initGridTarget(int devid,
+                      const std::vector<std::array<float, 10>> &h_gridTarget, 
+                      const mn::vec<float, 3> &h_point_a, 
+                      const mn::vec<float, 3> &h_point_b, 
+                      const float target_freq) {
+    auto &cuDev = Cuda::ref_cuda_context(devid);
+    cuDev.setContext();
+    fmt::print("Just entered initGridTarget in gmpm_simulator.cuh!\n");
+    h_target_freq = target_freq; // Set output frequency for target (host)
+
+    // Set points a/b (device) for grid-target volume using (host, from JSON)
+    for (int d = 0; d < 3; d++){
+      d_point_a[d] = h_point_a[d];
+      d_point_b[d] = h_point_b[d];
+    }
+    target_cnt[devid] = h_gridTarget.size(); //Set size
+
+    fmt::print("Created structure in initGridTarget gmpm_simulator.cuh!\n");
+
+    /// Populate target (device) with data from target (host) (JB)
+    cudaMemcpyAsync((void *)&d_gridTarget[devid].val_1d(_0, 0), h_gridTarget.data(),
+                    sizeof(std::array<float, 10>) * h_gridTarget.size(),
+                    cudaMemcpyDefault, cuDev.stream_compute());
+    cuDev.syncStream<streamIdx::Compute>();
+    fmt::print("Populated target in initGridTarget gmpm_simulator.cuh!\n");
+
+    /// Write target data to a *.bgeo output file using Partio  
+    std::string fn = std::string{"gridTarget"}  + "_dev[" + std::to_string(devid) + "]_frame[0].bgeo";
+    IO::insert_job([fn, h_gridTarget]() { write_partio_gridTarget<float, 10>(fn, h_gridTarget); });
+    IO::flush();
+
+    fmt::print("Exiting initGridTarget in gmpm_simulator.cuh!\n");
+  }
+
+
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
                 CudaContext &cuDev) {
@@ -223,6 +270,7 @@ struct mgsp_benchmark {
                dt, nextTime, dtDefault);
     initial_setup();
     curTime = dt;
+    freq_step = 0;
     for (curFrame = 1; curFrame <= config::g_total_frame_cnt; ++curFrame) {
       for (; curTime < nextTime; curTime += dt, curStep++) {
         /// max grid vel
@@ -462,6 +510,22 @@ struct mgsp_benchmark {
         sync();
         rollid ^= 1;
         dt = nextDt;
+
+        // Output gridTarget
+        {
+          // Set appropiate output frequency rate
+          int maxFreqStep = (int)(1.f / dtDefault / fps / h_target_freq);
+
+          // Check current step aligns with output frequency
+          if (curStep % maxFreqStep == 0){
+            freq_step += 1; // Iterate freq_step           
+            issue([this](int did) {
+              IO::flush();    // Clear IO
+              output_gridcell_target(did); // Output gridTarget as *.bgeo
+            });
+            sync();
+          }
+        }
       }
       issue([this](int did) {
         IO::flush();
@@ -517,6 +581,78 @@ struct mgsp_benchmark {
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particles", did,
                            curFrame, curStep));
   }
+
+
+  /// Output data from grid blocks (mass, momentum) to *.bgeo (JB)
+  void output_gridcell_target(int did) {
+    auto &cuDev = Cuda::ref_cuda_context(did);
+    cuDev.setContext();
+    CudaTimer timer{cuDev.stream_compute()};
+    timer.tick();
+    fmt::print(fg(fmt::color::red), "Entered output_gridcell_target\n");
+
+    int target_cnt, *d_target_cnt = (int *)cuDev.borrow(sizeof(int));
+    checkCudaErrors(
+        cudaMemsetAsync(d_target_cnt, 0, sizeof(int), 
+        cuDev.stream_compute())); /// Reset memory
+    target_cnt = g_target_cells;
+
+    // Setup forceSum to sum all forces in grid-target in a kernel
+    float forceSum, *d_forceSum = (float *)cuDev.borrow(sizeof(float));
+    checkCudaErrors(
+        cudaMemsetAsync(d_forceSum, 0, sizeof(float), cuDev.stream_compute()));
+    
+    // Reset gridTarget (device) to zeroes asynchronously
+    checkCudaErrors(
+        cudaMemsetAsync((void *)&d_gridTarget[did].val_1d(_0, 0), 0,
+                        sizeof(std::array<float, 10>) * (target_cnt),
+                        cuDev.stream_compute()));
+
+    fmt::print(fg(fmt::color::red), "About to launch retrieve_selected_grid_cells\n");
+
+    /// Copy down-sampled grid value from buffer (device) to target (device)
+    cuDev.compute_launch(
+              {curNumActiveBlocks[did], 32}, retrieve_selected_grid_cells, (uint32_t)nbcnt[did],
+              (const ivec3 *)partitions[rollid][did]._activeKeys,
+              partitions[rollid][did], 
+              gridBlocks[0][did], d_gridTarget[did],
+              dt, d_forceSum, d_point_a, d_point_b);
+    cuDev.syncStream<streamIdx::Compute>();
+    fmt::print(fg(fmt::color::red), "About to launch process_grid_target_forces\n");
+
+    // Copy force summation to host
+    checkCudaErrors(cudaMemcpyAsync(&forceSum, d_forceSum, sizeof(float),
+                                    cudaMemcpyDefault,
+                                    cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+
+    fmt::print(fg(fmt::color::red), "Force summation in gridTarget: {} N\n", forceSum);
+    fmt::print(fg(fmt::color::red), "total number of target target {}\n", target_cnt);
+    
+    h_gridTarget[did].resize(target_cnt);
+
+    // Asynchronously copy data from target (device) to target (host)
+    checkCudaErrors(
+        cudaMemcpyAsync(h_gridTarget[did].data(), (void *)&d_gridTarget[did].val_1d(_0, 0),
+                        sizeof(std::array<float, 10>) * (target_cnt),
+                        cudaMemcpyDefault, cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+
+    /// Output to Partio as 'gridTarget_frame[i].bgeo'
+    //int out_step = freq_step + max_freq_step * (curFrame - 1);
+    std::string fn = std::string{"gridTarget"} + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(freq_step) + "].bgeo";
+    IO::insert_job([fn, m = h_gridTarget[did]]() { write_partio_gridTarget<float, 10>(fn, m); });
+
+    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_cells", did,
+                           curFrame, curStep));
+
+    fn = std::string{"force_time_series"} + "_target[0]_dev[" + std::to_string(did) + "].csv";
+    forceFile.open (fn, std::ios::out | std::ios::app);
+    forceFile << curTime << "," << forceSum << ",\n";
+    forceFile.close();
+  }
+
+
   void initial_setup() {
     issue([this](int did) {
       auto &cuDev = Cuda::ref_cuda_context(did);
@@ -762,6 +898,12 @@ struct mgsp_benchmark {
   std::vector<HaloGridBlocks> inputHaloGridBlocks, outputHaloGridBlocks;
   // std::vector<HaloParticleBlocks> inputHaloParticleBlocks,
   // outputHaloParticleBlocks;
+
+  //vec<GridTarget, config::g_device_cnt> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
+  std::vector<GridTarget> d_gridTarget;
+  vec3 d_point_a; ///< Point A of target (JB)
+  vec3 d_point_b; ///< Point B of target (JB)
+
   vec<ParticleArray, config::g_device_cnt> particles;
   vec<ParticleArray, config::g_device_cnt> pattribs;
 
@@ -804,9 +946,16 @@ struct mgsp_benchmark {
   vec<float, config::g_device_cnt> maxVels;
   vec<int, config::g_device_cnt> pbcnt, nbcnt, ebcnt, bincnt; ///< num blocks
   vec<uint32_t, config::g_device_cnt> pcnt;                   ///< num particles
+  vec<uint32_t, config::g_device_cnt> target_cnt; ///< Number of target grid nodes (JB)
   std::vector<float> durations[config::g_device_cnt + 1];
   std::vector<std::array<float, 3>> models[config::g_device_cnt];
   std::vector<std::array<float, 3>> attribs[config::g_device_cnt];
+  std::vector<std::array<float, 10>> h_gridTarget[config::g_device_cnt];   ///< Grid target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
+  vec3 h_point_a;   ///< Point A of target on host (JB)
+  vec3 h_point_b;   ///< Point B of target on host (JB)
+  float h_target_freq;
+  int freq_step; ///< Frequency step for target output (JB)
+  std::ofstream forceFile;
 
   Instance<signed_distance_field_> _hostData;
 

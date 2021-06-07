@@ -121,7 +121,11 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
   vec3 vel;
   vec9 contrib, C;
   vel.set(0.f), contrib.set(0.f), C.set(0.f);
-  contrib = (C * mass - contrib * dt) * g_D_inv;
+  // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+  float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+  float scale = g_length * g_length; //< Area scale (m^2)
+  Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+  contrib = (C * mass - contrib * dt) * Dp_inv;
   ivec3 global_base_index{int(std::lround(local_pos[0] * g_dx_inv) - 1),
                           int(std::lround(local_pos[1] * g_dx_inv) - 1),
                           int(std::lround(local_pos[2] * g_dx_inv) - 1)};
@@ -532,11 +536,11 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float wm_pos;
         float wm_vel;
         if (curTime >= 2.f && curTime < 4.f){
-          wm_vel = 2.f / g_length;
-          wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
+          wm_vel = 1.f / g_length;
+          wm_pos = (curTime - 2.f) * 1.f / g_length + offset;
         } else if (curTime >= 4.f) {
           wm_vel = 0.f;
-          wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
+          wm_pos = (4.f - 2.f) * 1.f / g_length + offset;
         } else {
           wm_vel = 0.f;
           wm_pos = offset;
@@ -1254,6 +1258,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1269,21 +1279,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * dt * Dp_inv + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -1317,7 +1327,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       }
       compute_stress_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
                                     F, contrib);
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) *Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -1526,6 +1536,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+    
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1541,21 +1557,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * dt * Dp_inv + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -1595,7 +1611,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_12, pidib % g_bin_capacity) = logJp;
       }
 
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -1804,6 +1820,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vel.set(0.f);
     vec9 C;
     C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -1819,21 +1841,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
           vel += vi * W;
-          C[0] += W * vi[0] * xixp[0];
-          C[1] += W * vi[1] * xixp[0];
-          C[2] += W * vi[2] * xixp[0];
-          C[3] += W * vi[0] * xixp[1];
-          C[4] += W * vi[1] * xixp[1];
-          C[5] += W * vi[2] * xixp[1];
-          C[6] += W * vi[0] * xixp[2];
-          C[7] += W * vi[1] * xixp[2];
-          C[8] += W * vi[2] * xixp[2];
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
         }
     pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
-      dws.val(d) = C[d] * dt * g_D_inv + ((d & 0x3) ? 0.f : 1.f);
+      dws.val(d) = C[d] * dt * Dp_inv + ((d & 0x3) ? 0.f : 1.f);
 
     vec9 contrib;
     {
@@ -1873,7 +1895,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_12, pidib % g_bin_capacity) = logJp;
       }
 
-      contrib = (C * pbuffer.mass - contrib * newDt) * g_D_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -2277,7 +2299,115 @@ retrieve_particle_buffer_attributes(Partition partition,
 }
 
 
+/// Retrieve grid-cells between points a & b from grid-buffer to gridTarget (JB)
+template <typename Partition, typename Grid, typename GridTarget>
+__global__ void retrieve_selected_grid_cells(
+    uint32_t blockCount, const ivec3 *__restrict__ prev_blockids, const Partition partition,
+    Grid prev_grid, GridTarget garray,
+    float dt, float *forceSum, vec3 point_a, vec3 point_b) {
 
+  auto blockno = blockIdx.x;  //< Block number in partition
+  if (1) {
+    //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
+    auto blockid = partition._activeKeys[blockno];
+    if (blockno < blockCount) {
+      if (blockno == -1)
+        return;
+
+      auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+
+      // Tolerance layer thickness around designated target space
+      float tol = g_dx * 0.0f;
+
+      // Add +1 to each? For point_b ~= point_a...
+      ivec3 maxNodes_coord;
+      maxNodes_coord[0] = (int)((point_b[0] + tol - point_a[0] + tol) * g_dx_inv + 0.5);
+      maxNodes_coord[1] = (int)((point_b[1] + tol - point_a[1] + tol) * g_dx_inv + 0.5);
+      maxNodes_coord[2] = (int)((point_b[2] + tol - point_a[2] + tol) * g_dx_inv + 0.5);
+      int maxNodes = maxNodes_coord[0] * maxNodes_coord[1] * maxNodes_coord[2];
+      if (maxNodes >= g_target_cells) printf("Allocate more space for gridTarget!\n");
+
+      // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+      for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+
+        // Grid node coordinate [i,j,k] in grid-block
+        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+        int j = (cidib >> g_blockbits) & g_blockmask;
+        int k = cidib & g_blockmask;
+
+        // Grid node position [x,y,z] in entire domain 
+        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+
+        // Exit thread if cell is not inside grid-target +/- tol
+        if (xc < point_a[0] - tol || xc > point_b[0] + tol) {
+          continue;
+        }
+        if (yc < point_a[1] - tol || yc > point_b[1] + tol) {
+          continue;
+        }
+        if (zc < point_a[2] - tol || zc > point_b[2] + tol) {
+          continue;
+        }
+
+        // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
+        int node_id;
+        node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[1] * maxNodes_coord[2]) +
+                  ((int)((yc - point_a[1] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[2]) +
+                  ((int)((zc - point_a[2] + tol) * g_dx_inv + 0.5f));
+        while (garray.val(_3, node_id) != 0.f) {
+          node_id += 1;
+          if (node_id > g_target_cells) {
+            printf("node_id bigger than g_target_cells!");
+            break;
+          }
+        }
+        __syncthreads(); // Sync threads in block
+
+        /// Set values in grid-array to specific cell from grid-buffer
+        garray.val(_0, node_id) = xc;
+        garray.val(_1, node_id) = yc;
+        garray.val(_2, node_id) = zc;
+        garray.val(_3, node_id) = sourceblock.val(_0, i, j, k);
+        garray.val(_4, node_id) = sourceblock.val(_1, i, j, k);
+        garray.val(_5, node_id) = sourceblock.val(_2, i, j, k);
+        garray.val(_6, node_id) = sourceblock.val(_3, i, j, k);
+
+        __syncthreads(); // Sync threads in block
+
+        /// Set values in grid-array to specific cell from grid-buffer
+        float m1  = garray.val(_3, node_id);
+        float m2  = m1;
+        float m = m1;
+        if (m1 > 0.f) {
+          m1 = 1.f / m1; //< Invert mass, avoids division operator
+        }
+        if (m2 > 0.f) {
+          m2 = 1.f / m2; //< Invert mass, avoids division operator
+        }
+
+        float vx1 = garray.val(_4, node_id) * m1 * g_length;
+        float vy1 = garray.val(_5, node_id) * m1 * g_length;
+        float vz1 = garray.val(_6, node_id) * m1 * g_length;
+        float vx2 = 0.f;
+        float vy2 = 0.f;
+        float vz2 = 0.f;
+
+        float fx = m * (vx1 - vx2) / dt;
+        float fy = m * (vy1 - vy2) / dt;
+        float fz = m * (vz1 - vz2) / dt;
+
+        garray.val(_7, node_id) = fx;
+        garray.val(_8, node_id) = fy;
+        garray.val(_9, node_id) = fz;
+        __syncthreads(); // Sync threads in block
+        atomicAdd(forceSum, fx);
+        __syncthreads(); // Sync threads in block
+      }
+    }
+  }
+}
 
 } // namespace mn
 

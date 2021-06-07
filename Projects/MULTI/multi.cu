@@ -80,30 +80,50 @@ void init_models(
   } break;
   case 4: {
       float off = 8.f * g_dx;
-      float f = 0.23f;
+      float f = 1.f;
       float off_z1 = 1.f * (3.6576f / g_length) * f + off;
       float off_z2 = 2.f * (3.6576f / g_length) * f + off;
       float off_z3 = 3.f * (3.6576f / g_length) * f + off;
 
-      float length_x = 82.85f / g_length * f;
-      float length_y = 1.7526f / g_length * f;
-      float length_z = 3.6576f / g_length * f / 4.f;
-      models[0] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 8.f, g_dx,
-                        vec<float, 3>{off, off, off},
-                        vec<float, 3>{length_x, length_y, length_z});
-      models[1] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 8.f, g_dx,
-                        vec<float, 3>{off, off, off_z1},
-                        vec<float, 3>{length_x, length_y, length_z});
-      models[2] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 8.f, g_dx,
-                        vec<float, 3>{off, off, off_z2},
-                        vec<float, 3>{length_x, length_y, length_z});
-      models[3] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 8.f, g_dx,
-                        vec<float, 3>{off, off, off_z3},
-                        vec<float, 3>{length_x, length_y, length_z});
-      // float length_z = 3.6576f / g_length * f;
-      // models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf"}, 4.f, g_dx,
+      float water_ppc = MODEL_PPC;
+      vec<float, 3> water_lengths;
+      water_lengths[0] = 82.85f / g_length * f;
+      water_lengths[1] = 1.7526f / g_length * f;
+      // water_lengths[2] = 3.6576f / g_length * f / 4.f;
+      // models[0] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+      //                   water_ppc, g_dx, mn::config::g_domain_size,
       //                   vec<float, 3>{off, off, off},
-      //                   vec<float, 3>{length_x, length_y, length_z});
+      //                   water_lengths);
+      // models[1] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+      //                   water_ppc, g_dx, mn::config::g_domain_size,
+      //                   vec<float, 3>{off, off, off_z1},
+      //                   water_lengths);
+      // models[2] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+      //                   water_ppc, g_dx, mn::config::g_domain_size,
+      //                   vec<float, 3>{off, off, off_z2},
+      //                   water_lengths);
+      // models[3] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+      //                   water_ppc, g_dx, mn::config::g_domain_size,
+      //                   vec<float, 3>{off, off, off_z3},
+      //                   water_lengths);
+      water_lengths[2] = 3.6576f / g_length * f;
+      models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf"}, 
+                        water_ppc, mn::config::g_dx, mn::config::g_domain_size,
+                        vec<float, 3>{off, off, off},
+                        water_lengths);
+
+      // vec<float, 3> debris_offset;
+      // debris_offset[0] = 0.5f / g_length + off;
+      // debris_offset[1] = 0.5f / g_length + off;
+      // debris_offset[2] = 0.5f / g_length + off;
+      // vec<float, 3> debris_lengths;
+      // debris_lengths[0] = 0.5f / g_length;
+      // debris_lengths[1] = 0.051f / g_length;
+      // debris_lengths[2] = 0.102f / g_length;
+      // float debris_ppc = MODEL_PPC_FC;
+      // models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+      //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+      //                   debris_offset, debris_lengths);
   }
   default:
     break;
@@ -116,15 +136,28 @@ int main() {
   Cuda::startup();
 
   std::vector<std::array<float, 3>> models[g_device_cnt];
+  std::vector<std::array<float, 10>> h_gridTarget(mn::config::g_target_cells, 
+                                                  std::array<float, 10>{0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+
+  vec<float, 3> h_point_a;
+  vec<float, 3> h_point_b;
+  float off = 8.f * g_dx;
+  h_point_a[0] = 43.5356f / g_length + off;
+  h_point_a[1] = 1.7526f  / g_length + off;
+  h_point_a[2] = 1.44145f / g_length + off;
+  h_point_b[0] = h_point_a[0] + 1.f * g_dx;
+  h_point_b[1] = h_point_a[1] + 0.3935f / g_length;
+  h_point_b[2] = h_point_a[2] + 0.7871f / g_length;
 
   auto benchmark = std::make_unique<mgsp_benchmark>();
   /// init
   init_models(models, 4);
 
-  for (int did = 0; did < g_device_cnt; ++did)
+  for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 1.f);
+  }
   // benchmark->initBoundary("candy_base");
-
   benchmark->main_loop();
   ///
   IO::flush();

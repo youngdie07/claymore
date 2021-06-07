@@ -167,10 +167,9 @@ struct ParticleBuffer<material_e::FixedCorotated>
     : ParticleBufferImpl<material_e::FixedCorotated> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated>;
   float rho = DENSITY;
-  float volume = (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
   float E = YOUNGS_MODULUS;
   float nu = POISSON_RATIO;
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
@@ -192,12 +191,10 @@ template <>
 struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   using base_t = ParticleBufferImpl<material_e::Sand>;
   static constexpr float rho = DENSITY;
-  static constexpr float volume =
+  static constexpr float volume = DOMAIN_VOLUME * 
       (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
        MODEL_PPC);
-  static constexpr float mass =
-      (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
+  static constexpr float mass = (volume * DENSITY);
   static constexpr float E = YOUNGS_MODULUS;
   static constexpr float nu = POISSON_RATIO;
   static constexpr float lambda =
@@ -215,7 +212,13 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   static constexpr float yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
   static constexpr bool volumeCorrection = true;
-
+  void updateParameters(float density, float vol, float E, float nu) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator, std::size_t count)
       : base_t{allocator, count} {}
@@ -225,10 +228,9 @@ template <>
 struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   using base_t = ParticleBufferImpl<material_e::NACC>;
   float rho = DENSITY;
-  float volume = (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (DENSITY / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
   float E = YOUNGS_MODULUS;
   float nu = POISSON_RATIO;
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
