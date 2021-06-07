@@ -21,7 +21,7 @@ enum class material_e { JFluid = 0, FixedCorotated, Sand, NACC, Total };
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 1;
+constexpr int g_device_cnt = 5;
 constexpr int g_total_frame_cnt = 200;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
