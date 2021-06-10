@@ -6,6 +6,15 @@
 #include <MnSystem/IO/IO.h>
 #include <MnSystem/IO/ParticleIO.hpp>
 
+
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+typedef std::vector<std::array<float, 3>> WaveHolder;
+
+
 // dragon_particles.bin, 775196
 // cube256_2.bin, 1048576
 // two_dragons.bin, 388950
@@ -18,6 +27,37 @@ decltype(auto) load_model(std::size_t pcnt, std::string filename) {
   std::fclose(f);
   return rawpos;
 }
+
+void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
+  auto addr_str = std::string(AssetDirPath) + "WaveMaker/";
+  std::ifstream in((addr_str + filename).c_str());
+
+  if (in) {
+      std::string line;
+      while (getline(in, line)) {
+          std::stringstream sep(line);
+          std::string field;
+
+          int col = 0;
+          std::array<float, 3> arr;
+          while (getline(sep, field, ',')) {
+              if (col >= 3) break;
+              arr[col] = stof(field);
+              col++;
+          }
+          fields.push_back(arr);
+      }
+  }
+  // // Verbose output of all data
+  // for (auto row : fields) {
+  //     for (auto field : row) {
+  //         std::cout << field << ' ';
+  //     }
+
+  //     std::cout << '\n';
+  // }
+}
+
 // load from analytic levelset
 // init models
 void init_models(
@@ -79,7 +119,7 @@ void init_models(
     }
   } break;
   case 4: {
-      float off = 8.f * g_dx;
+      float off = 7.5f * g_dx;
       float f = 1.f;
 
       float water_ppc = MODEL_PPC;
@@ -143,9 +183,9 @@ int main() {
   std::vector<std::array<float, 3>> models[g_device_cnt];
   std::vector<std::array<float, 10>> h_gridTarget(mn::config::g_target_cells, 
                                                   std::array<float, 10>{0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f});
-
   vec<float, 3> h_point_a;
   vec<float, 3> h_point_b;
+
   float off = 8.f * g_dx;
   h_point_a[0] = 43.5356f / g_length + off;
   h_point_a[1] = 1.7526f  / g_length + off;
@@ -154,13 +194,18 @@ int main() {
   h_point_b[1] = h_point_a[1] + 0.3935f / g_length;
   h_point_b[2] = h_point_a[2] + 0.7871f / g_length;
 
+  /// Initialize
   auto benchmark = std::make_unique<mgsp_benchmark>();
-  /// init
   init_models(models, 4);
+  std::string filename = "wmdisp_hydro4sec_09062021.csv";
+  WaveHolder waveMaker;
+  load_waveMaker(filename, ',', waveMaker);
 
+  /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
     benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 1.f);
+    benchmark->initWaveMaker(did, waveMaker);
   }
   // benchmark->initBoundary("candy_base");
   benchmark->main_loop();

@@ -21,7 +21,7 @@ enum class material_e { JFluid = 0, FixedCorotated, Sand, NACC, Total };
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 5;
+constexpr int g_device_cnt = 4;
 constexpr int g_total_frame_cnt = 200;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -41,9 +41,9 @@ constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
 #define MODEL_PPC 2.f
-#define MODEL_PPC_FC 32.f
+#define MODEL_PPC_FC 2.f
 constexpr float g_model_ppc = MODEL_PPC;
-constexpr float cfl = 0.5f;
+constexpr float cfl = 0.3f;
 
 // background_grid
 #define BLOCK_BITS 2
@@ -141,14 +141,14 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
 }
 
 // Particle
-#define MAX_PPC 64
+#define MAX_PPC 8
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1e3
-#define YOUNGS_MODULUS 5e4
+#define YOUNGS_MODULUS 5e3
 #define POISSON_RATIO 0.4f
 
 // Ambient parameters

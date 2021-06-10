@@ -282,7 +282,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, float curTime) {
+                                               float *maxVel, float curTime, vec3 waveMaker) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -318,8 +318,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
 
         // Offset condition for Off-by-2 (see Xinlei & Fang et al.)
-        // Note you should subtract 16 nodes from total
-        // (or 4 grid blocks) to have total available length
+        // Note, subtract 16 nodes from total
+        // (4 grid blocks) to have available scene length
         float offset = (8.f*g_dx);
 
         // Retrieve grid momentums (kg*m/s2)
@@ -531,22 +531,29 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel[2] = vel[2] - ySF * (vdotns * ns[2]);
         }
 
-
-        // OSU Wave-Maker
-        float wm_pos;
-        float wm_vel;
-        if (curTime >= 2.f && curTime < 4.f){
-          wm_vel = 2.f / g_length;
-          wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
-        } else if (curTime >= 4.f) {
-          wm_vel = 0.f;
-          wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
-        } else {
-          wm_vel = 0.f;
-          wm_pos = offset;
+        if (0) {
+          // OSU Wave-Maker - Manual Control
+          float wm_pos;
+          float wm_vel;
+          if (curTime >= 2.f && curTime < 4.f){
+            wm_vel = 2.f / g_length;
+            wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
+          } else if (curTime >= 4.f) {
+            wm_vel = 0.f;
+            wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
+          } else {
+            wm_vel = 0.f;
+            wm_pos = offset;
+          }
+          if (xc < wm_pos) {
+            vel[0] = wm_vel;
+          }
         }
-        if (xc < wm_pos) {
-          vel[0] = wm_vel;
+        if (1) {
+          // OSU Wave-Maker - CSV Control
+          if (xc <= (waveMaker[1] / g_length + offset)) {
+             vel[0] = waveMaker[2] / g_length;
+          }
         }
 
         grid_block.val_1d(_1, cidib) = vel[0];

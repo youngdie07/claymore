@@ -62,9 +62,6 @@ struct mgsp_benchmark {
     outputHaloGridBlocks.emplace_back(g_device_cnt);
     particles[I] = spawn<particle_array_, orphan_signature>(device_allocator{});
     pattribs[I] = spawn<particle_array_, orphan_signature>(device_allocator{}); //< Particle attributes on device
-    //d_gridTarget[I] = spawn<grid_target_, orphan_signature>(device_allocator{}); //< GridTarget on device
-    // d_gridTarget.emplace_back(
-    //       device_allocator{}, sizeof(float) * 10 * config::g_target_cells);
     d_gridTarget.emplace_back(
         std::move(GridTarget{spawn<grid_target_, orphan_signature>(
             device_allocator{}, sizeof(float) * 10 * config::g_target_cells)}));
@@ -180,6 +177,33 @@ struct mgsp_benchmark {
   }
 
 
+  /// Init OSU wave-maker on device (d_waveMaker) from host (&h_waveMaker) (JB)
+  void initWaveMaker(int devid,
+                     const std::vector<std::array<float, 3>> &waveMaker) {
+    auto &cuDev = Cuda::ref_cuda_context(devid);
+    cuDev.setContext();
+    fmt::print("Just entered initWaveMaker!\n");
+    h_waveMaker = waveMaker;
+    /// Populate wave-maker (device) with data from wave-maker (host) (JB)
+    for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[0][d]; //< Set vals
+    fmt::print("Init waveMaker with time {}s, disp {}m, vel {}m/s\n", d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
+    fmt::print("Exiting initWaveMaker!\n");
+  }  
+  
+  /// Set OSU wave-maker on device (d_waveMaker) by host (&h_waveMaker) (JB)
+  void setWaveMaker(int devid,
+                    std::vector<std::array<float, 3>> &h_waveMaker,
+                    float curTime) {
+    auto &cuDev = Cuda::ref_cuda_context(devid);
+    cuDev.setContext();
+    float wm_dt = (float)h_waveMaker[1][0] - (float)h_waveMaker[0][0]; //< Wave-maker time-step
+    //wm_dt = 0.01f;
+    int step = (int)(curTime / wm_dt); //< Index for time
+    if (step >= h_waveMaker.size()) step = h_waveMaker.size() - 1; //< Index-limit
+    for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[step][d]; //< Set vals
+    fmt::print("Set waveMaker with step {}, time {}s, disp {}m, vel {}m/s\n", step, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
+  }
+
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
                 CudaContext &cuDev) {
@@ -283,13 +307,13 @@ struct mgsp_benchmark {
           timer.tick();
           checkCudaErrors(cudaMemsetAsync(d_maxVel, 0, sizeof(float),
                                           cuDev.stream_compute()));
+          setWaveMaker(did, h_waveMaker, curTime); //< Update d_waveMaker for time
           if (collisionObjs[did])
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                // gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel);
                 gridBlocks[0][did], partitions[rollid][did], dt,
                 (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime);
           else
@@ -298,8 +322,8 @@ struct mgsp_benchmark {
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                // gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel);
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime,
+                d_waveMaker);
           checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
                                           sizeof(float), cudaMemcpyDefault,
                                           cuDev.stream_compute()));
@@ -899,8 +923,8 @@ struct mgsp_benchmark {
   // std::vector<HaloParticleBlocks> inputHaloParticleBlocks,
   // outputHaloParticleBlocks;
 
-  //vec<GridTarget, config::g_device_cnt> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
-  std::vector<GridTarget> d_gridTarget;
+  vec3 d_waveMaker; ///< OSU wm info (time, disp, vel) on device (JB)
+  std::vector<GridTarget> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
   vec3 d_point_a; ///< Point A of target (JB)
   vec3 d_point_b; ///< Point B of target (JB)
 
@@ -951,6 +975,8 @@ struct mgsp_benchmark {
   std::vector<std::array<float, 3>> models[config::g_device_cnt];
   std::vector<std::array<float, 3>> attribs[config::g_device_cnt];
   std::vector<std::array<float, 10>> h_gridTarget[config::g_device_cnt];   ///< Grid target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
+  std::vector<std::array<float, 3>> h_waveMaker;   ///< OSU wm info (time, disp, vel) on host (JB)
+
   vec3 h_point_a;   ///< Point A of target on host (JB)
   vec3 h_point_b;   ///< Point B of target on host (JB)
   float h_target_freq;
