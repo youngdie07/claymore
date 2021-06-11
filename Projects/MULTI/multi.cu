@@ -119,7 +119,7 @@ void init_models(
     }
   } break;
   case 4: {
-      float off = 7.5f * g_dx;
+      float off = 8.f * g_dx;
       float f = 1.f;
 
       float water_ppc = MODEL_PPC;
@@ -197,7 +197,7 @@ int main() {
   /// Initialize
   auto benchmark = std::make_unique<mgsp_benchmark>();
   init_models(models, 4);
-  std::string filename = "wmdisp_hydro4sec_09062021.csv";
+  std::string filename = "wmdisp_hydro8sec_09062021.csv";
   WaveHolder waveMaker;
   load_waveMaker(filename, ',', waveMaker);
 

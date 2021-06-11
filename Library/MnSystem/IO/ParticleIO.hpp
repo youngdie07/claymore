@@ -185,12 +185,11 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   // Create SampleGenerator class
   SampleGenerator pd;
-
+  int pad = 1;
   float levelsetDx;
   std::vector<float> samples;
   vec<float, 3> mins, maxs, scales;
   vec<int, 3> maxns;
-
 
   // Load sdf into pd, update levelsetDx, mins, maxns
   pd.LoadSDF(fileName, levelsetDx, mins[0], mins[1], mins[2], maxns[0],
@@ -205,15 +204,18 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   //scales = pow(lengths.cast<float>(),3) / pow(maxns.cast<float>(),3) / pow(domainsize,3);
   //scales = lengths_vol / maxns_vol / domainsize_vol;
-  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0] - 1.f, 3.f);
-  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1] - 1.f, 3.f);
-  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2] - 1.f, 3.f);
+  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0] - (float)pad, 3.f);
+  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1] - (float)pad, 3.f);
+  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2] - (float)pad, 3.f);
 
   float scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
   printf("scale %f %f %f %f %f %f %f %f\n", scale, lengths[0],lengths[1],lengths[2],(float)maxns[0],(float)maxns[1],(float)maxns[2], (float)domainsize);
 
-  float samplePerLevelsetCell = ppc * scale;
+  float samplePerLevelsetCell;
+  if (1) samplePerLevelsetCell = ppc * scale;
+  if (0) samplePerLevelsetCell = 1.f * (int)(ppc * scale + 0.5f);
+
 
   // Output uniformly sampled sdf into samples
   pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
@@ -221,15 +223,18 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
   // Adjust lengths to extents of the *.sdf, select smallest ratio
   //scales = lengths / (maxs - mins) / maxns.cast<float>();
   //scales = lengths /  maxns.cast<float>();
-  scales[0] = lengths[0] / ((float)maxns[0] - 1.f);
-  scales[1] = lengths[1] / ((float)maxns[1] - 1.f);
-  scales[2] = lengths[2] / ((float)maxns[2] - 1.f);
+  // scales[0] = lengths[0] / ((float)maxns[0] - 1.f);
+  // scales[1] = lengths[1] / ((float)maxns[1] - 1.f);
+  // scales[2] = lengths[2] / ((float)maxns[2] - 1.f);
+  scales[0] = lengths[0] / ((float)maxns[0] - 1.f) * ((float)maxns[0] / ((float)maxns[0] - (float)pad));
+  scales[1] = lengths[1] / ((float)maxns[1] - 1.f) * ((float)maxns[1] / ((float)maxns[1] - (float)pad));
+  scales[2] = lengths[2] / ((float)maxns[2] - 1.f) * ((float)maxns[2] / ((float)maxns[2] - (float)pad));
   scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
 
-  offset[0] -= lengths[0] / (float)maxns[0];
-  offset[1] -= lengths[1] / (float)maxns[1];
-  offset[2] -= lengths[2] / (float)maxns[2];
+  offset[0] -= lengths[0] / ((float)maxns[0] - (float)pad);
+  offset[1] -= lengths[1] / ((float)maxns[1] - (float)pad);
+  offset[2] -= lengths[2] / ((float)maxns[2] - (float)pad);
 
 
   // Loop through samples

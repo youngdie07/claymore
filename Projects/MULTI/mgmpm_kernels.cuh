@@ -333,7 +333,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
         float flumex = 104.f / g_length; // Actually 12m, added run-in/out
         float flumey = 4.6f / g_length; // 1.22m Depth
-        float flumez = 3.67f / g_length; // 0.91m Width
+        float flumez = 3.6576f / g_length; // 0.91m Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
@@ -504,10 +504,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Decay coefficient
         float ySF;
-        if (yc > ys) {
+        if (yc > ys + g_dx) {
           ySF = 0.f;
         } else if (yc <= ys){
           ySF = 1.f;
+        } else {
+          ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx);
         }
 
         // fbc = -fint - fext - (1/dt)*p
