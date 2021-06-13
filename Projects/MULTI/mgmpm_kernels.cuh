@@ -334,9 +334,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float flumex = 104.f / g_length; // Actually 12m, added run-in/out
         float flumey = 4.6f / g_length; // 1.22m Depth
         float flumez = 3.6576f / g_length; // 0.91m Width
-        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
-                         ((yc < offset || yc >= flumey + offset) << 1) |
-                          (zc < offset || zc >= flumez + offset);
+        int isInFlume =  ((xc <= offset || xc >= flumex + offset) << 2) |
+                         ((yc <= offset || yc >= flumey + offset) << 1) |
+                          (zc <= offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
 
 
@@ -347,7 +347,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_dim[2] = (0.7871f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
+        struct_pos[1] = (2.f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
         float t = 1.0f * g_dx;
 
@@ -554,7 +554,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (1) {
           // OSU Wave-Maker - CSV Control
           if (xc <= (waveMaker[1] / g_length + offset)) {
-             vel[0] = waveMaker[2] / g_length;
+             vel[0] = fmin(waveMaker[2] / g_length, abs(vel[0]));
           }
         }
 

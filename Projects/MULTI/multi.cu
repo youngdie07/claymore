@@ -124,8 +124,11 @@ void init_models(
 
       float water_ppc = MODEL_PPC;
       vec<float, 3> water_lengths;
-      water_lengths[0] = 82.85f / g_length * f;
-      water_lengths[1] = 1.7526f / g_length * f;
+      // water_lengths[0] = 82.8525648f / g_length * f;
+      // water_lengths[1] = 1.7526f / g_length * f;
+      water_lengths[0] = 281.5735f * 0.3048f / g_length * f;
+      water_lengths[1] = 2.f / g_length * f;
+
 
       if (g_device_cnt >= 4) {
         water_lengths[2] = 3.6576f / g_length * f / 4.f;
@@ -163,11 +166,11 @@ void init_models(
                             debris_offset, debris_lengths);
         }
       } else if (g_device_cnt == 1) {
-        water_lengths[2] = 3.6576f / g_length * f;
-        models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_x271.826_y5.75_z12_dx0.2_pad1.sdf"}, 
+        water_lengths[2] = 12.f * 0.3048f / g_length * f;
+        models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
                           water_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off},
-                          water_lengths);
+                          water_lengths);          
       }
   }
   default:
@@ -197,7 +200,7 @@ int main() {
   /// Initialize
   auto benchmark = std::make_unique<mgsp_benchmark>();
   init_models(models, 4);
-  std::string filename = "wmdisp_hydro8sec_09062021.csv";
+  std::string filename = "wmdisp_hydro4sec_09062021.csv";
   WaveHolder waveMaker;
   load_waveMaker(filename, ',', waveMaker);
 
