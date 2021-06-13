@@ -22,6 +22,7 @@ public:
 	void GeneratePoissonSamples(int length, int width, int height, float scale, int outputSamplesNumber, std::vector<float>& outputSamples, int inputScale = 5);
 
 	int GenerateUniformSamples(float samplesPerVol, std::vector<float>& outputSamples);
+	int GenerateCartesianSamples(float samplesPerVol, std::vector<float>& outputSamples);
 
 protected:
 	inline float fetchGrid(int i, int j, int k) { return m_phiGrid[i + m_ni*(j + m_nj*k)];}
@@ -193,6 +194,59 @@ int SampleGenerator::GenerateUniformSamples(float samplesPerCell, std::vector<fl
 		outputSamples.push_back(tmpPoint.y);
 		outputSamples.push_back(tmpPoint.z);
 	}
+
+	return sampleNum;
+}
+#endif 
+
+#if 1
+int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<float>& outputSamples)
+{
+	// get total sample number
+	int validCellNum = 0;
+	for (int i = 0; i < m_ni - 1; i++)
+	{
+		for (int j = 0; j < m_nj - 1; j++)
+		{
+			for (int k = 0; k < m_nk - 1; k++)
+			{
+				if (fetchGrid(i, j, k) < 0 ||
+					fetchGrid(i, j, k + 1) < 0 ||
+					fetchGrid(i, j + 1, k) < 0 ||
+					fetchGrid(i, j + 1, k + 1) < 0 ||
+					fetchGrid(i + 1, j, k) < 0 ||
+					fetchGrid(i + 1, j, k + 1) < 0 ||
+					fetchGrid(i + 1, j + 1, k) < 0 ||
+					fetchGrid(i + 1, j + 1, k + 1) < 0)
+					validCellNum++;
+			}
+		}
+	}
+
+	int sampleNum = validCellNum * samplesPerCell;
+	float samplesPerLength = 1.f / cbrtf(samplesPerCell);
+	int count = 0;
+	int iter = 0;
+	do
+	{
+		float sf = (float)iter * samplesPerLength;
+		cyPoint3f tmpPoint;
+		tmpPoint.z =  (floor(fmod(sf, ((float)m_nk-1.f))));
+		tmpPoint.y =  (floor(fmod(samplesPerLength * floor(sf / ((float)m_nk-1.f)), ((float)m_nj-1.f))));
+		tmpPoint.x =  (floor(sf / (((float)m_nj-1.f) * ((float)m_nk-1.f))));
+		
+		tmpPoint.z -= fmod(tmpPoint.z, samplesPerLength);
+		tmpPoint.y -= fmod(tmpPoint.y, samplesPerLength);
+		tmpPoint.x -= fmod(tmpPoint.x, samplesPerLength);
+
+		if (fetchGridTrilinear(tmpPoint.x, tmpPoint.y, tmpPoint.z) < 0) {
+			outputSamples.push_back(tmpPoint.x);
+			outputSamples.push_back(tmpPoint.y);
+			outputSamples.push_back(tmpPoint.z);
+			count++;
+		}
+		iter++;
+	} while (count < sampleNum || iter < 700000);
 
 	return sampleNum;
 }

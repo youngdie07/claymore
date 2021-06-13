@@ -156,7 +156,8 @@ auto read_sdf(std::string fn, float ppc, float dx, vec<float, 3> offset,
 
   float samplePerLevelsetCell = ppc * levelsetDx / dx * scale;
 
-  pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
+  if (0) pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
+  if (1) pd.GenerateCartesianSamples(samplePerLevelsetCell, samples);
 
   for (int i = 0, size = samples.size() / 3; i < size; i++) {
     vec<float, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
@@ -186,9 +187,11 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
   // Create SampleGenerator class
   SampleGenerator pd;
   int pad = 1;
+  float fpad = 1.f;
   float levelsetDx;
   std::vector<float> samples;
   vec<float, 3> mins, maxs, scales;
+  vec<float, 3> lengthRatios;
   vec<int, 3> maxns;
 
   // Load sdf into pd, update levelsetDx, mins, maxns
@@ -204,9 +207,20 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
   //scales = pow(lengths.cast<float>(),3) / pow(maxns.cast<float>(),3) / pow(domainsize,3);
   //scales = lengths_vol / maxns_vol / domainsize_vol;
-  scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0] - (float)pad, 3.f);
-  scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1] - (float)pad, 3.f);
-  scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2] - (float)pad, 3.f);
+  lengthRatios[0] = lengths[0] / (maxs[0] - fpad*levelsetDx);
+  lengthRatios[1] = lengths[1] / (maxs[1] - fpad*levelsetDx);
+  lengthRatios[2] = lengths[2] / (maxs[2] - fpad*levelsetDx);
+  float lengthRatio = lengthRatios[0] < lengthRatios[1] ? lengthRatios[0] : lengthRatios[1];
+  lengthRatio = lengthRatios[2] < lengthRatio ? lengthRatios[2] : lengthRatio;
+
+  scales[0] = pow((dx / lengthRatios[0]), 3.f);
+  scales[1] = pow((dx / lengthRatios[1]), 3.f);
+  scales[2] = pow((dx / lengthRatios[2]), 3.f);
+
+  // scales[0] = pow(lengths[0], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[0] - (float)pad, 3.f);
+  // scales[1] = pow(lengths[1], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[1] - (float)pad, 3.f);
+  // scales[2] = pow(lengths[2], 3.f) * pow((float)domainsize, 3.f) / pow((float)maxns[2] - (float)pad, 3.f);
+
 
   float scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
@@ -218,7 +232,8 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 
 
   // Output uniformly sampled sdf into samples
-  pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
+  if (0) pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
+  if (1) pd.GenerateCartesianSamples(samplePerLevelsetCell, samples);
 
   // Adjust lengths to extents of the *.sdf, select smallest ratio
   //scales = lengths / (maxs - mins) / maxns.cast<float>();
@@ -226,15 +241,19 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
   // scales[0] = lengths[0] / ((float)maxns[0] - 1.f);
   // scales[1] = lengths[1] / ((float)maxns[1] - 1.f);
   // scales[2] = lengths[2] / ((float)maxns[2] - 1.f);
-  scales[0] = lengths[0] / ((float)maxns[0] - 1.f) * ((float)maxns[0] / ((float)maxns[0] - (float)pad));
-  scales[1] = lengths[1] / ((float)maxns[1] - 1.f) * ((float)maxns[1] / ((float)maxns[1] - (float)pad));
-  scales[2] = lengths[2] / ((float)maxns[2] - 1.f) * ((float)maxns[2] / ((float)maxns[2] - (float)pad));
+  scales[0] = lengths[0] / ((float)maxns[0] - fpad);
+  scales[1] = lengths[1] / ((float)maxns[1] - fpad);
+  scales[2] = lengths[2] / ((float)maxns[2] - fpad);
   scale = scales[0] < scales[1] ? scales[0] : scales[1];
   scale = scales[2] < scale ? scales[2] : scale;
 
-  offset[0] -= lengths[0] / ((float)maxns[0] - (float)pad);
-  offset[1] -= lengths[1] / ((float)maxns[1] - (float)pad);
-  offset[2] -= lengths[2] / ((float)maxns[2] - (float)pad);
+  // offset[0] -= fpad * lengths[0] / ((float)maxns[0] - fpad);
+  // offset[1] -= fpad * lengths[1] / ((float)maxns[1] - fpad);
+  // offset[2] -= fpad * lengths[2] / ((float)maxns[2] - fpad);
+
+  // offset[0] -= fpad * scale;
+  // offset[1] -= fpad * scale;
+  // offset[2] -= fpad * scale;
 
 
   // Loop through samples
@@ -243,8 +262,8 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
     vec<float, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
     
     // Scale positions, add-in offset from JSON
-    p = (p - mins) * scale + offset;
-;
+    //p = (p - mins) * scale + offset;
+    p = (p - fpad) * scale + offset;
 
     // Add (x,y,z) to data
     data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
