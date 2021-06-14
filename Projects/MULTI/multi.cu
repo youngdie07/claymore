@@ -135,19 +135,19 @@ void init_models(
         float off_z1 = 1.f/4.f * (3.6576f / g_length) * f + off;
         float off_z2 = 2.f/4.f * (3.6576f / g_length) * f + off;
         float off_z3 = 3.f/4.f * (3.6576f / g_length) * f + off;
-        models[0] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+        models[0] = read_sdf(std::string{"Water/OSU_Water_Quarter_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
                           water_ppc, g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off},
                           water_lengths);
-        models[1] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+        models[1] = read_sdf(std::string{"Water/OSU_Water_Quarter_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
                           water_ppc, g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off_z1},
                           water_lengths);
-        models[2] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+        models[2] = read_sdf(std::string{"Water/OSU_Water_Quarter_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
                           water_ppc, g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off_z2},
                           water_lengths);
-        models[3] = read_sdf(std::string{"Water/OSU_Quarter_x82.85_y1.7526_z0.9144_dx0.2_pad1.sdf"}, 
+        models[3] = read_sdf(std::string{"Water/OSU_Water_Quarter_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
                           water_ppc, g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off_z3},
                           water_lengths);
