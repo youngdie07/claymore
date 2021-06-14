@@ -191,7 +191,7 @@ int main() {
 
   float off = 8.f * g_dx;
   h_point_a[0] = 43.5356f / g_length + off;
-  h_point_a[1] = 1.7526f  / g_length + off;
+  h_point_a[1] = 2.f  / g_length + off;
   h_point_a[2] = 1.44145f / g_length + off;
   h_point_b[0] = h_point_a[0] + 1.f * g_dx;
   h_point_b[1] = h_point_a[1] + 0.3935f / g_length;

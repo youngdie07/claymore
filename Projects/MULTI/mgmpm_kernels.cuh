@@ -331,10 +331,10 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // WASIRF Harris Flume (Slip)
         // Acts on individual grid-cell velocities
         // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
-        float flumex = 104.f / g_length; // Actually 12m, added run-in/out
-        float flumey = 4.6f / g_length; // 1.22m Depth
-        float flumez = 3.6576f / g_length; // 0.91m Width
-        int isInFlume =  ((xc <= offset || xc >= flumex + offset) << 2) |
+        float flumex = 87.4268f / g_length - g_dx; // Actually 12m, added run-in/out
+        float flumey = 4.572f / g_length - g_dx; // 1.22m Depth
+        float flumez = 3.6576f / g_length - g_dx; // 0.91m Width
+        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc <= offset || yc >= flumey + offset) << 1) |
                           (zc <= offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
@@ -554,7 +554,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (1) {
           // OSU Wave-Maker - CSV Control
           if (xc <= (waveMaker[1] / g_length + offset)) {
-             vel[0] = fmin(waveMaker[2] / g_length, abs(vel[0]));
+             //vel[0] = fmax(waveMaker[2] / g_length, abs(vel[0]));
+             vel[0] = waveMaker[2] / g_length;
+
           }
         }
 

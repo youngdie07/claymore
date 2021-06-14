@@ -225,29 +225,39 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 
 	int sampleNum = validCellNum * samplesPerCell;
 	float samplesPerLength = 1.f / cbrtf(samplesPerCell);
+	int i_lim, j_lim, k_lim;
+	i_lim = (int)floor(((float)m_ni - 1.f) / samplesPerLength);
+	j_lim = (int)floor(((float)m_nj - 1.f) / samplesPerLength);
+	k_lim = (int)floor(((float)m_nk - 1.f) / samplesPerLength);
+
+	int pad = 1;
+	float fpad = (float)pad;
 	int count = 0;
 	int iter = 0;
-	do
-	{
-		float sf = (float)iter * samplesPerLength;
-		cyPoint3f tmpPoint;
-		tmpPoint.z =  (floor(fmod(sf, ((float)m_nk-1.f))));
-		tmpPoint.y =  (floor(fmod(samplesPerLength * floor(sf / ((float)m_nk-1.f)), ((float)m_nj-1.f))));
-		tmpPoint.x =  (floor(sf / (((float)m_nj-1.f) * ((float)m_nk-1.f))));
-		
-		tmpPoint.z -= fmod(tmpPoint.z, samplesPerLength);
-		tmpPoint.y -= fmod(tmpPoint.y, samplesPerLength);
-		tmpPoint.x -= fmod(tmpPoint.x, samplesPerLength);
+	int maxIter = 9999000;
+	for (int i = 0; i < i_lim; i++){
+		for (int j = 0; j < j_lim; j++){
+			for (int k = 0; k < k_lim; k++){
+				if (iter > maxIter) break;
+				float sf = (float)iter * (samplesPerLength);
+				cyPoint3f tmpPoint;
+				
+				tmpPoint.z = ((float)k + 0.5f) * samplesPerLength + fpad;
+				tmpPoint.y = ((float)j + 0.5f) * samplesPerLength + fpad;
+				tmpPoint.x = ((float)i + 0.5f) * samplesPerLength + fpad;
 
-		if (fetchGridTrilinear(tmpPoint.x, tmpPoint.y, tmpPoint.z) < 0) {
-			outputSamples.push_back(tmpPoint.x);
-			outputSamples.push_back(tmpPoint.y);
-			outputSamples.push_back(tmpPoint.z);
-			count++;
+				if (tmpPoint.z < (m_nk - 1) && tmpPoint.y < (m_nj - 1) && tmpPoint.x < (m_ni - 1)){
+					if (fetchGridTrilinear(tmpPoint.x, tmpPoint.y, tmpPoint.z) <= 0) {
+						outputSamples.push_back(tmpPoint.x);
+						outputSamples.push_back(tmpPoint.y);
+						outputSamples.push_back(tmpPoint.z);
+						count++;
+					}
+				}
+				iter++;
+			}
 		}
-		iter++;
-	} while (count < sampleNum || iter < 700000);
-
+	}
 	return sampleNum;
 }
 #endif 
