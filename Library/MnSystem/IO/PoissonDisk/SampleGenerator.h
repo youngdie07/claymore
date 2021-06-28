@@ -241,10 +241,10 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 				if (iter > maxIter) break;
 				float sf = (float)iter * (samplesPerLength);
 				cyPoint3f tmpPoint;
-				
-				tmpPoint.z = ((float)k + 0.5f) * samplesPerLength + fpad;
-				tmpPoint.y = ((float)j + 0.5f) * samplesPerLength + fpad;
-				tmpPoint.x = ((float)i + 0.5f) * samplesPerLength + fpad;
+				float buff = 0.5f;
+				tmpPoint.z = ((float)k + buff) * samplesPerLength + fpad;
+				tmpPoint.y = ((float)j + buff) * samplesPerLength + fpad;
+				tmpPoint.x = ((float)i + buff) * samplesPerLength + fpad;
 
 				if (tmpPoint.z < (m_nk - 1) && tmpPoint.y < (m_nj - 1) && tmpPoint.x < (m_ni - 1)){
 					if (fetchGridTrilinear(tmpPoint.x, tmpPoint.y, tmpPoint.z) <= 0) {
