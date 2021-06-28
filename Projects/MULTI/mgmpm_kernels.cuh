@@ -347,7 +347,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_dim[2] = (0.7871f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + offset;
+        struct_pos[1] = (2.f) / g_length + (0.5f * g_dx) + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
         float t = 1.0f * g_dx;
 

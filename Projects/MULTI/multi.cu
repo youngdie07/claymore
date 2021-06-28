@@ -147,6 +147,7 @@ void init_models(
         models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           debris_offset, debris_lengths);
+
       } else if (g_device_cnt == 2){
         water_lengths[2] = 12.f * 0.3048f / g_length * f;
         models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
@@ -165,7 +166,32 @@ void init_models(
         models[1] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           debris_offset, debris_lengths);
-      } else if (g_device_cnt >= 4) {
+      } else if (g_device_cnt == 4) {
+        water_lengths[2] = 3.6576f / g_length * f / 3.f;
+        float off_z = off;
+        float zstep = 1.f/3.f * (3.6576f / g_length) * f;
+        for (int n = 0; n < 3; n++) {
+          models[n] = read_sdf(std::string{"Water/OSU_Water_Third_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
+                            water_ppc, g_dx, mn::config::g_domain_size,
+                            vec<float, 3>{off, off, off_z},
+                            water_lengths);
+          off_z += zstep;
+        }
+
+        vec<float, 3> debris_offset;
+        debris_offset[0] = 40.f / g_length + off;
+        debris_offset[1] = 1.755f / g_length + off;
+        debris_offset[2] = 1.8f / g_length + off;
+        vec<float, 3> debris_lengths;
+        debris_lengths[0] = 0.500f / g_length;
+        debris_lengths[1] = 0.051f / g_length;
+        debris_lengths[2] = 0.102f / g_length;
+        float debris_ppc = MODEL_PPC_FC;
+        models[3] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+                          debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+                          debris_offset, debris_lengths);
+
+      } else if (g_device_cnt == 5) {
         water_lengths[2] = 3.6576f / g_length * f / 4.f;
         float off_z = off;
         float zstep = 1.f/4.f * (3.6576f / g_length) * f;
@@ -176,20 +202,20 @@ void init_models(
                             water_lengths);
           off_z += zstep;
         }
-        if (g_device_cnt == 5){
-          vec<float, 3> debris_offset;
-          debris_offset[0] = 40.f / g_length + off;
-          debris_offset[1] = 1.755f / g_length + off;
-          debris_offset[2] = 1.8f / g_length + off;
-          vec<float, 3> debris_lengths;
-          debris_lengths[0] = 0.500f / g_length;
-          debris_lengths[1] = 0.051f / g_length;
-          debris_lengths[2] = 0.102f / g_length;
-          float debris_ppc = MODEL_PPC_FC;
-          models[4] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
-                            debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
-                            debris_offset, debris_lengths);
-        }
+
+        vec<float, 3> debris_offset;
+        debris_offset[0] = 40.f / g_length + off;
+        debris_offset[1] = 1.755f / g_length + off;
+        debris_offset[2] = 1.8f / g_length + off;
+        vec<float, 3> debris_lengths;
+        debris_lengths[0] = 0.500f / g_length;
+        debris_lengths[1] = 0.051f / g_length;
+        debris_lengths[2] = 0.102f / g_length;
+        float debris_ppc = MODEL_PPC_FC;
+        models[4] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+                          debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+                          debris_offset, debris_lengths);
+
       }
   }
   default:
@@ -210,7 +236,7 @@ int main() {
 
   float off = 8.f * g_dx;
   h_point_a[0] = 43.5356f / g_length + off;
-  h_point_a[1] = 2.f  / g_length + off;
+  h_point_a[1] = 2.f  / g_length + off + (0.5f * g_dx);
   h_point_a[2] = 1.44145f / g_length + off;
   h_point_b[0] = h_point_a[0] + 1.f * g_dx;
   h_point_b[1] = h_point_a[1] + 0.3935f / g_length;
@@ -219,6 +245,9 @@ int main() {
   /// Initialize
   auto benchmark = std::make_unique<mgsp_benchmark>();
   init_models(models, 4);
+
+  //benchmark->initModel<config::g_material_list[0]>(0, models[0]);
+
   WaveHolder waveMaker;
   load_waveMaker(std::string{"wmdisp_hydro4sec_09062021.csv"}, ',', waveMaker);
 

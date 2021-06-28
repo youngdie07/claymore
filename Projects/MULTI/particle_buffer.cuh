@@ -56,6 +56,11 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   ParticleBufferImpl(Allocator allocator)
       : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
             allocator)} {}
+  // ParticleBufferImpl(Allocator allocator, std::size_t count)
+  //     : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
+  //           allocator, count)},
+  //       _numActiveBlocks{0}, _ppcs{nullptr}, _ppbs{nullptr},
+  //       _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {}
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > this->_capacity)
@@ -198,7 +203,8 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 using particle_buffer_t =
     variant<ParticleBuffer<material_e::JFluid>,
             ParticleBuffer<material_e::FixedCorotated>,
-            ParticleBuffer<material_e::Sand>, ParticleBuffer<material_e::NACC>>;
+            ParticleBuffer<material_e::Sand>, 
+            ParticleBuffer<material_e::NACC>>;
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;

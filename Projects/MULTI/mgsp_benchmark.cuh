@@ -104,9 +104,18 @@ struct mgsp_benchmark {
       th.join();
   }
 
+  // Allow for diff. materials
+  //template <material_e m>
   void initModel(int devid, const std::vector<std::array<float, 3>> &model) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
+    
+    // for (int copyid = 0; copyid < 2; ++copyid) {
+    //   particleBins[copyid].emplace_back(
+    //     ParticleBuffer<m>{device_allocator{}});
+    // }
+    // cuDev.syncStream<streamIdx::Compute>();
+
     pcnt[devid] = model.size();
     fmt::print("init model[{}] with {} particles\n", devid, pcnt[devid]);
     cudaMemcpyAsync((void *)&particles[devid].val_1d(_0, 0), model.data(),
@@ -203,6 +212,60 @@ struct mgsp_benchmark {
     for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[step][d]; //< Set vals
     fmt::print("Set waveMaker with step {}, time {}s, disp {}m, vel {}m/s\n", step, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
   }
+
+  void updateJFluidParameters(float rho, float vol, float bulk, float gamma,
+                              float visco) {
+    match(particleBins[0].back())([&](auto &pb) {},
+                                  [&](ParticleBuffer<material_e::JFluid> &pb) {
+                                    pb.updateParameters(rho, vol, bulk, gamma,
+                                                        visco);
+                                  });
+    match(particleBins[1].back())([&](auto &pb) {},
+                                  [&](ParticleBuffer<material_e::JFluid> &pb) {
+                                    pb.updateParameters(rho, vol, bulk, gamma,
+                                                        visco);
+                                  });
+  }
+  void updateFRParameters(float rho, float vol, float ym, float pr) {
+    match(particleBins[0].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+    match(particleBins[1].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+  }
+  void updateSandParameters(float rho, float vol, float ym, float pr) {
+    match(particleBins[0].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Sand> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+    match(particleBins[1].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Sand> &pb) {
+          pb.updateParameters(rho, vol, ym, pr);
+        });
+  }
+  void updateNACCParameters(float rho, float vol, float ym, float pr,
+                            float beta, float xi) {
+    match(particleBins[0].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::NACC> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, beta,
+                              xi);
+        });
+    match(particleBins[1].back())(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::NACC> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, beta,
+                              xi);
+        });
+  }
+
 
   template <typename CudaContext>
   void exclScan(std::size_t cnt, int const *const in, int *out,
