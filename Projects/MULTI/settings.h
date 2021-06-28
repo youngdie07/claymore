@@ -21,7 +21,7 @@ enum class material_e { JFluid = 0, FixedCorotated, Sand, NACC, Total };
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 1;
+constexpr int g_device_cnt = 2;
 constexpr int g_total_frame_cnt = 200;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -29,7 +29,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid, material_e::JFluid, 
+                      material_e::JFluid, material_e::FixedCorotated, 
                       material_e::JFluid, material_e::JFluid, 
                       material_e::FixedCorotated};
 
@@ -40,14 +40,14 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 2.f
-#define MODEL_PPC_FC 1.4f
+#define MODEL_PPC 4.f
+#define MODEL_PPC_FC 16.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.3f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 11
+#define DOMAIN_BITS 10
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -148,21 +148,21 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1e3
-#define YOUNGS_MODULUS 5e3
+#define YOUNGS_MODULUS 5e5
 #define POISSON_RATIO 0.4f
 
 // Ambient parameters
 constexpr float g_gravity = -9.81f;
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 1800000;
-constexpr int g_max_active_block = 20000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 650000;
+constexpr int g_max_active_block = 15000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 8000; //< Max halo blocks (#)
+constexpr std::size_t g_max_halo_block = 1000; //< Max halo blocks (#)
 constexpr int g_target_cells = 500; //< Max nodes in grid-cell target
 
 } // namespace config
