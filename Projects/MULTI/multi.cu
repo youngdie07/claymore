@@ -31,13 +31,11 @@ decltype(auto) load_model(std::size_t pcnt, std::string filename) {
 void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
   auto addr_str = std::string(AssetDirPath) + "WaveMaker/";
   std::ifstream in((addr_str + filename).c_str());
-
   if (in) {
       std::string line;
       while (getline(in, line)) {
           std::stringstream sep(line);
           std::string field;
-
           int col = 0;
           std::array<float, 3> arr;
           while (getline(sep, field, ',')) {
@@ -48,12 +46,10 @@ void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
           fields.push_back(arr);
       }
   }
-  // // Verbose output of all data
   // for (auto row : fields) {
   //     for (auto field : row) {
   //         std::cout << field << ' ';
   //     }
-
   //     std::cout << '\n';
   // }
 }
@@ -130,23 +126,23 @@ void init_models(
       water_lengths[1] = 2.f / g_length * f;
 
       if (g_device_cnt == 1) {
-        // water_lengths[2] = 12.f * 0.3048f / g_length * f;
-        // models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
-        //                   water_ppc, mn::config::g_dx, mn::config::g_domain_size,
-        //                   vec<float, 3>{off, off, off},
-        //                   water_lengths);
-        vec<float, 3> debris_offset;
-        debris_offset[0] = 40.f / g_length + off;
-        debris_offset[1] = 2.f / g_length + off;
-        debris_offset[2] = 1.8f / g_length + off;
-        vec<float, 3> debris_lengths;
-        debris_lengths[0] = 0.500f / g_length;
-        debris_lengths[1] = 0.051f / g_length;
-        debris_lengths[2] = 0.102f / g_length;
-        float debris_ppc = MODEL_PPC_FC;
-        models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
-                          debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
-                          debris_offset, debris_lengths);
+        water_lengths[2] = 12.f * 0.3048f / g_length * f;
+        models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
+                          water_ppc, mn::config::g_dx, mn::config::g_domain_size,
+                          vec<float, 3>{off, off, off},
+                          water_lengths);
+        // vec<float, 3> debris_offset;
+        // debris_offset[0] = 40.f / g_length + off;
+        // debris_offset[1] = 2.f / g_length + off;
+        // debris_offset[2] = 1.8f / g_length + off;
+        // vec<float, 3> debris_lengths;
+        // debris_lengths[0] = 0.500f / g_length;
+        // debris_lengths[1] = 0.051f / g_length;
+        // debris_lengths[2] = 0.102f / g_length;
+        // float debris_ppc = MODEL_PPC_FC;
+        // models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+        //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+        //                   debris_offset, debris_lengths);
 
       } else if (g_device_cnt == 2){
         water_lengths[2] = 12.f * 0.3048f / g_length * f;
@@ -171,7 +167,7 @@ void init_models(
         float off_z = off;
         float zstep = 1.f/3.f * (3.6576f / g_length) * f;
         for (int n = 0; n < 3; n++) {
-          models[n] = read_sdf(std::string{"Water/OSU_Water_Third_ft_281.5735x_6.5617y_3z_dx0.2_pad1.sdf"}, 
+          models[n] = read_sdf(std::string{"Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf"}, 
                             water_ppc, g_dx, mn::config::g_domain_size,
                             vec<float, 3>{off, off, off_z},
                             water_lengths);
@@ -180,7 +176,7 @@ void init_models(
 
         vec<float, 3> debris_offset;
         debris_offset[0] = 40.f / g_length + off;
-        debris_offset[1] = 1.755f / g_length + off;
+        debris_offset[1] = 2.f / g_length + off;
         debris_offset[2] = 1.8f / g_length + off;
         vec<float, 3> debris_lengths;
         debris_lengths[0] = 0.500f / g_length;
@@ -205,7 +201,7 @@ void init_models(
 
         vec<float, 3> debris_offset;
         debris_offset[0] = 40.f / g_length + off;
-        debris_offset[1] = 1.755f / g_length + off;
+        debris_offset[1] = 2.f / g_length + off;
         debris_offset[2] = 1.8f / g_length + off;
         vec<float, 3> debris_lengths;
         debris_lengths[0] = 0.500f / g_length;
@@ -254,7 +250,7 @@ int main() {
   /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
-    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 1.f);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 120.f);
     benchmark->initWaveMaker(did, waveMaker);
   }
   // benchmark->initBoundary("candy_base");

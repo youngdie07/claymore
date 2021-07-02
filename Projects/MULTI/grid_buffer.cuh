@@ -9,8 +9,8 @@ namespace mn {
 
 using BlockDomain = compact_domain<char, config::g_blocksize,
                                    config::g_blocksize, config::g_blocksize>;
-using GridDomain = compact_domain<int, config::g_grid_size, config::g_grid_size,
-                                  config::g_grid_size>;
+using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y,
+                                  config::g_grid_size_z>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
 using GridTargetDomain = compact_domain<int, config::g_target_cells>;
