@@ -234,7 +234,7 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 	float fpad = (float)pad;
 	int count = 0;
 	int iter = 0;
-	int maxIter = 9999000;
+	int maxIter = 123456789;
 	for (int i = 0; i < i_lim; i++){
 		for (int j = 0; j < j_lim; j++){
 			for (int k = 0; k < k_lim; k++){

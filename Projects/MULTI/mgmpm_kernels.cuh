@@ -349,7 +349,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
         struct_pos[1] = (2.f) / g_length + (0.5f * g_dx) + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 1.0f * g_dx;
+        float t = 2.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry

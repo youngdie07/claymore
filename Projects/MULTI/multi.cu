@@ -175,7 +175,7 @@ void init_models(
         }
 
         vec<float, 3> debris_offset;
-        debris_offset[0] = 40.f / g_length + off;
+        debris_offset[0] = 41.f / g_length + off;
         debris_offset[1] = 2.f / g_length + off;
         debris_offset[2] = 1.8f / g_length + off;
         vec<float, 3> debris_lengths;
