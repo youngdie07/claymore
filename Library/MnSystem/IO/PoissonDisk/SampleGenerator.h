@@ -241,7 +241,7 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 				if (iter > maxIter) break;
 				float sf = (float)iter * (samplesPerLength);
 				cyPoint3f tmpPoint;
-				float buff = 0.5f;
+				float buff = 0.f;
 				tmpPoint.z = ((float)k + buff) * samplesPerLength + fpad;
 				tmpPoint.y = ((float)j + buff) * samplesPerLength + fpad;
 				tmpPoint.x = ((float)i + buff) * samplesPerLength + fpad;

@@ -74,7 +74,7 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{2e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+      : dtDefault{1e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
         fps{1}, bRunning{true} {
     // data
     _hostData =
@@ -291,9 +291,9 @@ struct mgsp_benchmark {
         [&](const auto &particleBuffer) { return particleBuffer.mass; });
   }
   void checkCapacity(int did) {
-    if (ebcnt[did] > curNumActiveBlocks[did] * 3 / 4 &&
+    if (ebcnt[did] > curNumActiveBlocks[did] * 4 / 5 &&
         checkedCnts[did][0] == 0) {
-      curNumActiveBlocks[did] = curNumActiveBlocks[did] * 3 / 2;
+      curNumActiveBlocks[did] = curNumActiveBlocks[did] * 5 / 4;
       checkedCnts[did][0] = 2;
       fmt::print(fmt::emphasis::bold, "resizing blocks {} -> {}\n", ebcnt[did],
                  curNumActiveBlocks[did]);
