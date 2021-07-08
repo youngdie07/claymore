@@ -23,7 +23,7 @@ decltype(auto) load_model(std::size_t pcnt, std::string filename) {
   std::vector<std::array<float, 3>> rawpos(pcnt);
   auto addr_str = std::string(AssetDirPath) + "MpmParticles/";
   auto f = fopen((addr_str + filename).c_str(), "rb");
-  std::fread((float *)rawpos.data(), sizeof(float), rawpos.size() * 3, f);
+  auto res = std::fread((float *)rawpos.data(), sizeof(float), rawpos.size() * 3, f);
   std::fclose(f);
   return rawpos;
 }
@@ -150,14 +150,11 @@ void init_models(
                           water_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off},
                           water_lengths);     
-        vec<float, 3> debris_offset;
-        debris_offset[0] = 40.f / g_length + off;
-        debris_offset[1] = 2.f / g_length + off;
-        debris_offset[2] = 1.8f / g_length + off;
-        vec<float, 3> debris_lengths;
-        debris_lengths[0] = 0.500f / g_length;
-        debris_lengths[1] = 0.051f / g_length;
-        debris_lengths[2] = 0.102f / g_length;
+        vec<float, 3> debris_offset{42.f, 2.f, 1.8f};
+        debris_offset /= g_length;
+        debris_offset = debris_offset + off;
+        vec<float, 3> debris_lengths{0.5f, 0.051f, 0.102f};
+        debris_lengths /= g_length;
         float debris_ppc = MODEL_PPC_FC;
         models[1] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
@@ -174,14 +171,11 @@ void init_models(
           off_z += zstep;
         }
 
-        vec<float, 3> debris_offset;
-        debris_offset[0] = 41.f / g_length + off;
-        debris_offset[1] = 2.f / g_length + off;
-        debris_offset[2] = 1.8f / g_length + off;
-        vec<float, 3> debris_lengths;
-        debris_lengths[0] = 0.500f / g_length;
-        debris_lengths[1] = 0.051f / g_length;
-        debris_lengths[2] = 0.102f / g_length;
+        vec<float, 3> debris_offset{42.f, 2.f, 1.8f};
+        debris_offset /= g_length;
+        debris_offset = debris_offset + off;
+        vec<float, 3> debris_lengths{0.5f, 0.051f, 0.102f};
+        debris_lengths /= g_length;
         float debris_ppc = MODEL_PPC_FC;
         models[3] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
@@ -199,14 +193,11 @@ void init_models(
           off_z += zstep;
         }
 
-        vec<float, 3> debris_offset;
-        debris_offset[0] = 40.f / g_length + off;
-        debris_offset[1] = 2.f / g_length + off;
-        debris_offset[2] = 1.8f / g_length + off;
-        vec<float, 3> debris_lengths;
-        debris_lengths[0] = 0.500f / g_length;
-        debris_lengths[1] = 0.051f / g_length;
-        debris_lengths[2] = 0.102f / g_length;
+        vec<float, 3> debris_offset{40.f, 2.f, 1.8f};
+        debris_offset /= g_length;
+        debris_offset = debris_offset + off;
+        vec<float, 3> debris_lengths{0.5f, 0.051f, 0.102f};
+        debris_lengths /= g_length;
         float debris_ppc = MODEL_PPC_FC;
         models[4] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
@@ -227,13 +218,15 @@ int main() {
   std::vector<std::array<float, 3>> models[g_device_cnt];
   std::vector<std::array<float, 10>> h_gridTarget(mn::config::g_target_cells, 
                                                   std::array<float, 10>{0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+  float off = 8.f * g_dx;
+  
   vec<float, 3> h_point_a;
   vec<float, 3> h_point_b;
-
-  float off = 8.f * g_dx;
-  h_point_a[0] = 43.5356f / g_length + off;
-  h_point_a[1] = 2.f  / g_length + off + (0.5f * g_dx);
-  h_point_a[2] = 1.44145f / g_length + off;
+  h_point_a[0] = 43.5356f;
+  h_point_a[1] = 2.f + (0.5f * g_dx);
+  h_point_a[2] = 1.44145f;
+  h_point_a /= g_length;
+  h_point_a = h_point_a + off;
   h_point_b[0] = h_point_a[0] + 1.f * g_dx;
   h_point_b[1] = h_point_a[1] + 0.3935f / g_length;
   h_point_b[2] = h_point_a[2] + 0.7871f / g_length;
@@ -242,15 +235,13 @@ int main() {
   auto benchmark = std::make_unique<mgsp_benchmark>();
   init_models(models, 4);
 
-  //benchmark->initModel<config::g_material_list[0]>(0, models[0]);
-
   WaveHolder waveMaker;
   load_waveMaker(std::string{"wmdisp_hydro4sec_09062021.csv"}, ',', waveMaker);
 
   /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
-    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 120.f);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 24.f);
     benchmark->initWaveMaker(did, waveMaker);
   }
   // benchmark->initBoundary("candy_base");

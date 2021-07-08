@@ -64,7 +64,7 @@ struct mgsp_benchmark {
     pattribs[I] = spawn<particle_array_, orphan_signature>(device_allocator{}); //< Particle attributes on device
     d_gridTarget.emplace_back(
         std::move(GridTarget{spawn<grid_target_, orphan_signature>(
-            device_allocator{}, sizeof(float) * 10 * config::g_target_cells)}));
+            device_allocator{}, sizeof(std::array<float, 10>) * config::g_target_cells)}));
     checkedCnts[I][0] = 0;
     checkedCnts[I][1] = 0;
     curNumActiveBlocks[I] = config::g_max_active_block;
@@ -149,7 +149,6 @@ struct mgsp_benchmark {
     }
   }
 
-
   /// Initialize target from host setting (&h_gridTarget), output as *.bgeo (JB)
   void initGridTarget(int devid,
                       const std::vector<std::array<float, 10>> &h_gridTarget, 
@@ -158,7 +157,7 @@ struct mgsp_benchmark {
                       const float target_freq) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
-    fmt::print("Just entered initGridTarget in gmpm_simulator.cuh!\n");
+    fmt::print("Entered initGridTarget in gmpm_simulator.cuh!\n");
     h_target_freq = target_freq; // Set output frequency for target (host)
 
     // Set points a/b (device) for grid-target volume using (host, from JSON)
@@ -167,8 +166,6 @@ struct mgsp_benchmark {
       d_point_b[d] = h_point_b[d];
     }
     target_cnt[devid] = h_gridTarget.size(); //Set size
-
-    fmt::print("Created structure in initGridTarget gmpm_simulator.cuh!\n");
 
     /// Populate target (device) with data from target (host) (JB)
     cudaMemcpyAsync((void *)&d_gridTarget[devid].val_1d(_0, 0), h_gridTarget.data(),
@@ -196,7 +193,6 @@ struct mgsp_benchmark {
     /// Populate wave-maker (device) with data from wave-maker (host) (JB)
     for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[0][d]; //< Set vals
     fmt::print("Init waveMaker with time {}s, disp {}m, vel {}m/s\n", d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
-    fmt::print("Exiting initWaveMaker!\n");
   }  
   
   /// Set OSU wave-maker on device (d_waveMaker) by host (&h_waveMaker) (JB)
@@ -206,7 +202,6 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
     float wm_dt = (float)h_waveMaker[1][0] - (float)h_waveMaker[0][0]; //< Wave-maker time-step
-    //wm_dt = 0.01f;
     int step = (int)(curTime / wm_dt); //< Index for time
     if (step >= h_waveMaker.size()) step = h_waveMaker.size() - 1; //< Index-limit
     for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[step][d]; //< Set vals
@@ -602,17 +597,15 @@ struct mgsp_benchmark {
         {
           // Set appropiate output frequency rate
           int maxFreqStep = (int)(1.f / dtDefault / fps / h_target_freq);
-
-          // Check current step aligns with output frequency
           if (curStep % maxFreqStep == 0){
             freq_step += 1; // Iterate freq_step           
             issue([this](int did) {
               IO::flush();    // Clear IO
               output_gridcell_target(did); // Output gridTarget as *.bgeo
             });
-            sync();
           }
         }
+        sync();
       }
       issue([this](int did) {
         IO::flush();
@@ -683,60 +676,63 @@ struct mgsp_benchmark {
         cudaMemsetAsync(d_target_cnt, 0, sizeof(int), 
         cuDev.stream_compute())); /// Reset memory
     target_cnt = g_target_cells;
+    cuDev.syncStream<streamIdx::Compute>();
 
     // Setup forceSum to sum all forces in grid-target in a kernel
     float forceSum, *d_forceSum = (float *)cuDev.borrow(sizeof(float));
     checkCudaErrors(
-        cudaMemsetAsync(d_forceSum, 0, sizeof(float), cuDev.stream_compute()));
-    
+        cudaMemsetAsync(d_forceSum, 0.f, sizeof(float), cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+
     // Reset gridTarget (device) to zeroes asynchronously
     checkCudaErrors(
         cudaMemsetAsync((void *)&d_gridTarget[did].val_1d(_0, 0), 0,
                         sizeof(std::array<float, 10>) * (target_cnt),
                         cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
 
     fmt::print(fg(fmt::color::red), "About to launch retrieve_selected_grid_cells\n");
 
     /// Copy down-sampled grid value from buffer (device) to target (device)
     cuDev.compute_launch(
-              {curNumActiveBlocks[did], 32}, retrieve_selected_grid_cells, (uint32_t)nbcnt[did],
-              (const ivec3 *)partitions[rollid][did]._activeKeys,
-              partitions[rollid][did], 
+              {curNumActiveBlocks[did], 32}, retrieve_selected_grid_cells, 
+              (uint32_t)nbcnt[did], partitions[rollid][did], 
               gridBlocks[0][did], d_gridTarget[did],
               dt, d_forceSum, d_point_a, d_point_b);
     cuDev.syncStream<streamIdx::Compute>();
-    fmt::print(fg(fmt::color::red), "About to launch process_grid_target_forces\n");
 
     // Copy force summation to host
     checkCudaErrors(cudaMemcpyAsync(&forceSum, d_forceSum, sizeof(float),
                                     cudaMemcpyDefault,
                                     cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
-
     fmt::print(fg(fmt::color::red), "Force summation in gridTarget: {} N\n", forceSum);
-    fmt::print(fg(fmt::color::red), "total number of target target {}\n", target_cnt);
     
-    h_gridTarget[did].resize(target_cnt);
-
     // Asynchronously copy data from target (device) to target (host)
+    h_gridTarget[did].resize(target_cnt);
     checkCudaErrors(
         cudaMemcpyAsync(h_gridTarget[did].data(), (void *)&d_gridTarget[did].val_1d(_0, 0),
                         sizeof(std::array<float, 10>) * (target_cnt),
                         cudaMemcpyDefault, cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
 
-    /// Output to Partio as 'gridTarget_frame[i].bgeo'
-    //int out_step = freq_step + max_freq_step * (curFrame - 1);
-    std::string fn = std::string{"gridTarget"} + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(freq_step) + "].bgeo";
-    IO::insert_job([fn, m = h_gridTarget[did]]() { write_partio_gridTarget<float, 10>(fn, m); });
+    if (1) {
+      /// Output to Partio as 'gridTarget_frame[i].bgeo'
+      std::string fn = std::string{"gridTarget"} + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(freq_step) + "].bgeo";
+      IO::insert_job([fn, m = h_gridTarget[did]]() { write_partio_gridTarget<float, 10>(fn, m); });
+      fmt::print(fg(fmt::color::red), "BGEO write finished.\n");
+    }
 
+    if (1) {
+      std::string fn = std::string{"force_time_series"} + "_target[0]_dev[" + std::to_string(did) + "].csv";
+      std::ofstream forceSumFile;
+      forceSumFile.open (fn, std::ios::out | std::ios::app);
+      forceSumFile << curTime << "," << forceSum << ",\n";
+      forceSumFile.close();
+      fmt::print(fg(fmt::color::red), "CSV write finished.\n");
+    }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_cells", did,
                            curFrame, curStep));
-
-    fn = std::string{"force_time_series"} + "_target[0]_dev[" + std::to_string(did) + "].csv";
-    forceFile.open (fn, std::ios::out | std::ios::app);
-    forceFile << curTime << "," << forceSum << ",\n";
-    forceFile.close();
   }
 
 

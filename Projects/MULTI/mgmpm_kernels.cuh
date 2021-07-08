@@ -2313,7 +2313,7 @@ retrieve_particle_buffer_attributes(Partition partition,
 /// Retrieve grid-cells between points a & b from grid-buffer to gridTarget (JB)
 template <typename Partition, typename Grid, typename GridTarget>
 __global__ void retrieve_selected_grid_cells(
-    uint32_t blockCount, const ivec3 *__restrict__ prev_blockids, const Partition partition,
+    uint32_t blockCount, const Partition partition,
     Grid prev_grid, GridTarget garray,
     float dt, float *forceSum, vec3 point_a, vec3 point_b) {
 
@@ -2322,8 +2322,8 @@ __global__ void retrieve_selected_grid_cells(
     //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
     auto blockid = partition._activeKeys[blockno];
     if (blockno < blockCount) {
-      if (blockno == -1)
-        return;
+      // if (blockno == -1)
+      //   return;
 
       auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
 
