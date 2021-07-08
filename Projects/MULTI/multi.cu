@@ -241,7 +241,7 @@ int main() {
   /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
-    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 24.f);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 60.f);
     benchmark->initWaveMaker(did, waveMaker);
   }
   // benchmark->initBoundary("candy_base");

@@ -163,7 +163,7 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 120000; //< Max halo blocks (#)
+constexpr std::size_t g_max_halo_block = 140000; //< Max halo blocks (#)
 constexpr int g_target_cells = 2500; //< Max nodes in grid-cell target
 
 } // namespace config
