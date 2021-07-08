@@ -40,7 +40,7 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 2.5f
+#define MODEL_PPC 2.f
 #define MODEL_PPC_FC 20.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.3f;
@@ -156,7 +156,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f;
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 11000000;
+constexpr int g_max_particle_num = 8000000;
 constexpr int g_max_active_block = 175000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {

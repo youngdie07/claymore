@@ -127,10 +127,11 @@ void init_models(
 
       if (g_device_cnt == 1) {
         water_lengths[2] = 12.f * 0.3048f / g_length * f;
-        models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
-                          water_ppc, mn::config::g_dx, mn::config::g_domain_size,
-                          vec<float, 3>{off, off, off},
-                          water_lengths);
+        // models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
+        //                   water_ppc, mn::config::g_dx, mn::config::g_domain_size,
+        //                   vec<float, 3>{off, off, off},
+        //                   water_lengths);
+
         // vec<float, 3> debris_offset;
         // debris_offset[0] = 40.f / g_length + off;
         // debris_offset[1] = 2.f / g_length + off;
@@ -143,6 +144,15 @@ void init_models(
         // models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
         //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
         //                   debris_offset, debris_lengths);
+        vec<float, 3> debris_offset{41.f, 2.f, 0.7538f};
+        debris_offset /= g_length;
+        debris_offset = debris_offset + off;
+        vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
+        debris_lengths /= g_length;
+        float debris_ppc = MODEL_PPC_FC;
+        models[0] = read_sdf(std::string{"Debris/OSU_AT162_spacing_5cm_dx0.005_pad1.sdf"}, 
+                          debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+                          debris_offset, debris_lengths);
 
       } else if (g_device_cnt == 2){
         water_lengths[2] = 12.f * 0.3048f / g_length * f;
@@ -170,17 +180,24 @@ void init_models(
                             water_lengths);
           off_z += zstep;
         }
-
-        vec<float, 3> debris_offset{42.f, 2.f, 1.8f};
+        // vec<float, 3> debris_offset{42.f, 2.f, 1.8f};
+        // debris_offset /= g_length;
+        // debris_offset = debris_offset + off;
+        // vec<float, 3> debris_lengths{0.5f, 0.051f, 0.102f};
+        // debris_lengths /= g_length;
+        // float debris_ppc = MODEL_PPC_FC;
+        // models[3] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+        //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+        //                   debris_offset, debris_lengths);
+        vec<float, 3> debris_offset{42.f, 2.f, 0.7538f};
         debris_offset /= g_length;
         debris_offset = debris_offset + off;
-        vec<float, 3> debris_lengths{0.5f, 0.051f, 0.102f};
+        vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
         debris_lengths /= g_length;
         float debris_ppc = MODEL_PPC_FC;
-        models[3] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
+        models[3] = read_sdf(std::string{"Debris/OSU_AT162_spacing_5cm_dx0.005_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           debris_offset, debris_lengths);
-
       } else if (g_device_cnt == 5) {
         water_lengths[2] = 3.6576f / g_length * f / 4.f;
         float off_z = off;
