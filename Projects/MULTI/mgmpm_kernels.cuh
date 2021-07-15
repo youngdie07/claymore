@@ -1296,23 +1296,15 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     channelid >>= g_blockbits;
 
     float val;
-    //float val_ASFLIP;
-    if (channelid == 0) {
+    if (channelid == 0) 
       val = grid_block.val_1d(_1, c);
-      //val_ASFLIP = grid_block.val_1d(_4, c);
-    } else if (channelid == 1) {
+    else if (channelid == 1)
       val = grid_block.val_1d(_2, c);
-      //val_ASFLIP = grid_block.val_1d(_5, c);
-    } else if (channelid == 2) {
+    else if (channelid == 2) 
       val = grid_block.val_1d(_3, c);
-      //val_ASFLIP = grid_block.val_1d(_6, c);
-    }
     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
              [cy + (local_block_id & 2 ? g_blocksize : 0)]
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
-    // g2pbuffer[channelid + 3][cx + (local_block_id & 4 ? g_blocksize : 0)]
-    //          [cy + (local_block_id & 2 ? g_blocksize : 0)]
-    //          [cz + (local_block_id & 1 ? g_blocksize : 0)] = val_ASFLIP;
   }
   __syncthreads();
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
@@ -1466,7 +1458,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     float Jc = 1.f; // Critical J for weak-comp fluid
     if (J >= Jc) {
       J = Jc;       // No vol. expansion, Tamp. 2017
-      beta = 0.2f;  // beta max
+      beta = 0.5f;  // beta max
     } else {
       beta = 0.05f; // beta min
     }
@@ -2026,8 +2018,11 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     char z = loc & arenamask;
     char y = (loc >>= arenabits) & arenamask;
     char x = (loc >>= arenabits) & arenamask;
-    int channelid = (loc >> arenabits) + 3;
-    if (channelid != 3) p2gbuffer[channelid][x][y][z] = 0.f;
+    int channelid = loc >> arenabits;
+    if (channelid != 0) {
+      channelid += 3;
+      p2gbuffer[channelid][x][y][z] = 0.f;
+    }
   }
   __syncthreads();
 
@@ -2146,12 +2141,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       contrib[8] = source_particle_bin.val(_11, source_pidib % g_bin_capacity);
       matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
       float Jc = 1.f; //< Critical vol. ratio for Fixed-Corotated
-      float J = F[0]*F[4]*F[8] - F[0]*F[7]*F[7] - 
-                F[4]*F[6]*F[6] - F[8]*F[3]*F[3] + 
-                F[3]*F[6]*F[7]*2.f; //< J = V/Vo = ||F||
+      float J = F[0]*F[4]*F[8] + F[3]*F[7]*F[2] + 
+                F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
+                F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
       float beta;
-      if (J >= Jc) beta = 0.f; //< beta max
-      else beta = 0.f;          //< beta min
+      if (J >= Jc) beta = 0.5f; //< beta max
+      else beta = 0.05f;          //< beta min
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n)); //< pos update
       vel += pbuffer.alpha * (vp_n - vel_n); //< vel update
       {

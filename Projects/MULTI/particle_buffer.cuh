@@ -114,7 +114,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
   float mass = (volume * DENSITY);
-  float bulk = 1e7;
+  float bulk = 4e7;
   float gamma = 7.1f;
   float visco = 0.001f;
   float alpha = 0.99f;
@@ -168,7 +168,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.f;
+  float alpha = 0.99f;
   void updateParameters(float density, float vol, float E, float nu, float a) {
     rho = density;
     volume = vol;
