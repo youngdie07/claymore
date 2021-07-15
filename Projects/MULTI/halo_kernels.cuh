@@ -73,6 +73,10 @@ __global__ void collect_grid_blocks(Grid grid, Partition partition,
     halo_gridblock.val_1d(_1, cidib) = gridblock.val_1d(_1, cidib);
     halo_gridblock.val_1d(_2, cidib) = gridblock.val_1d(_2, cidib);
     halo_gridblock.val_1d(_3, cidib) = gridblock.val_1d(_3, cidib);
+    // ASFLIP unstressed velocity
+    halo_gridblock.val_1d(_4, cidib) = gridblock.val_1d(_4, cidib);
+    halo_gridblock.val_1d(_5, cidib) = gridblock.val_1d(_5, cidib);
+    halo_gridblock.val_1d(_6, cidib) = gridblock.val_1d(_6, cidib);
   }
 }
 
@@ -91,6 +95,10 @@ __global__ void reduce_grid_blocks(Grid grid, Partition partition,
     atomicAdd(&gridblock.val_1d(_1, cidib), halo_gridblock.val_1d(_1, cidib));
     atomicAdd(&gridblock.val_1d(_2, cidib), halo_gridblock.val_1d(_2, cidib));
     atomicAdd(&gridblock.val_1d(_3, cidib), halo_gridblock.val_1d(_3, cidib));
+    // ASFLIP
+    atomicAdd(&gridblock.val_1d(_4, cidib), halo_gridblock.val_1d(_4, cidib));
+    atomicAdd(&gridblock.val_1d(_5, cidib), halo_gridblock.val_1d(_5, cidib));
+    atomicAdd(&gridblock.val_1d(_6, cidib), halo_gridblock.val_1d(_6, cidib));
   }
 }
 
@@ -128,6 +136,10 @@ __global__ void collect_migration_grid_blocks(Grid grid, Partition partition,
     halo_gridblock.val_1d(_1, cidib) = gridblock.val_1d(_1, cidib);
     halo_gridblock.val_1d(_2, cidib) = gridblock.val_1d(_2, cidib);
     halo_gridblock.val_1d(_3, cidib) = gridblock.val_1d(_3, cidib);
+    // ASFLIP
+    halo_gridblock.val_1d(_4, cidib) = gridblock.val_1d(_4, cidib);
+    halo_gridblock.val_1d(_5, cidib) = gridblock.val_1d(_5, cidib);
+    halo_gridblock.val_1d(_6, cidib) = gridblock.val_1d(_6, cidib);
   }
 }
 

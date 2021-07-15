@@ -74,7 +74,7 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{1e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+      : dtDefault{2.5e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
         fps{1}, bRunning{true} {
     // data
     _hostData =
@@ -423,19 +423,36 @@ struct mgsp_benchmark {
                               sizeof(int) * ebcnt[did] * g_blockvolume,
                               cuDev.stream_compute()));
           // g2p2g
-          match(particleBins[rollid][did])([&](const auto &pb) {
-            if (partitions[rollid][did].h_count)
-              cuDev.compute_launch(
-                  {partitions[rollid][did].h_count, 128,
-                   (512 * 3 * 4) + (512 * 4 * 4)},
-                  g2p2g, dt, nextDt,
-                  (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
-                  get<typename std::decay_t<decltype(pb)>>(
-                      particleBins[rollid ^ 1][did]),
-                  partitions[rollid ^ 1][did], partitions[rollid][did],
-                  gridBlocks[0][did], gridBlocks[1][did]);
-          });
-          cuDev.syncStream<streamIdx::Compute>();
+          if (0) {
+            match(particleBins[rollid][did])([&](const auto &pb) {
+              if (partitions[rollid][did].h_count)
+                cuDev.compute_launch(
+                    {partitions[rollid][did].h_count, 128,
+                    (512 * 3 * 4) + (512 * 4 * 4)},
+                    g2p2g, dt, nextDt,
+                    (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
+                    get<typename std::decay_t<decltype(pb)>>(
+                        particleBins[rollid ^ 1][did]),
+                    partitions[rollid ^ 1][did], partitions[rollid][did],
+                    gridBlocks[0][did], gridBlocks[1][did]);
+            });
+            cuDev.syncStream<streamIdx::Compute>();
+          }
+          if (1) {
+            match(particleBins[rollid][did])([&](const auto &pb) {
+              if (partitions[rollid][did].h_count)
+                cuDev.compute_launch(
+                    {partitions[rollid][did].h_count, 128,
+                    (512 * 6 * 4) + (512 * 7 * 4)},
+                    g2p2g, dt, nextDt,
+                    (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
+                    get<typename std::decay_t<decltype(pb)>>(
+                        particleBins[rollid ^ 1][did]),
+                    partitions[rollid ^ 1][did], partitions[rollid][did],
+                    gridBlocks[0][did], gridBlocks[1][did]);
+            });
+            cuDev.syncStream<streamIdx::Compute>();
+          }
           timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2g", did,
                                  curFrame, curStep));
         });
@@ -448,15 +465,28 @@ struct mgsp_benchmark {
           CudaTimer timer{cuDev.stream_compute()};
 
           timer.tick();
-          match(particleBins[rollid][did])([&](const auto &pb) {
-            cuDev.compute_launch(
-                {pbcnt[did], 128, (512 * 3 * 4) + (512 * 4 * 4)}, g2p2g, dt,
-                nextDt, (const ivec3 *)nullptr, pb,
-                get<typename std::decay_t<decltype(pb)>>(
-                    particleBins[rollid ^ 1][did]),
-                partitions[rollid ^ 1][did], partitions[rollid][did],
-                gridBlocks[0][did], gridBlocks[1][did]);
-          });
+          if (0) { 
+            match(particleBins[rollid][did])([&](const auto &pb) {
+              cuDev.compute_launch(
+                  {pbcnt[did], 128, (512 * 3 * 4) + (512 * 4 * 4)}, g2p2g, dt,
+                  nextDt, (const ivec3 *)nullptr, pb,
+                  get<typename std::decay_t<decltype(pb)>>(
+                      particleBins[rollid ^ 1][did]),
+                  partitions[rollid ^ 1][did], partitions[rollid][did],
+                  gridBlocks[0][did], gridBlocks[1][did]);
+            });
+          }
+          if (1) { 
+            match(particleBins[rollid][did])([&](const auto &pb) {
+              cuDev.compute_launch(
+                  {pbcnt[did], 128, (512 * 6 * 4) + (512 * 7 * 4)}, g2p2g, dt,
+                  nextDt, (const ivec3 *)nullptr, pb,
+                  get<typename std::decay_t<decltype(pb)>>(
+                      particleBins[rollid ^ 1][did]),
+                  partitions[rollid ^ 1][did], partitions[rollid][did],
+                  gridBlocks[0][did], gridBlocks[1][did]);
+            });
+          }
           timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p2g", did,
                                  curFrame, curStep));
           if (checkedCnts[did][0] > 0) {

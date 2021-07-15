@@ -219,7 +219,6 @@ void init_models(
         models[4] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
                           debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           debris_offset, debris_lengths);
-
       }
   }
   default:
@@ -258,7 +257,7 @@ int main() {
   /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
-    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 60.f);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 10.f);
     benchmark->initWaveMaker(did, waveMaker);
   }
   // benchmark->initBoundary("candy_base");

@@ -66,7 +66,7 @@ using block_partition_ =
     structural<structural_type::hash,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
-               GridDomain, attrib_layout::aos, empty_>;
+               GridDomain, attrib_layout::aos, empty_>; // GridDomain in grid_buffer.cuh
 
 template <int Opt = 1>
 struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
@@ -177,7 +177,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     if (blockno == -1) {
       ivec3 offset{};
       dir_components(dirtag, offset);
-      printf("The hell with this! loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n",
+      printf("Error in hash_table.cuh! loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n",
              cellid[0], cellid[1], cellid[2], offset[0], offset[1], offset[2],
              pidib);
       return;

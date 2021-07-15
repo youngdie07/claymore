@@ -19,7 +19,8 @@ using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_>;
+               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
+               f32_, f32_, f32_>; //< mass, vel, vel_n
 using grid_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,

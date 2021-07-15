@@ -14,7 +14,13 @@ using particle_bin4_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_>; ///< J, pos
+               f32_>; ///< pos, J
+using particle_bin7_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
+               f32_, f32_, f32_, f32_>; ///< pos, J, vel
 using particle_bin12_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -28,10 +34,18 @@ using particle_bin13_ =
                ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
                f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_,
                f32_>; ///< pos, F, logJp
+using particle_bin15_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
+               f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, 
+               f32_, f32_, f32_>; ///< pos, F, vel
 template <material_e mt> struct particle_bin_;
 template <> struct particle_bin_<material_e::JFluid> : particle_bin4_ {};
-template <>
-struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {};
+template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_ {};
+template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin13_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin13_ {};
 
@@ -77,7 +91,7 @@ struct ParticleBuffer<material_e::JFluid>
   float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
   float mass = (volume * DENSITY);
-  float bulk = 5e6;
+  float bulk = 2e6;
   float gamma = 7.1f;
   float visco = 0.001f;
   void updateParameters(float density, float vol, float b, float g, float v) {
@@ -87,6 +101,31 @@ struct ParticleBuffer<material_e::JFluid>
     bulk = b;
     gamma = g;
     visco = v;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+template <>
+struct ParticleBuffer<material_e::JFluid_ASFLIP>
+    : ParticleBufferImpl<material_e::JFluid_ASFLIP> {
+  using base_t = ParticleBufferImpl<material_e::JFluid_ASFLIP>;
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  float mass = (volume * DENSITY);
+  float bulk = 1e7;
+  float gamma = 7.1f;
+  float visco = 0.001f;
+  float alpha = 0.99f;
+  void updateParameters(float density, float vol, float b, float g, float v, float a) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    bulk = b;
+    gamma = g;
+    visco = v;
+    alpha = a;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -111,6 +150,32 @@ struct ParticleBuffer<material_e::FixedCorotated>
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+template <>
+struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
+    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP> {
+  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP>;
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC_FC);
+  float mass = (volume * DENSITY);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  float alpha = 0.f;
+  void updateParameters(float density, float vol, float E, float nu, float a) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+    alpha = a;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -202,7 +267,9 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 /// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
 using particle_buffer_t =
     variant<ParticleBuffer<material_e::JFluid>,
+            ParticleBuffer<material_e::JFluid_ASFLIP>,
             ParticleBuffer<material_e::FixedCorotated>,
+            ParticleBuffer<material_e::FixedCorotated_ASFLIP>,
             ParticleBuffer<material_e::Sand>, 
             ParticleBuffer<material_e::NACC>>;
 
