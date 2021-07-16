@@ -144,7 +144,7 @@ void init_models(
         // models[0] = read_sdf(std::string{"Debris/OSU_Debris_0.5x_0.051y_0.102z_dx0.01_pad1.sdf"}, 
         //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
         //                   debris_offset, debris_lengths);
-        vec<float, 3> debris_offset{41.f, 2.f, 0.7538f};
+        vec<float, 3> debris_offset{42.f, 2.f, 0.7538f};
         debris_offset /= g_length;
         debris_offset = debris_offset + off;
         vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
@@ -160,7 +160,7 @@ void init_models(
                           water_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           vec<float, 3>{off, off, off},
                           water_lengths);     
-        vec<float, 3> debris_offset{42.f, 2.f, 1.8f};
+        vec<float, 3> debris_offset{42.f, 2.f, 0.7538f};
         debris_offset /= g_length;
         debris_offset = debris_offset + off;
         vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};

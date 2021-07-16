@@ -1458,7 +1458,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     float Jc = 1.f; // Critical J for weak-comp fluid
     if (J >= Jc) {
       J = Jc;       // No vol. expansion, Tamp. 2017
-      beta = 0.5f;  // beta max
+      beta = 1.f;  // beta max
     } else {
       beta = 0.05f; // beta min
     }
@@ -2145,8 +2145,8 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                 F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
                 F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
       float beta;
-      if (J >= Jc) beta = 0.5f; //< beta max
-      else beta = 0.05f;          //< beta min
+      if (J >= Jc) beta = 0.2f; //< beta max
+      else beta = 0.f;          //< beta min
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n)); //< pos update
       vel += pbuffer.alpha * (vp_n - vel_n); //< vel update
       {
