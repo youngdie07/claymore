@@ -78,8 +78,8 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{1e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
-        fps{1}, bRunning{true} {
+      : dtDefault{3e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+        fps{10}, bRunning{true} {
     // data
     _hostData =
         spawn<signed_distance_field_, orphan_signature>(host_allocator{});
@@ -396,7 +396,6 @@ struct mgsp_benchmark {
           timer.tick();
           checkCudaErrors(cudaMemsetAsync(d_maxVel, 0, sizeof(float),
                                           cuDev.stream_compute()));
-          setWaveMaker(did, h_waveMaker, curTime); //< Update d_waveMaker for time
           if (collisionObjs[did])
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
@@ -411,8 +410,7 @@ struct mgsp_benchmark {
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime,
-                d_waveMaker);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime);
           checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
                                           sizeof(float), cudaMemcpyDefault,
                                           cuDev.stream_compute()));

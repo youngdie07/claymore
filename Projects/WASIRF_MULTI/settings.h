@@ -34,7 +34,7 @@ enum class fem_e { Tetrahedron = 0,
 /// benchmark setup
 namespace config {
 constexpr int g_device_cnt = 1;
-constexpr int g_total_frame_cnt = 20;
+constexpr int g_total_frame_cnt = 40;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
   return type;
@@ -56,8 +56,8 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 3.f
-#define MODEL_PPC_FC 27.f
+#define MODEL_PPC 2.5f
+#define MODEL_PPC_FC 8.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
@@ -79,12 +79,12 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 2097152.f
+#define DOMAIN_VOLUME 31.25f
 //#define DOMAIN_VOLUME 16777216.f
-constexpr float g_length   = 128.0f; //< Domain full length (m)
-constexpr float g_length_x = 128.0f; //< Domain x length (m)
-constexpr float g_length_y = 8.f;   //< Domain y length (m)
-constexpr float g_length_z = 8.f;   //< Domain z length (m)
+constexpr float g_length   = 20.0f; //< Domain full length (m)
+constexpr float g_length_x = 20.0f; //< Domain x length (m)
+constexpr float g_length_y = 1.25f;   //< Domain y length (m)
+constexpr float g_length_z = 1.25f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -165,26 +165,26 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1e3
-#define YOUNGS_MODULUS 2e7
+#define YOUNGS_MODULUS 1e6
 #define POISSON_RATIO 0.4f
 
 // Ambient parameters
 constexpr float g_gravity = -9.81f;
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 1200000; // 8000000
-constexpr int g_max_active_block = 20000; //175000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 1900000; // 8000000
+constexpr int g_max_active_block = 17000; //175000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 1000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 1000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 100; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 2500; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 10000; // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 10000; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 1000; // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 1000; // Max no. of element in FEM mesh
 constexpr int g_max_fem_element_bin = 1; // Max no. of element in FEM mesh
 
 } // namespace config

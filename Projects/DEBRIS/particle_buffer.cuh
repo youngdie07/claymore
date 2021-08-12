@@ -265,6 +265,32 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
 
+template <>
+struct ParticleBuffer<material_e::Meshed>
+    : ParticleBufferImpl<material_e::Meshed> {
+  using base_t = ParticleBufferImpl<material_e::Meshed>;
+  float rho = DENSITY;
+  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC_FC);
+  float mass = (volume * DENSITY);
+  float E = YOUNGS_MODULUS;
+  float nu = POISSON_RATIO;
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  float alpha = 0.f;
+  void updateParameters(float density, float vol, float E, float nu, float a) {
+    rho = density;
+    volume = vol;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+    alpha = a;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
 /// conversion
 /// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
 using particle_buffer_t =
@@ -273,7 +299,8 @@ using particle_buffer_t =
             ParticleBuffer<material_e::FixedCorotated>,
             ParticleBuffer<material_e::FixedCorotated_ASFLIP>,
             ParticleBuffer<material_e::Sand>, 
-            ParticleBuffer<material_e::NACC>>;
+            ParticleBuffer<material_e::NACC>,
+            ParticleBuffer<material_e::Meshed>>;
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;

@@ -124,6 +124,9 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
   vec3 vel;
   vec9 contrib, C;
   vel.set(0.f), contrib.set(0.f), C.set(0.f);
+
+  vel[0] = 1.f / g_length; // 1 m/s
+
   // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
   float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
   float scale = g_length * g_length; //< Area scale (m^2)
@@ -356,10 +359,42 @@ __global__ void array_to_buffer(ParticleArray parray,
   }
 }
 
+template <typename ParticleArray, typename Partition>
+__global__ void array_to_buffer(ParticleArray parray,
+                                ParticleBuffer<material_e::Meshed> pbuffer,
+                                Partition partition) {
+  uint32_t blockno = blockIdx.x;
+  int pcnt = partition._ppbs[blockno];
+  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto parid = bucket[pidib];
+    if (parid >= g_max_fem_vertice_num) {
+      printf("Particle %d incorrect ID!\n", parid);
+      printf("Particle %d incorrect ID!\n", parid);
+      printf("Particle %d incorrect ID!\n", parid);
+
+
+    }
+    auto pbin =
+        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// pos
+    pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
+    pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
+    pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
+    /// ID
+    pbin.val(_3, pidib % g_bin_capacity) = parid;
+    /// vel
+    pbin.val(_4, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_5, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_6, pidib % g_bin_capacity) = 0.f;
+  }
+}
+
+
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, float curTime, vec3 waveMaker) {
+                                               float *maxVel, float curTime) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -407,79 +442,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
         vel_n[2] = grid_block.val_1d(_6, cidib); //< mvz
 
-        // WASIRF Harris Flume (Slip)
-        // Acts on individual grid-cell velocities
-        // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
-        float flumex = 87.4268f / g_length - g_dx; // Actually 12m, added run-in/out
-        float flumey = 4.572f / g_length - g_dx; // 1.22m Depth
-        float flumez = 3.6576f / g_length - g_dx; // 0.91m Width
+        float flumex = 3.f / g_length + (2.f * g_dx); // Length
+        float flumey = 4.f / g_length; // Depth
+        float flumez = 4.f / g_length; // Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
-                         ((yc <= offset || yc >= flumey + offset) << 1) |
-                          (zc <= offset || zc >= flumez + offset);
+                         ((yc < offset || yc >= flumey + offset) << 1) |
+                          (zc < offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
-
-
-        // Add grid-cell boundary for structural block, WASIRF flume
-        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (0.7871f) / g_length;
-        struct_dim[1] = (0.3935f) / g_length;
-        struct_dim[2] = (0.7871f) / g_length;
-        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + (0.5f * g_dx) + offset;
-        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 2.0f * g_dx;
-
-        // Check if grid-cell is within sticky interior of structural box
-        // Subtract slip-layer thickness from structural box dimension for geometry
-        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
-                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
-                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
-        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-        isInBound |= isOutStruct; // Update with regular boundary for efficiency
-        
-        // Check exterior slip-layer of structural block(OSU Flume)
-        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-        int isOnStructFace[6];
-        // Right (z+)
-        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
-        // Left (z-)
-        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
-        // Top (y+)
-        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Bottom (y-)
-        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Back (x+)
-        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Front (x-)
-        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
-        // Reduce results from box faces to single result
-        int isOnStruct = 0; // Collision reduction variable
-        for (int iter=0; iter<6; iter++) {
-          if (isOnStructFace[iter] != 7) {
-            // Check if 111 (7), set 000 (0) otherwise
-            isOnStructFace[iter] = 0;
-          } else {
-            isOnStructFace[iter] = (1 << iter / 2);
-          }
-          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
-        }
-        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
-        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
-        isInBound |= isOnStruct; // Update with regular boundary for efficiency
-
 
 #if 1
         ///< Slip contact        
@@ -499,149 +468,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (isInBound) ///< sticky
           vel.set(0.f);
 #endif
-
-
-        vec3 ns; //< Ramp boundary surface normal
-        float ys;
-        float xs;
-        float xo;
-
-        // Start ramp segment definition for OSU flume
-        // Based on bathymetry diagram, February
-        if (xc < (14.2748/g_length)+offset) {
-          // Flat, 0' elev., 0' - 46'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
-          // Flat (adjustable), 0' elev., 46'10 - 58'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (14.2748 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
-          // 1:12, 0' elev., 58'10 - 94'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (17.9324 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
-          // 1:24, 3' elev., 94'10 - 142'10
-          ns[0] = -1.f/24.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (28.905 / g_length) + offset;
-          float yo = (0.9144 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/24.f * (xc - xo) + yo;
-
-        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
-          // Flat, 5' elev., 142'10 - 262'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (43.5356 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
-          // 1:12, 5' elev., 262'10 - 286'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (80.1116 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else {
-          // Flat, 7' elev., 286'10 onward
-          ns[0]=0.f;
-          ns[1]=1.f;
-          ns[2]=0.f;
-          float yo = (2.1336 / g_length) + offset;
-          ys = yo;        
-        }
-
-        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns = ns / ns_mag;
-        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
-
-        // Boundary thickness and cell distance
-        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-
-        // Decay coefficient
-        float ySF;
-        if (yc > ys + g_dx) {
-          ySF = 0.f;
-        } else if (yc <= ys){
-          ySF = 1.f;
-        } else {
-          ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx);
-        }
-
-        // fbc = -fint - fext - (1/dt)*p
-        // a = (1 / mass) * (fint + fext + ySf*fbc) 
-
-        // Adjust velocity relative to surface
-        if (0) {
-          // Normal adjustment in decay layer, fix below
-          if (ySF == 1.f) {
-            vel[0] = vel[1] = vel[2] = 0.f;
-          } else if (ySF > 0.f && ySF < 1.f) {
-            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
-            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
-            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
-          }
-        }
-        if (1) {
-          // Free above surface, normal adjusted below
-          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-        }
-
-        if (0) {
-          // OSU Wave-Maker - Manual Control
-          float wm_pos;
-          float wm_vel;
-          if (curTime >= 2.f && curTime < 4.f){
-            wm_vel = 2.f / g_length;
-            wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
-          } else if (curTime >= 4.f) {
-            wm_vel = 0.f;
-            wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
-          } else {
-            wm_vel = 0.f;
-            wm_pos = offset;
-          }
-          if (xc < wm_pos) {
-            vel[0] = wm_vel;
-          }
-        }
-        if (1) {
-          // OSU Wave-Maker - CSV Control
-          if (xc <= (waveMaker[1] / g_length + offset)) {
-             //vel[0] = fmax(waveMaker[2] / g_length, abs(vel[0]));
-             vel[0] = waveMaker[2] / g_length;
-
-          }
-        }
 
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
@@ -961,12 +787,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
     atomicMax(maxVel, sh_maxvels[0]);
 }
 
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid> pbuffer,
                       ParticleBuffer<material_e::JFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
 
@@ -1239,12 +1066,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 // Grid-to-Particle-to-Grid - Weakly-Incompressible Fluid - ASFLIP Transfer
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                       ParticleBuffer<material_e::JFluid_ASFLIP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
   static constexpr uint64_t numViInArena_ASFLIP = (g_blockvolume * 6) << 3;
@@ -1632,12 +1460,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
 
@@ -1911,12 +1740,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 // Grid-to-Particle-to-Grid - Fixed-Corotated - ASFLIP transfer
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated_ASFLIP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
   static constexpr uint64_t numViInArena_ASFLIP = (g_blockvolume * 6) << 3;
@@ -2302,12 +2132,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
 }
 
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Sand> pbuffer,
                       ParticleBuffer<material_e::Sand> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
 
@@ -2586,12 +2417,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
 }
 
-template <typename Partition, typename Grid>
+template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NACC> pbuffer,
                       ParticleBuffer<material_e::NACC> next_pbuffer,
                       const Partition prev_partition, Partition partition,
-                      const Grid grid, Grid next_grid) {
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
 
@@ -2870,6 +2702,854 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
 }
 
+
+// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
+// Stress/Strain not computed here, displacements sent to FE mesh for force calc
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::Meshed> pbuffer,
+                      ParticleBuffer<material_e::Meshed> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+  static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
+  static constexpr uint64_t numViInArena = numViPerBlock << 3;
+  static constexpr uint64_t numViInArena_ASFLIP = (g_blockvolume * 6) << 3;
+
+  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
+  static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
+
+  static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
+  static constexpr unsigned arenabits = g_blockbits + 1;
+
+  extern __shared__ char shmem[];
+  using ViArena =
+      float(*)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  using ViArenaRef =
+      float(&)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
+  using MViArena =
+      float(*)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  using MViArenaRef =
+      float(&)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  MViArenaRef __restrict__ p2gbuffer =
+      *reinterpret_cast<MViArena>(shmem + numViInArena_ASFLIP * sizeof(float));
+
+  ivec3 blockid;
+  int src_blockno;
+  if (blocks != nullptr) {
+    blockid = blocks[blockIdx.x];
+    src_blockno = partition.query(blockid);
+  } else {
+    if (partition._haloMarks[blockIdx.x])
+      return;
+    blockid = partition._activeKeys[blockIdx.x];
+    src_blockno = blockIdx.x;
+  }
+
+  for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
+    char local_block_id = base / numViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    auto grid_block = grid.ch(_0, blockno);
+    int channelid = base % numViPerBlock;
+    char c = channelid & 0x3f;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+
+    float val;
+    if (channelid == 0) 
+      val = grid_block.val_1d(_1, c);
+    else if (channelid == 1)
+      val = grid_block.val_1d(_2, c);
+    else if (channelid == 2) 
+      val = grid_block.val_1d(_3, c);
+    g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+             [cy + (local_block_id & 2 ? g_blocksize : 0)]
+             [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
+    char local_block_id = base / numViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    auto grid_block = grid.ch(_0, blockno);
+    int channelid = base % numViPerBlock;
+    char c = channelid & 0x3f;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+    channelid += 3;
+    float val;
+    if (channelid == 3) {
+      val = grid_block.val_1d(_4, c);
+    } else if (channelid == 4) {
+      val = grid_block.val_1d(_5, c);
+    } else if (channelid == 5) {
+      val = grid_block.val_1d(_6, c);
+    }
+    g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+             [cy + (local_block_id & 2 ? g_blocksize : 0)]
+             [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    int loc = base;
+    char z = loc & arenamask;
+    char y = (loc >>= arenabits) & arenamask;
+    char x = (loc >>= arenabits) & arenamask;
+    p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    int loc = base;
+    char z = loc & arenamask;
+    char y = (loc >>= arenabits) & arenamask;
+    char x = (loc >>= arenabits) & arenamask;
+    int channelid = loc >> arenabits;
+    if (channelid != 0) {
+      channelid += 3;
+      p2gbuffer[channelid][x][y][z] = 0.f;
+    }
+  }
+  __syncthreads();
+  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
+       pidib += blockDim.x) {
+    int source_blockno, source_pidib;
+    ivec3 base_index;
+    {
+      int advect =
+          partition
+              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      dir_components(advect / g_particle_num_per_block, base_index);
+      base_index += blockid;
+      source_blockno = prev_partition.query(base_index);
+      source_pidib = advect & (g_particle_num_per_block - 1);
+      source_blockno = prev_partition._binsts[source_blockno] +
+                       source_pidib / g_bin_capacity;
+    }
+    vec3 pos;  //< Particle position at n
+    int ID; // Vertice ID for mesh
+    vec3 vp_n; //< Particle vel. at n
+    //float J;   //< Particle volume ratio at n
+    {
+      auto source_particle_bin = pbuffer.ch(_0, source_blockno);
+      pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
+      pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
+      pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
+      ID = (int)source_particle_bin.val(_3, source_pidib % g_bin_capacity); //< ID
+      vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
+      vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
+      vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
+    }
+    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
+    vec3 local_pos = pos - local_base_index * g_dx;
+    base_index = local_base_index;
+
+    vec3x3 dws;
+#pragma unroll 3
+    for (int dd = 0; dd < 3; ++dd) {
+      float d =
+          (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
+          g_dx_inv;
+      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
+      d -= 1.0f;
+      dws(dd, 1) = 0.75 - d * d;
+      d = 0.5f + d;
+      dws(dd, 2) = 0.5 * d * d;
+      local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
+    }
+    vec3 vel;   //< Stressed, collided grid velocity
+    vec3 vel_n; //< Unstressed, uncollided grid velocity
+    vec9 C;     //< APIC affine matrix, used a few times
+    vel.set(0.f); 
+    vel_n.set(0.f);
+    C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+
+#pragma unroll 3
+    for (char i = 0; i < 3; i++)
+#pragma unroll 3
+      for (char j = 0; j < 3; j++)
+#pragma unroll 3
+        for (char k = 0; k < 3; k++) {
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
+          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k]};
+          vel += vi * W;
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
+        }
+#pragma unroll 3
+    for (char i = 0; i < 3; i++)
+#pragma unroll 3
+      for (char j = 0; j < 3; j++)
+#pragma unroll 3
+        for (char k = 0; k < 3; k++) {
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
+          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          vec3 vi_n{g2pbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k],
+                    g2pbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k],
+                    g2pbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k]};
+          vel_n += vi_n * W; 
+        }
+    //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
+
+    float beta = 0.f; //< Position correction factor (ASFLIP)
+    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+    vel += pbuffer.alpha * (vp_n - vel_n);
+
+    {
+      {
+        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
+                                                    pidib / g_bin_capacity);
+        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
+        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
+        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
+        particle_bin.val(_3, pidib % g_bin_capacity) = (float)ID; //< ID
+        particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
+        particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
+        particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
+      }
+      {
+        vertice_array.val(_3, ID) = pos[0];
+        vertice_array.val(_4, ID) = pos[1];
+        vertice_array.val(_5, ID) = pos[2];
+        vertice_array.val(_6, ID) = pbuffer.mass;
+        vertice_array.val(_7, ID) = 0.f;
+        vertice_array.val(_8, ID) = 0.f;
+        vertice_array.val(_9, ID) = 0.f;
+
+      }
+    }
+  }
+}
+
+
+// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
+// Stress/Strain not computed here, displacements sent to FE mesh for force calc
+template <typename Partition, typename Grid, typename VerticeArray, typename ElementArray>
+__global__ void fem2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array,
+                      ElementArray element_array) {
+
+  int IDs[4];
+  vec3 pos_old[4];
+  vec3 p[4];
+  float mass[4];
+  IDs[0] = element_array.val(_0, blockIdx.x);
+  IDs[1] = element_array.val(_1, blockIdx.x);
+  IDs[2] = element_array.val(_2, blockIdx.x);
+  IDs[3] = element_array.val(_3, blockIdx.x);
+  for (int v = 0; v < 4; v++) {
+    int ID = IDs[v] - 1;
+    pos_old[v][0] = vertice_array.val(_0, ID) * g_length;
+    pos_old[v][1] = vertice_array.val(_1, ID) * g_length;
+    pos_old[v][2] = vertice_array.val(_2, ID) * g_length;
+    p[v][0] = vertice_array.val(_3, ID) * g_length;
+    p[v][1] = vertice_array.val(_4, ID) * g_length;
+    p[v][2] = vertice_array.val(_5, ID) * g_length;
+    mass[v] = vertice_array.val(_6, ID);
+  }
+  __syncthreads();
+
+  // float restVolume;
+  // restVolume = (pos_old[3][0] - pos_old[0][0]) * 
+  //          ((pos_old[1][1] - pos_old[0][1]) * 
+  //           (pos_old[2][2] - pos_old[0][2]) - 
+  //           (pos_old[1][2] - pos_old[0][2]) * 
+  //           (pos_old[2][1] - pos_old[0][1])) + 
+  //          (pos_old[3][1] - pos_old[0][1]) * 
+  //          ((pos_old[1][2] - pos_old[0][2]) * 
+  //           (pos_old[2][0] - pos_old[0][0]) - 
+  //           (pos_old[1][0] - pos_old[0][0]) * 
+  //           (pos_old[2][2] - pos_old[0][2])) + 
+  //          (pos_old[3][2] - pos_old[0][2]) * 
+  //          ((pos_old[1][0] - pos_old[0][0]) * 
+  //           (pos_old[2][1] - pos_old[0][1]) - 
+  //           (pos_old[1][1] - pos_old[0][1]) * 
+  //           (pos_old[2][0] - pos_old[0][0]));
+  // restVolume = restVolume/6.f;
+
+  vec9 Binv;
+  Binv.set(0.f);
+  Binv[0] = pos_old[1][0] - pos_old[0][0];
+  Binv[1] = pos_old[1][1] - pos_old[0][1];
+  Binv[2] = pos_old[1][2] - pos_old[0][2];
+  Binv[3] = pos_old[2][0] - pos_old[0][0];
+  Binv[4] = pos_old[2][1] - pos_old[0][1];
+  Binv[5] = pos_old[2][2] - pos_old[0][2];
+  Binv[6] = pos_old[3][0] - pos_old[0][0];
+  Binv[7] = pos_old[3][1] - pos_old[0][1];
+  Binv[8] = pos_old[3][2] - pos_old[0][2];
+  
+  vec9 B;
+  B.set(0.f);
+  float invCheck = matrixDeterminant3d(Binv.data());
+
+  matrixInverse(Binv.data(), B.data());
+  if (invCheck == 0.f) {
+   printf("Element (%d) Node (%d) no inverse!: (%f)\n", blockIdx.x, IDs[threadIdx.x], invCheck);
+   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[0], B[1], B[2]);
+   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[3], B[4], B[5]);
+   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[6], B[7], B[8]);
+
+  }
+
+  float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
+  if (restVolume > 1.f){
+    printf("Element (%d) Node (%d) giant volume!: (%f)\n", blockIdx.x, IDs[threadIdx.x], restVolume);
+  }
+  vec9 D;
+  D.set(0.f);
+  D[0] = p[1][0] - p[0][0];
+  D[1] = p[1][1] - p[0][1];
+  D[2] = p[1][2] - p[0][2];
+  D[3] = p[2][0] - p[0][0];
+  D[4] = p[2][1] - p[0][1];
+  D[5] = p[2][2] - p[0][2];
+  D[6] = p[3][0] - p[0][0];
+  D[7] = p[3][1] - p[0][1];
+  D[8] = p[3][2] - p[0][2];
+
+  vec9 F;
+  F.set(0.f);
+  matrixMatrixMultiplication3d(D.data(), B.data(), F.data());
+
+  vec9 P;
+  P.set(0.f);
+  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  compute_stress_FEM_fixedcorotated(mu, lambda, F, P);
+
+  vec9 H;
+  H.set(0.f);
+  matrixMatrixTransposeMultiplication3d(P.data(), B.data(), H.data());
+
+  __syncthreads();
+
+  float scale = restVolume / g_length;
+  vec3 f;
+  f.set(0.f);
+  if (threadIdx.x == 1){
+    f[0] = H[0];
+    f[1] = H[1];
+    f[2] = H[2];
+  } else if (threadIdx.x == 2) {
+    f[0] = H[3];
+    f[1] = H[4];
+    f[2] = H[5];
+  }  else if (threadIdx.x == 3) {
+    f[0] = H[6];
+    f[1] = H[7];
+    f[2] = H[8];
+  } else {
+    f[0] = -1.f*(H[0] + H[3] + H[6]);
+    f[1] = -1.f*(H[1] + H[4] + H[7]);
+    f[2] = -1.f*(H[2] + H[5] + H[8]);
+  }
+  __syncthreads();
+
+  f[0] = f[0] * scale;
+  f[1] = f[1] * scale; 
+  f[2] = f[2] * scale;
+
+  if ((blockIdx.x) == 0){
+      printf("Element (%d) Node (%d) force is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], f[0], f[1], f[2]);
+      printf("Element (%d) Node (%d) position is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], p[threadIdx.x][0], p[threadIdx.x][1], p[threadIdx.x][2]);
+      if ((threadIdx.x) == 0){
+        printf("Element (%d) restVolume is: (%f)\n", blockIdx.x, restVolume);
+      }
+  }
+
+
+  __syncthreads();
+  {
+    int ID = IDs[threadIdx.x] - 1;
+    atomicAdd(&vertice_array.val(_7, ID), f[0]); //< fx
+    atomicAdd(&vertice_array.val(_8, ID), f[1]); //< fy
+    atomicAdd(&vertice_array.val(_9, ID), f[2]); //< fz
+  }
+}
+
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::JFluid> pbuffer,
+                      ParticleBuffer<material_e::JFluid> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
+                      ParticleBuffer<material_e::JFluid_ASFLIP> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::FixedCorotated> pbuffer,
+                      ParticleBuffer<material_e::FixedCorotated> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
+                      ParticleBuffer<material_e::FixedCorotated_ASFLIP> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::Sand> pbuffer,
+                      ParticleBuffer<material_e::Sand> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::NACC> pbuffer,
+                      ParticleBuffer<material_e::NACC> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+                        return;
+                      }
+// template <typename Partition, typename Grid, typename VerticeArray>
+// __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+//                       const ParticleBuffer<material_e::Meshed> pbuffer,
+//                       ParticleBuffer<material_e::Meshed> next_pbuffer,
+//                       const Partition prev_partition, Partition partition,
+//                       const Grid grid, Grid next_grid,
+//                       VerticeArray vertice_array) {
+//                         return;
+//                       }
+
+// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
+// Stress/Strain not computed here, displacements sent to FE mesh for force calc
+template <typename Partition, typename Grid, typename VerticeArray>
+__global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const ParticleBuffer<material_e::Meshed> pbuffer,
+                      ParticleBuffer<material_e::Meshed> next_pbuffer,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array) {
+  static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
+  static constexpr uint64_t numViInArena = numViPerBlock << 3;
+  static constexpr uint64_t numViInArena_ASFLIP = (g_blockvolume * 6) << 3;
+
+  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
+  static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
+
+  static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
+  static constexpr unsigned arenabits = g_blockbits + 1;
+
+  extern __shared__ char shmem[];
+  using ViArena =
+      float(*)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  using ViArenaRef =
+      float(&)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
+  using MViArena =
+      float(*)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  using MViArenaRef =
+      float(&)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+  MViArenaRef __restrict__ p2gbuffer =
+      *reinterpret_cast<MViArena>(shmem + numViInArena_ASFLIP * sizeof(float));
+
+  ivec3 blockid;
+  int src_blockno;
+  if (blocks != nullptr) {
+    blockid = blocks[blockIdx.x];
+    src_blockno = partition.query(blockid);
+  } else {
+    if (partition._haloMarks[blockIdx.x])
+      return;
+    blockid = partition._activeKeys[blockIdx.x];
+    src_blockno = blockIdx.x;
+  }
+
+  for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
+    char local_block_id = base / numViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    auto grid_block = grid.ch(_0, blockno);
+    int channelid = base % numViPerBlock;
+    char c = channelid & 0x3f;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+
+    float val;
+    if (channelid == 0) 
+      val = grid_block.val_1d(_1, c);
+    else if (channelid == 1)
+      val = grid_block.val_1d(_2, c);
+    else if (channelid == 2) 
+      val = grid_block.val_1d(_3, c);
+    g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+             [cy + (local_block_id & 2 ? g_blocksize : 0)]
+             [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
+    char local_block_id = base / numViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    auto grid_block = grid.ch(_0, blockno);
+    int channelid = base % numViPerBlock;
+    char c = channelid & 0x3f;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+    channelid += 3;
+    float val;
+    if (channelid == 3) {
+      val = grid_block.val_1d(_4, c);
+    } else if (channelid == 4) {
+      val = grid_block.val_1d(_5, c);
+    } else if (channelid == 5) {
+      val = grid_block.val_1d(_6, c);
+    }
+    g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+             [cy + (local_block_id & 2 ? g_blocksize : 0)]
+             [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    int loc = base;
+    char z = loc & arenamask;
+    char y = (loc >>= arenabits) & arenamask;
+    char x = (loc >>= arenabits) & arenamask;
+    p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
+  }
+  __syncthreads();
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    int loc = base;
+    char z = loc & arenamask;
+    char y = (loc >>= arenabits) & arenamask;
+    char x = (loc >>= arenabits) & arenamask;
+    int channelid = loc >> arenabits;
+    if (channelid != 0) {
+      channelid += 3;
+      p2gbuffer[channelid][x][y][z] = 0.f;
+    }
+  }
+  __syncthreads();
+  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
+       pidib += blockDim.x) {
+    int source_blockno, source_pidib;
+    ivec3 base_index;
+    {
+      int advect =
+          partition
+              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      dir_components(advect / g_particle_num_per_block, base_index);
+      base_index += blockid;
+      source_blockno = prev_partition.query(base_index);
+      source_pidib = advect & (g_particle_num_per_block - 1);
+      source_blockno = prev_partition._binsts[source_blockno] +
+                       source_pidib / g_bin_capacity;
+    }
+    vec3 pos;  //< Particle position at n
+    int ID; // Vertice ID for mesh
+    vec3 vp_n; //< Particle vel. at n
+    //float J;   //< Particle volume ratio at n
+    {
+      auto source_particle_bin = pbuffer.ch(_0, source_blockno);
+      pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
+      pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
+      pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
+      ID = (int)source_particle_bin.val(_3, source_pidib % g_bin_capacity); //< ID
+      vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
+      vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
+      vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
+    }
+    ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
+    vec3 local_pos = pos - local_base_index * g_dx;
+    base_index = local_base_index;
+
+    vec3x3 dws;
+#pragma unroll 3
+    for (int dd = 0; dd < 3; ++dd) {
+      float d =
+          (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
+          g_dx_inv;
+      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
+      d -= 1.0f;
+      dws(dd, 1) = 0.75 - d * d;
+      d = 0.5f + d;
+      dws(dd, 2) = 0.5 * d * d;
+      local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
+    }
+    vec3 vel;   //< Stressed, collided grid velocity
+    vec3 vel_n; //< Unstressed, uncollided grid velocity
+    vec9 C;     //< APIC affine matrix, used a few times
+    vel.set(0.f); 
+    vel_n.set(0.f);
+    C.set(0.f);
+
+    // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+    float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+    float scale = g_length * g_length; //< Area scale (m^2)
+    Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
+
+#pragma unroll 3
+    for (char i = 0; i < 3; i++)
+#pragma unroll 3
+      for (char j = 0; j < 3; j++)
+#pragma unroll 3
+        for (char k = 0; k < 3; k++) {
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
+          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k]};
+          vel += vi * W;
+          C[0] += W * vi[0] * xixp[0] * scale;
+          C[1] += W * vi[1] * xixp[0] * scale;
+          C[2] += W * vi[2] * xixp[0] * scale;
+          C[3] += W * vi[0] * xixp[1] * scale;
+          C[4] += W * vi[1] * xixp[1] * scale;
+          C[5] += W * vi[2] * xixp[1] * scale;
+          C[6] += W * vi[0] * xixp[2] * scale;
+          C[7] += W * vi[1] * xixp[2] * scale;
+          C[8] += W * vi[2] * xixp[2] * scale;
+        }
+#pragma unroll 3
+    for (char i = 0; i < 3; i++)
+#pragma unroll 3
+      for (char j = 0; j < 3; j++)
+#pragma unroll 3
+        for (char k = 0; k < 3; k++) {
+          vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
+          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          vec3 vi_n{g2pbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k],
+                    g2pbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k],
+                    g2pbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
+                            [local_base_index[2] + k]};
+          vel_n += vi_n * W; 
+        }
+    //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
+
+    float beta = 0.f; //< Position correction factor (ASFLIP)
+    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+    vel += pbuffer.alpha * (vp_n - vel_n);
+    
+    vec3 f;
+    f[0] = vertice_array.val(_7, ID);
+    f[1] = vertice_array.val(_8, ID);
+    f[2] = vertice_array.val(_9, ID);
+    
+    for (int dim = 0; dim < 3; dim++){
+      if (isnan(f[dim])){
+        printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+        //f[dim] = 0.f;
+      }
+      if (isinf(f[dim])){
+        printf("Particle %d isinf !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+        //f[dim] = 0.f;
+      }
+      if (fabs(f[dim]) * pbuffer.mass * dt > 1.f){
+        printf("Particle %d isbig !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+      //   f[dim] = 0.f;
+      }
+    }
+
+    {
+      {
+        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
+                                                    pidib / g_bin_capacity);
+        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
+        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
+        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
+        particle_bin.val(_3, pidib % g_bin_capacity) = (float)ID; //< ID
+        particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
+        particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
+        particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
+      }
+    }
+
+    local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
+    {
+      int dirtag = dir_offset((base_index - 1) / g_blocksize -
+                              (local_base_index - 1) / g_blocksize);
+      partition.add_advection(local_base_index - 1, dirtag, pidib);
+    }
+
+#pragma unroll 3
+    for (char dd = 0; dd < 3; ++dd) {
+      local_pos[dd] = pos[dd] - local_base_index[dd] * g_dx;
+      float d =
+          (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
+          g_dx_inv;
+      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
+      d -= 1.0f;
+      dws(dd, 1) = 0.75 - d * d;
+      d = 0.5f + d;
+      dws(dd, 2) = 0.5 * d * d;
+
+      local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
+                             local_base_index[dd] - base_index[dd];
+    }
+#pragma unroll 3
+    for (char i = 0; i < 3; i++)
+#pragma unroll 3
+      for (char j = 0; j < 3; j++)
+#pragma unroll 3
+        for (char k = 0; k < 3; k++) {
+          pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
+          float W = dws(0, i) * dws(1, j) * dws(2, k);
+          auto wm = pbuffer.mass * W;
+          atomicAdd(
+              &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm);
+          // ASFLIP velocity, force sent after FE mesh calc
+          atomicAdd(
+              &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
+                             C[6] * pos[2])) - W * (f[0] * dt));
+          atomicAdd(
+              &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
+                             C[7] * pos[2])) - W * (f[1] * dt));
+          atomicAdd(
+              &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
+                             C[8] * pos[2])) - W * (f[2] * dt));
+          // ASFLIP unstressed velocity
+          atomicAdd(
+              &p2gbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
+                             C[6] * pos[2])));
+          atomicAdd(
+              &p2gbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
+                             C[7] * pos[2])));
+          atomicAdd(
+              &p2gbuffer[6][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
+                             C[8] * pos[2])));
+        }
+  }
+  __syncthreads();
+  /// arena no, channel no, cell no
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    char local_block_id = base / numMViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    // auto grid_block = next_grid.template ch<0>(blockno);
+    int channelid = base & (numMViPerBlock - 1);
+    char c = channelid % g_blockvolume;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+    float val =
+        p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+                 [cy + (local_block_id & 2 ? g_blocksize : 0)]
+                 [cz + (local_block_id & 1 ? g_blocksize : 0)];
+    if (channelid == 0) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val);
+    } else if (channelid == 1) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val);
+    } else if (channelid == 2) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val);
+    } else if (channelid == 3) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
+    }
+  }
+  __syncthreads();
+  /// arena no, channel no, cell no
+  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
+    char local_block_id = base / numMViPerBlock;
+    auto blockno = partition.query(
+        ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
+              blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
+              blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
+    int channelid = base & (numMViPerBlock - 1);
+    char c = channelid % g_blockvolume;
+    char cz = channelid & g_blockmask;
+    char cy = (channelid >>= g_blockbits) & g_blockmask;
+    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    channelid >>= g_blockbits;
+    channelid += 3;
+    float val =
+        p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
+                 [cy + (local_block_id & 2 ? g_blocksize : 0)]
+                 [cz + (local_block_id & 1 ? g_blocksize : 0)];
+    if (channelid == 4) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_4, c), val);
+    } else if (channelid == 5) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_5, c), val);
+    } else if (channelid == 6) {
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_6, c), val);
+    }
+  }
+}
+
+
 template <typename Grid>
 __global__ void mark_active_grid_blocks(uint32_t blockCount, const Grid grid,
                                         int *_marks) {
@@ -2935,650 +3615,6 @@ __global__ void copy_selected_grid_blocks(
   }
 }
 
-
-// template <typename Partition, typename Grid>
-// __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
-//                       const ParticleBuffer<material_e::Meshed> pbuffer,
-//                       ParticleBuffer<material_e::Meshed> next_pbuffer,
-//                       const Partition prev_partition, Partition partition,
-//                       const Grid grid, Grid next_grid) {
-//   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
-//   static constexpr uint64_t numViInArena = numViPerBlock << 3;
-
-//   static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
-//   static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
-
-//   static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
-//   static constexpr unsigned arenabits = g_blockbits + 1;
-
-//   extern __shared__ char shmem[];
-//   using ViArena =
-//       float(*)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   using ViArenaRef =
-//       float(&)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
-//   using MViArena =
-//       float(*)[4][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   using MViArenaRef =
-//       float(&)[4][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   MViArenaRef __restrict__ p2gbuffer =
-//       *reinterpret_cast<MViArena>(shmem + numViInArena * sizeof(float));
-
-//   ivec3 blockid;
-//   int src_blockno;
-//   if (blocks != nullptr) {
-//     blockid = blocks[blockIdx.x];
-//     src_blockno = partition.query(blockid);
-//   } else {
-//     if (partition._haloMarks[blockIdx.x])
-//       return;
-//     blockid = partition._activeKeys[blockIdx.x];
-//     src_blockno = blockIdx.x;
-//   }
-//   // auto blockid = partition._activeKeys[blockIdx.x];
-
-//   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
-//     char local_block_id = base / numViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     auto grid_block = grid.ch(_0, blockno);
-//     int channelid = base % numViPerBlock;
-//     char c = channelid & 0x3f;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-
-//     float val;
-//     if (channelid == 0)
-//       val = grid_block.val_1d(_1, c);
-//     else if (channelid == 1)
-//       val = grid_block.val_1d(_2, c);
-//     else
-//       val = grid_block.val_1d(_3, c);
-//     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//              [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
-//   }
-//   __syncthreads();
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     int loc = base;
-//     char z = loc & arenamask;
-//     char y = (loc >>= arenabits) & arenamask;
-//     char x = (loc >>= arenabits) & arenamask;
-//     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
-//   }
-//   __syncthreads();
-
-//   for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-//        pidib += blockDim.x) {
-//     int source_blockno, source_pidib;
-//     ivec3 base_index;
-//     {
-//       int advect =
-//           partition
-//               ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
-//       dir_components(advect / g_particle_num_per_block, base_index);
-//       base_index += blockid;
-//       source_blockno = prev_partition.query(base_index);
-//       source_pidib = advect & (g_particle_num_per_block - 1);
-//       source_blockno = prev_partition._binsts[source_blockno] +
-//                        source_pidib / g_bin_capacity;
-//     }
-//     vec3 pos;
-//     float J;
-//     {
-//       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
-//       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);
-//       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);
-//       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);
-//       J = source_particle_bin.val(_3, source_pidib % g_bin_capacity);
-//     }
-//     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
-//     vec3 local_pos = pos - local_base_index * g_dx;
-//     base_index = local_base_index;
-
-//     vec3x3 dws;
-// #pragma unroll 3
-//     for (int dd = 0; dd < 3; ++dd) {
-//       float d =
-//           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
-//           g_dx_inv;
-//       dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-//       d -= 1.0f;
-//       dws(dd, 1) = 0.75 - d * d;
-//       d = 0.5f + d;
-//       dws(dd, 2) = 0.5 * d * d;
-//       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
-//     }
-//     vec3 vel;
-//     vel.set(0.f);
-//     vec9 C;
-//     C.set(0.f);
-
-//     // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
-//     float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
-//     float scale = g_length * g_length; //< Area scale (m^2)
-//     Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
-
-// #pragma unroll 3
-//     for (char i = 0; i < 3; i++)
-// #pragma unroll 3
-//       for (char j = 0; j < 3; j++)
-// #pragma unroll 3
-//         for (char k = 0; k < 3; k++) {
-//           vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-//           float W = dws(0, i) * dws(1, j) * dws(2, k);
-//           vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k],
-//                   g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k],
-//                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k]};
-//           vel += vi * W;
-//           C[0] += W * vi[0] * xixp[0] * scale;
-//           C[1] += W * vi[1] * xixp[0] * scale;
-//           C[2] += W * vi[2] * xixp[0] * scale;
-//           C[3] += W * vi[0] * xixp[1] * scale;
-//           C[4] += W * vi[1] * xixp[1] * scale;
-//           C[5] += W * vi[2] * xixp[1] * scale;
-//           C[6] += W * vi[0] * xixp[2] * scale;
-//           C[7] += W * vi[1] * xixp[2] * scale;
-//           C[8] += W * vi[2] * xixp[2] * scale;
-//         }
-//     pos += vel * dt;
-
-//     J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
-//     if (J > 1.0f)
-//       J = 1.0f;
-//     else if (J < 0.1f)
-//       J = 0.1;
-//     vec9 contrib;
-//     {
-//       float voln = J * pbuffer.volume;
-//       float pressure = (pbuffer.bulk / pbuffer.gamma) * (powf(J, -pbuffer.gamma) - 1.f);
-//       {
-//         contrib[0] =
-//             ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln;
-//         contrib[1] = (C[1] + C[3]) * Dp_inv * pbuffer.visco * voln;
-//         contrib[2] = (C[2] + C[6]) * Dp_inv * pbuffer.visco * voln;
-
-//         contrib[3] = (C[3] + C[1]) * Dp_inv * pbuffer.visco * voln;
-//         contrib[4] =
-//             ((C[4] + C[4]) * Dp_inv * pbuffer.visco - pressure) * voln;
-//         contrib[5] = (C[5] + C[7]) * Dp_inv * pbuffer.visco * voln;
-
-//         contrib[6] = (C[6] + C[2]) * Dp_inv * pbuffer.visco * voln;
-//         contrib[7] = (C[7] + C[5]) * Dp_inv * pbuffer.visco * voln;
-//         contrib[8] =
-//             ((C[8] + C[8]) * Dp_inv * pbuffer.visco - pressure) * voln;
-//       }
-//       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
-//       {
-//         auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-//                                                     pidib / g_bin_capacity);
-//         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
-//         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
-//         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
-//         particle_bin.val(_3, pidib % g_bin_capacity) = J;
-//       }
-//     }
-
-//     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
-//     {
-//       int dirtag = dir_offset((base_index - 1) / g_blocksize -
-//                               (local_base_index - 1) / g_blocksize);
-//       partition.add_advection(local_base_index - 1, dirtag, pidib);
-//     }
-//     // dws[d] = bspline_weight(local_pos[d]);
-
-// #pragma unroll 3
-//     for (char dd = 0; dd < 3; ++dd) {
-//       local_pos[dd] = pos[dd] - local_base_index[dd] * g_dx;
-//       float d =
-//           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
-//           g_dx_inv;
-//       dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-//       d -= 1.0f;
-//       dws(dd, 1) = 0.75 - d * d;
-//       d = 0.5f + d;
-//       dws(dd, 2) = 0.5 * d * d;
-
-//       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
-//                              local_base_index[dd] - base_index[dd];
-//     }
-// #pragma unroll 3
-//     for (char i = 0; i < 3; i++)
-// #pragma unroll 3
-//       for (char j = 0; j < 3; j++)
-// #pragma unroll 3
-//         for (char k = 0; k < 3; k++) {
-//           pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-//           float W = dws(0, i) * dws(1, j) * dws(2, k);
-//           auto wm = pbuffer.mass * W;
-//           atomicAdd(
-//               &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm);
-//           atomicAdd(
-//               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * vel[0] + (contrib[0] * pos[0] + contrib[3] * pos[1] +
-//                              contrib[6] * pos[2]) *
-//                                 W);
-//           atomicAdd(
-//               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * vel[1] + (contrib[1] * pos[0] + contrib[4] * pos[1] +
-//                              contrib[7] * pos[2]) *
-//                                 W);
-//           atomicAdd(
-//               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * vel[2] + (contrib[2] * pos[0] + contrib[5] * pos[1] +
-//                              contrib[8] * pos[2]) *
-//                                 W);
-//         }
-//   }
-//   __syncthreads();
-//   /// arena no, channel no, cell no
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     char local_block_id = base / numMViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     // auto grid_block = next_grid.template ch<0>(blockno);
-//     int channelid = base & (numMViPerBlock - 1);
-//     char c = channelid % g_blockvolume;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-
-//     float val =
-//         p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//                  [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//                  [cz + (local_block_id & 1 ? g_blocksize : 0)];
-//     if (channelid == 0)
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val);
-//     else if (channelid == 1)
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val);
-//     else if (channelid == 2)
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val);
-//     else
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
-//   }
-// }
-
-// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
-// Stress/Strain not computed here, displacements sent to FE mesh for force calc
-// template <typename Partition, typename Grid>
-// __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
-//                       const ParticleBuffer<material_e::Meshed> pbuffer,
-//                       ParticleBuffer<material_e::Meshed> next_pbuffer,
-//                       const Partition prev_partition, Partition partition,
-//                       const Grid grid, Grid next_grid) {
-//   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
-//   static constexpr uint64_t numViInArena = numViPerBlock << 3;
-//   static constexpr uint64_t numViInArena_ASFLIP = (g_blockvolume * 6) << 3;
-
-//   static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
-//   static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
-
-//   static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
-//   static constexpr unsigned arenabits = g_blockbits + 1;
-
-//   extern __shared__ char shmem[];
-//   using ViArena =
-//       float(*)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   using ViArenaRef =
-//       float(&)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
-//   using MViArena =
-//       float(*)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   using MViArenaRef =
-//       float(&)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-//   MViArenaRef __restrict__ p2gbuffer =
-//       *reinterpret_cast<MViArena>(shmem + numViInArena_ASFLIP * sizeof(float));
-
-//   ivec3 blockid;
-//   int src_blockno;
-//   if (blocks != nullptr) {
-//     blockid = blocks[blockIdx.x];
-//     src_blockno = partition.query(blockid);
-//   } else {
-//     if (partition._haloMarks[blockIdx.x])
-//       return;
-//     blockid = partition._activeKeys[blockIdx.x];
-//     src_blockno = blockIdx.x;
-//   }
-
-//   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
-//     char local_block_id = base / numViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     auto grid_block = grid.ch(_0, blockno);
-//     int channelid = base % numViPerBlock;
-//     char c = channelid & 0x3f;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-
-//     float val;
-//     if (channelid == 0) 
-//       val = grid_block.val_1d(_1, c);
-//     else if (channelid == 1)
-//       val = grid_block.val_1d(_2, c);
-//     else if (channelid == 2) 
-//       val = grid_block.val_1d(_3, c);
-//     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//              [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
-//   }
-//   __syncthreads();
-//   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
-//     char local_block_id = base / numViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     auto grid_block = grid.ch(_0, blockno);
-//     int channelid = base % numViPerBlock;
-//     char c = channelid & 0x3f;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-//     channelid += 3;
-//     float val;
-//     if (channelid == 3) {
-//       val = grid_block.val_1d(_4, c);
-//     } else if (channelid == 4) {
-//       val = grid_block.val_1d(_5, c);
-//     } else if (channelid == 5) {
-//       val = grid_block.val_1d(_6, c);
-//     }
-//     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//              [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
-//   }
-//   __syncthreads();
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     int loc = base;
-//     char z = loc & arenamask;
-//     char y = (loc >>= arenabits) & arenamask;
-//     char x = (loc >>= arenabits) & arenamask;
-//     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
-//   }
-//   __syncthreads();
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     int loc = base;
-//     char z = loc & arenamask;
-//     char y = (loc >>= arenabits) & arenamask;
-//     char x = (loc >>= arenabits) & arenamask;
-//     int channelid = loc >> arenabits;
-//     if (channelid != 0) {
-//       channelid += 3;
-//       p2gbuffer[channelid][x][y][z] = 0.f;
-//     }
-//   }
-//   __syncthreads();
-//   for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-//        pidib += blockDim.x) {
-//     int source_blockno, source_pidib;
-//     ivec3 base_index;
-//     {
-//       int advect =
-//           partition
-//               ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
-//       dir_components(advect / g_particle_num_per_block, base_index);
-//       base_index += blockid;
-//       source_blockno = prev_partition.query(base_index);
-//       source_pidib = advect & (g_particle_num_per_block - 1);
-//       source_blockno = prev_partition._binsts[source_blockno] +
-//                        source_pidib / g_bin_capacity;
-//     }
-//     vec3 pos;  //< Particle position at n
-//     vec3 vp_n; //< Particle vel. at n
-//     //float J;   //< Particle volume ratio at n
-//     int ID; // Vertice ID for mesh
-//     {
-//       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
-//       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
-//       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
-//       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
-//       ID = (int)source_particle_bin.val(_3, source_pidib % g_bin_capacity); //< ID
-//       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
-//       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
-//       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
-//     }
-//     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
-//     vec3 local_pos = pos - local_base_index * g_dx;
-//     base_index = local_base_index;
-
-//     vec3x3 dws;
-// #pragma unroll 3
-//     for (int dd = 0; dd < 3; ++dd) {
-//       float d =
-//           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
-//           g_dx_inv;
-//       dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-//       d -= 1.0f;
-//       dws(dd, 1) = 0.75 - d * d;
-//       d = 0.5f + d;
-//       dws(dd, 2) = 0.5 * d * d;
-//       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
-//     }
-//     vec3 vel;   //< Stressed, collided grid velocity
-//     vec3 vel_n; //< Unstressed, uncollided grid velocity
-//     vec9 C;     //< APIC affine matrix, used a few times
-//     vel.set(0.f); 
-//     vel_n.set(0.f);
-//     C.set(0.f);
-
-//     // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
-//     float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
-//     float scale = g_length * g_length; //< Area scale (m^2)
-//     Dp_inv = g_D_inv / scale; //< Scalar 4/(dx^2) for Quad. B-Spline
-
-// #pragma unroll 3
-//     for (char i = 0; i < 3; i++)
-// #pragma unroll 3
-//       for (char j = 0; j < 3; j++)
-// #pragma unroll 3
-//         for (char k = 0; k < 3; k++) {
-//           vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-//           float W = dws(0, i) * dws(1, j) * dws(2, k);
-//           vec3 vi{g2pbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k],
-//                   g2pbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k],
-//                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-//                            [local_base_index[2] + k]};
-//           vel += vi * W;
-//           C[0] += W * vi[0] * xixp[0] * scale;
-//           C[1] += W * vi[1] * xixp[0] * scale;
-//           C[2] += W * vi[2] * xixp[0] * scale;
-//           C[3] += W * vi[0] * xixp[1] * scale;
-//           C[4] += W * vi[1] * xixp[1] * scale;
-//           C[5] += W * vi[2] * xixp[1] * scale;
-//           C[6] += W * vi[0] * xixp[2] * scale;
-//           C[7] += W * vi[1] * xixp[2] * scale;
-//           C[8] += W * vi[2] * xixp[2] * scale;
-//         }
-// #pragma unroll 3
-//     for (char i = 0; i < 3; i++)
-// #pragma unroll 3
-//       for (char j = 0; j < 3; j++)
-// #pragma unroll 3
-//         for (char k = 0; k < 3; k++) {
-//           vec3 xixp = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-//           float W = dws(0, i) * dws(1, j) * dws(2, k);
-//           vec3 vi_n{g2pbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
-//                             [local_base_index[2] + k],
-//                     g2pbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
-//                             [local_base_index[2] + k],
-//                     g2pbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
-//                             [local_base_index[2] + k]};
-//           vel_n += vi_n * W; 
-//         }
-//     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
-
-//     float beta = pbuffer.ASFLIP_beta_min; //< Position correction factor (ASFLIP)
-//     pos += dt * (vel + beta * pbuffer.ASFLIP_alpha * (vp_n - vel_n));
-//     vel += pbuffer.alpha * (vp_n - vel_n);
-
-//     {
-//       {
-//         auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-//                                                     pidib / g_bin_capacity);
-//         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
-//         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
-//         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
-//         // No ID write needed
-//         particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
-//         particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
-//         particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
-//       }
-//       {
-//         vertice_array.val(_0, ID) = pos[0];
-//         vertice_array.val(_1, ID) = pos[1];
-//         vertice_array.val(_2, ID) = pos[2];
-//       }
-//     }
-
-//     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
-//     {
-//       int dirtag = dir_offset((base_index - 1) / g_blocksize -
-//                               (local_base_index - 1) / g_blocksize);
-//       partition.add_advection(local_base_index - 1, dirtag, pidib);
-//     }
-
-// #pragma unroll 3
-//     for (char dd = 0; dd < 3; ++dd) {
-//       local_pos[dd] = pos[dd] - local_base_index[dd] * g_dx;
-//       float d =
-//           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
-//           g_dx_inv;
-//       dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-//       d -= 1.0f;
-//       dws(dd, 1) = 0.75 - d * d;
-//       d = 0.5f + d;
-//       dws(dd, 2) = 0.5 * d * d;
-
-//       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
-//                              local_base_index[dd] - base_index[dd];
-//     }
-// #pragma unroll 3
-//     for (char i = 0; i < 3; i++)
-// #pragma unroll 3
-//       for (char j = 0; j < 3; j++)
-// #pragma unroll 3
-//         for (char k = 0; k < 3; k++) {
-//           pos = vec3{(float)i, (float)j, (float)k} * g_dx - local_pos;
-//           float W = dws(0, i) * dws(1, j) * dws(2, k);
-//           auto wm = pbuffer.mass * W;
-//           atomicAdd(
-//               &p2gbuffer[0][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm);
-//           // ASFLIP velocity, force impulse sent after mesh calculation
-//           atomicAdd(
-//               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
-//                              C[6] * pos[2])));
-//           atomicAdd(
-//               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
-//                              C[7] * pos[2])));
-//           atomicAdd(
-//               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
-//                              C[8] * pos[2])));
-//           // ASFLIP unstressed velocity
-//           atomicAdd(
-//               &p2gbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
-//                              C[6] * pos[2])));
-//           atomicAdd(
-//               &p2gbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
-//                              C[7] * pos[2])));
-//           atomicAdd(
-//               &p2gbuffer[6][local_base_index[0] + i][local_base_index[1] + j]
-//                         [local_base_index[2] + k],
-//               wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
-//                              C[8] * pos[2])));
-//         }
-//   }
-//   __syncthreads();
-//   /// arena no, channel no, cell no
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     char local_block_id = base / numMViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     // auto grid_block = next_grid.template ch<0>(blockno);
-//     int channelid = base & (numMViPerBlock - 1);
-//     char c = channelid % g_blockvolume;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-//     float val =
-//         p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//                  [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//                  [cz + (local_block_id & 1 ? g_blocksize : 0)];
-//     if (channelid == 0) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val);
-//     } else if (channelid == 1) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val);
-//     } else if (channelid == 2) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val);
-//     } else if (channelid == 3) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
-//     }
-//   }
-//   __syncthreads();
-//   /// arena no, channel no, cell no
-//   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-//     char local_block_id = base / numMViPerBlock;
-//     auto blockno = partition.query(
-//         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
-//               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
-//               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
-//     int channelid = base & (numMViPerBlock - 1);
-//     char c = channelid % g_blockvolume;
-//     char cz = channelid & g_blockmask;
-//     char cy = (channelid >>= g_blockbits) & g_blockmask;
-//     char cx = (channelid >>= g_blockbits) & g_blockmask;
-//     channelid >>= g_blockbits;
-//     channelid += 3;
-//     float val =
-//         p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-//                  [cy + (local_block_id & 2 ? g_blocksize : 0)]
-//                  [cz + (local_block_id & 1 ? g_blocksize : 0)];
-//     if (channelid == 4) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_4, c), val);
-//     } else if (channelid == 5) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_5, c), val);
-//     } else if (channelid == 6) {
-//       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_6, c), val);
-//     }
-//   }
-// }
 
 template <typename Partition>
 __global__ void check_table(uint32_t blockCount, Partition partition) {
@@ -3789,10 +3825,39 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
 
     if (1) {
-      /// Send attributes to pattribs (device --> device) 
-      pattrib.val(_0, parid) = 0.f;  
-      pattrib.val(_1, parid) = 0.f; 
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+      /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
+      vec9 F; //< Deformation Gradient
+      F[0] = source_bin.val(_3,  _source_pidib);
+      F[1] = source_bin.val(_4,  _source_pidib);
+      F[2] = source_bin.val(_5,  _source_pidib);
+      F[3] = source_bin.val(_6,  _source_pidib);
+      F[4] = source_bin.val(_7,  _source_pidib);
+      F[5] = source_bin.val(_8,  _source_pidib);
+      F[6] = source_bin.val(_9,  _source_pidib);
+      F[7] = source_bin.val(_10, _source_pidib);
+      F[8] = source_bin.val(_11, _source_pidib);
+      float U[9], S[3], V[9]; //< Left, Singulars, and Right Values of Strain
+      math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+                U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+                V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
+      float I1, I2, I3; // Principal Invariants
+      I1 = U[0] + U[4] + U[8];    //< I1 = tr(C)
+      float J = F[0]*F[4]*F[8] + F[3]*F[7]*F[2] + 
+                F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
+                F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
+      I2 = U[0]*U[4] + U[4]*U[8] + 
+           U[0]*U[8] - U[3]*U[3] - 
+           U[6]*U[6] - U[7]*U[7]; //< I2 = 1/2((tr(C))^2 - tr(C^2))
+      // I3 = U[0]*U[4]*U[8] - U[0]*U[7]*U[7] - 
+      //      U[4]*U[6]*U[6] - U[8]*U[3]*U[3] + 
+      //      U[3]*U[6]*U[7]*2.f;      //< I3 = ||C||
+      I3= U[0]*U[4]*U[8] + U[3]*U[7]*U[2] + 
+          U[6]*U[1]*U[5] - U[6]*U[4]*U[2] - 
+          U[3]*U[1]*U[8]; //< J = V/Vo = ||F||
+      // Set pattribs for particle to Principal Strain Invariants
+      pattrib.val(_0, parid) = J;
+      pattrib.val(_1, parid) = I2;
+      pattrib.val(_2, parid) = I3;
     }
   }
 }
@@ -3918,6 +3983,45 @@ retrieve_particle_buffer_attributes(Partition partition,
   }
 }
 
+template <typename Partition, typename ParticleArray>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::Meshed> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleArray pattrib,
+                                         int *_parcnt) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    
+    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+
+    if (1) {
+      /// Send attributes to pattribs (device --> device)
+      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
+      pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib); //< vel_x
+      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    }
+  }
+}
 
 /// Retrieve grid-cells between points a & b from grid-buffer to gridTarget (JB)
 template <typename Partition, typename Grid, typename GridTarget>

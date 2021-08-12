@@ -124,6 +124,9 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
   vec3 vel;
   vec9 contrib, C;
   vel.set(0.f), contrib.set(0.f), C.set(0.f);
+
+  vel[0] = 1.f / g_length; // 2 m/s
+
   // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
   float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
   float scale = g_length * g_length; //< Area scale (m^2)
@@ -359,7 +362,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, float curTime, vec3 waveMaker) {
+                                               float *maxVel, float curTime) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -407,28 +410,25 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
         vel_n[2] = grid_block.val_1d(_6, cidib); //< mvz
 
-        // WASIRF Harris Flume (Slip)
-        // Acts on individual grid-cell velocities
-        // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
-        float flumex = 87.4268f / g_length - g_dx; // Actually 12m, added run-in/out
-        float flumey = 4.572f / g_length - g_dx; // 1.22m Depth
-        float flumez = 3.6576f / g_length - g_dx; // 0.91m Width
+        float flumex = 20.f / g_length; // Length
+        float flumey = 1.f / g_length; // Depth
+        float flumez = 0.9f / g_length; // Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
-                         ((yc <= offset || yc >= flumey + offset) << 1) |
-                          (zc <= offset || zc >= flumez + offset);
+                         ((yc < offset || yc >= flumey + offset) << 1) |
+                          (zc < offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
 
 
         // Add grid-cell boundary for structural block, WASIRF flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (0.7871f) / g_length;
-        struct_dim[1] = (0.3935f) / g_length;
-        struct_dim[2] = (0.7871f) / g_length;
+        struct_dim[0] = (0.254f) / g_length;
+        struct_dim[1] = (0.5f) / g_length;
+        struct_dim[2] = (0.254f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + (0.5f * g_dx) + offset;
+        struct_pos[0] = (12.f) / g_length + offset + (2.f * g_dx);
+        struct_pos[1] = (0.f) / g_length + offset - (2.f * g_dx);
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 2.0f * g_dx;
+        float t = 1.01f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
@@ -480,7 +480,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
         isInBound |= isOnStruct; // Update with regular boundary for efficiency
 
-
 #if 1
         ///< Slip contact        
         // Set cell velocity after grid-block/cell boundary check
@@ -500,148 +499,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel.set(0.f);
 #endif
 
+        // 2 m/s flow condition first 8 m (WASIRF Flume)
+        if (xc < (8.f / g_length + offset)) vel[0] = 1.f / g_length;
 
-        vec3 ns; //< Ramp boundary surface normal
-        float ys;
-        float xs;
-        float xo;
-
-        // Start ramp segment definition for OSU flume
-        // Based on bathymetry diagram, February
-        if (xc < (14.2748/g_length)+offset) {
-          // Flat, 0' elev., 0' - 46'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
-          // Flat (adjustable), 0' elev., 46'10 - 58'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (14.2748 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
-          // 1:12, 0' elev., 58'10 - 94'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (17.9324 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
-          // 1:24, 3' elev., 94'10 - 142'10
-          ns[0] = -1.f/24.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (28.905 / g_length) + offset;
-          float yo = (0.9144 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/24.f * (xc - xo) + yo;
-
-        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
-          // Flat, 5' elev., 142'10 - 262'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (43.5356 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
-          // 1:12, 5' elev., 262'10 - 286'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (80.1116 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else {
-          // Flat, 7' elev., 286'10 onward
-          ns[0]=0.f;
-          ns[1]=1.f;
-          ns[2]=0.f;
-          float yo = (2.1336 / g_length) + offset;
-          ys = yo;        
-        }
-
-        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns = ns / ns_mag;
-        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
-
-        // Boundary thickness and cell distance
-        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-
-        // Decay coefficient
-        float ySF;
-        if (yc > ys + g_dx) {
-          ySF = 0.f;
-        } else if (yc <= ys){
-          ySF = 1.f;
-        } else {
-          ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx);
-        }
-
-        // fbc = -fint - fext - (1/dt)*p
-        // a = (1 / mass) * (fint + fext + ySf*fbc) 
-
-        // Adjust velocity relative to surface
-        if (0) {
-          // Normal adjustment in decay layer, fix below
-          if (ySF == 1.f) {
-            vel[0] = vel[1] = vel[2] = 0.f;
-          } else if (ySF > 0.f && ySF < 1.f) {
-            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
-            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
-            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
-          }
-        }
-        if (1) {
-          // Free above surface, normal adjusted below
-          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-        }
-
-        if (0) {
-          // OSU Wave-Maker - Manual Control
-          float wm_pos;
-          float wm_vel;
-          if (curTime >= 2.f && curTime < 4.f){
-            wm_vel = 2.f / g_length;
-            wm_pos = (curTime - 2.f) * 2.f / g_length + offset;
-          } else if (curTime >= 4.f) {
-            wm_vel = 0.f;
-            wm_pos = (4.f - 2.f) * 2.f / g_length + offset;
-          } else {
-            wm_vel = 0.f;
-            wm_pos = offset;
-          }
-          if (xc < wm_pos) {
-            vel[0] = wm_vel;
-          }
-        }
-        if (1) {
-          // OSU Wave-Maker - CSV Control
-          if (xc <= (waveMaker[1] / g_length + offset)) {
-             //vel[0] = fmax(waveMaker[2] / g_length, abs(vel[0]));
-             vel[0] = waveMaker[2] / g_length;
-
-          }
-        }
 
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
@@ -1462,6 +1322,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     } else {
       beta = 0.05f; // beta min
     }
+    beta = 0.f;
 
     pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
     vel += pbuffer.alpha * (vp_n - vel_n);
@@ -3789,10 +3650,39 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
 
     if (1) {
-      /// Send attributes to pattribs (device --> device) 
-      pattrib.val(_0, parid) = 0.f;  
-      pattrib.val(_1, parid) = 0.f; 
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+      /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
+      vec9 F; //< Deformation Gradient
+      F[0] = source_bin.val(_3,  _source_pidib);
+      F[1] = source_bin.val(_4,  _source_pidib);
+      F[2] = source_bin.val(_5,  _source_pidib);
+      F[3] = source_bin.val(_6,  _source_pidib);
+      F[4] = source_bin.val(_7,  _source_pidib);
+      F[5] = source_bin.val(_8,  _source_pidib);
+      F[6] = source_bin.val(_9,  _source_pidib);
+      F[7] = source_bin.val(_10, _source_pidib);
+      F[8] = source_bin.val(_11, _source_pidib);
+      float U[9], S[3], V[9]; //< Left, Singulars, and Right Values of Strain
+      math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+                U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+                V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
+      float I1, I2, I3; // Principal Invariants
+      I1 = U[0] + U[4] + U[8];    //< I1 = tr(C)
+      float J = F[0]*F[4]*F[8] + F[3]*F[7]*F[2] + 
+                F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
+                F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
+      I2 = U[0]*U[4] + U[4]*U[8] + 
+           U[0]*U[8] - U[3]*U[3] - 
+           U[6]*U[6] - U[7]*U[7]; //< I2 = 1/2((tr(C))^2 - tr(C^2))
+      // I3 = U[0]*U[4]*U[8] - U[0]*U[7]*U[7] - 
+      //      U[4]*U[6]*U[6] - U[8]*U[3]*U[3] + 
+      //      U[3]*U[6]*U[7]*2.f;      //< I3 = ||C||
+      I3= U[0]*U[4]*U[8] + U[3]*U[7]*U[2] + 
+          U[6]*U[1]*U[5] - U[6]*U[4]*U[2] - 
+          U[3]*U[1]*U[8]; //< J = V/Vo = ||F||
+      // Set pattribs for particle to Principal Strain Invariants
+      pattrib.val(_0, parid) = J;
+      pattrib.val(_1, parid) = I2;
+      pattrib.val(_2, parid) = I3;
     }
   }
 }

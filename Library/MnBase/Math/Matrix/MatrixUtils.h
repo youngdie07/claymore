@@ -88,7 +88,7 @@ template <typename T> constexpr void matrixCofactor3d(const T *x, T *cof) {
   cof[8] = x[0] * x[4] - x[3] * x[1];
 }
 
-#if 0
+#if 1
 template <typename T>
 constexpr void matrixInverse(const T *x, T *inv)
 {
