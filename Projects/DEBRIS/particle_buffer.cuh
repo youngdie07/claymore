@@ -278,7 +278,9 @@ struct ParticleBuffer<material_e::Meshed>
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.f;
+  float alpha = 0.99f;
+  float beta_min = 0.05f;
+  float beta_max = 0.2f;
   void updateParameters(float density, float vol, float E, float nu, float a) {
     rho = density;
     volume = vol;

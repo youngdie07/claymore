@@ -4,6 +4,7 @@
 #include "boundary_condition.cuh"
 #include "constitutive_models.cuh"
 #include "particle_buffer.cuh"
+#include "fem_buffer.cuh"
 #include "settings.h"
 #include "utility_funcs.hpp"
 #include <MnBase/Algorithm/MappingKernels.cuh>
@@ -190,6 +191,72 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
       }
 }
 
+template <typename VerticeArray, typename ElementArray>
+__global__ void fem_precompute(VerticeArray vertice_array,
+                               ElementArray element_array,
+                               ElementBuffer<fem_e::Tetrahedron> elementBins) {
+
+    auto element = elementBins.ch(_0, blockIdx.x);
+    int IDs[4];
+    vec3 p[4];
+    vec9 B;
+    vec9 Binv;
+    IDs[0] = element_array.val(_0, blockIdx.x);
+    IDs[1] = element_array.val(_1, blockIdx.x);
+    IDs[2] = element_array.val(_2, blockIdx.x);
+    IDs[3] = element_array.val(_3, blockIdx.x);
+
+    for (int v = 0; v < 4; v++) {
+      int ID = IDs[v] - 1;
+      p[v][0] = vertice_array.val(_0, ID) * g_length;
+      p[v][1] = vertice_array.val(_1, ID) * g_length;
+      p[v][2] = vertice_array.val(_2, ID) * g_length;
+    }
+
+    Binv.set(0.f);
+    Binv[0] = p[1][0] - p[0][0];
+    Binv[1] = p[1][1] - p[0][1];
+    Binv[2] = p[1][2] - p[0][2];
+    Binv[3] = p[2][0] - p[0][0];
+    Binv[4] = p[2][1] - p[0][1];
+    Binv[5] = p[2][2] - p[0][2];
+    Binv[6] = p[3][0] - p[0][0];
+    Binv[7] = p[3][1] - p[0][1];
+    Binv[8] = p[3][2] - p[0][2];
+    
+    //float invCheck = matrixDeterminant3d(Binv.data());
+    float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
+    
+    B.set(0.f);
+    matrixInverse(Binv.data(), B.data());
+
+    {
+      element.val(_0, 0) = IDs[0];
+      element.val(_1, 0) = IDs[1];
+      element.val(_2, 0) = IDs[2];
+      element.val(_3, 0) = IDs[3];
+      element.val(_4, 0) = B[0];
+      element.val(_5, 0) = B[1];
+      element.val(_6, 0) = B[2];
+      element.val(_7, 0) = B[3];
+      element.val(_8, 0) = B[4];
+      element.val(_9, 0) = B[5];
+      element.val(_10, 0) = B[6];
+      element.val(_11, 0) = B[7];
+      element.val(_12, 0) = B[8];
+      element.val(_13, 0) = restVolume;
+    }
+
+}
+
+
+template <typename VerticeArray, typename ElementArray>
+__global__ void fem_precompute(VerticeArray vertice_array,
+                               ElementArray element_array,
+                               ElementBuffer<fem_e::Brick> elementBins) {
+                                 return;
+}
+
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid> pbuffer,
@@ -291,7 +358,7 @@ array_to_buffer(ParticleArray parray,
     pbin.val(_10, pidib % g_bin_capacity) = 0.f;
     pbin.val(_11, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_12, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_12, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s ;
     pbin.val(_13, pidib % g_bin_capacity) = 0.f;
     pbin.val(_14, pidib % g_bin_capacity) = 0.f;
   }
@@ -384,7 +451,7 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// ID
     pbin.val(_3, pidib % g_bin_capacity) = parid;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_4, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s 
     pbin.val(_5, pidib % g_bin_capacity) = 0.f;
     pbin.val(_6, pidib % g_bin_capacity) = 0.f;
   }
@@ -442,13 +509,76 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
         vel_n[2] = grid_block.val_1d(_6, cidib); //< mvz
 
-        float flumex = 3.f / g_length + (2.f * g_dx); // Length
+        float flumex = 4.f / g_length; // Length
         float flumey = 4.f / g_length; // Depth
         float flumez = 4.f / g_length; // Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
+
+
+        // Add grid-cell boundary for structural block, OSU flume
+        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
+        struct_dim[0] = (0.8f) / g_length;
+        struct_dim[1] = (0.4f) / g_length;
+        struct_dim[2] = (0.8f) / g_length;
+        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
+        struct_pos[0] = (3.0f) / g_length + (2.f * g_dx) + offset;
+        struct_pos[1] = (1.8f) / g_length + offset;
+        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+        float t = 1.0f * g_dx;
+
+        // Check if grid-cell is within sticky interior of structural box
+        // Subtract slip-layer thickness from structural box dimension for geometry
+        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
+                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
+                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
+        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+        isInBound |= isOutStruct; // Update with regular boundary for efficiency
+        
+        // Check exterior slip-layer of structural block(OSU Flume)
+        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+        int isOnStructFace[6];
+        // Right (z+)
+        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
+        // Left (z-)
+        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
+        // Top (y+)
+        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Bottom (y-)
+        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Back (x+)
+        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
+        // Front (x-)
+        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
+                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
+        // Reduce results from box faces to single result
+        int isOnStruct = 0; // Collision reduction variable
+        for (int iter=0; iter<6; iter++) {
+          if (isOnStructFace[iter] != 7) {
+            // Check if 111 (7), set 000 (0) otherwise
+            isOnStructFace[iter] = 0;
+          } else {
+            isOnStructFace[iter] = (1 << iter / 2);
+          }
+          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
+        }
+        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
+        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
+        isInBound |= isOnStruct; // Update with regular boundary for efficiency
+
 
 #if 1
         ///< Slip contact        
@@ -2920,8 +3050,12 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
           vel_n += vi_n * W; 
         }
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
+    float tension = vertice_array.val(_6, ID);
+    float beta;
+    if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
+    else if (tension <= -1.f) beta = 0.f;
+    else beta = pbuffer.beta_min;
 
-    float beta = 0.f; //< Position correction factor (ASFLIP)
     pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
     vel += pbuffer.alpha * (vp_n - vel_n);
 
@@ -2941,10 +3075,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         vertice_array.val(_3, ID) = pos[0];
         vertice_array.val(_4, ID) = pos[1];
         vertice_array.val(_5, ID) = pos[2];
-        vertice_array.val(_6, ID) = pbuffer.mass;
-        vertice_array.val(_7, ID) = 0.f;
-        vertice_array.val(_8, ID) = 0.f;
-        vertice_array.val(_9, ID) = 0.f;
+        vertice_array.val(_6, ID) = 0.f; //< Tension
+        vertice_array.val(_7, ID) = 0.f; //< fx
+        vertice_array.val(_8, ID) = 0.f; //< fy
+        vertice_array.val(_9, ID) = 0.f; //< fz
 
       }
     }
@@ -2955,79 +3089,54 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename Partition, typename Grid, typename VerticeArray, typename ElementArray>
-__global__ void fem2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid,
                       VerticeArray vertice_array,
-                      ElementArray element_array) {
+                      ElementArray element_array,
+                      ElementBuffer<fem_e::Tetrahedron> elementBins) {
 
   int IDs[4];
-  vec3 pos_old[4];
   vec3 p[4];
-  float mass[4];
-  IDs[0] = element_array.val(_0, blockIdx.x);
-  IDs[1] = element_array.val(_1, blockIdx.x);
-  IDs[2] = element_array.val(_2, blockIdx.x);
-  IDs[3] = element_array.val(_3, blockIdx.x);
+  auto element = elementBins.ch(_0, blockIdx.x);
+
+  /// Precompute
+  vec9 B;
+  B.set(0.f);
+  IDs[0] = element.val(_0, 0);
+  IDs[1] = element.val(_1, 0);
+  IDs[2] = element.val(_2, 0);
+  IDs[3] = element.val(_3, 0);
+  B[0] = element.val(_4, 0);
+  B[1] = element.val(_5, 0);
+  B[2] = element.val(_6, 0);
+  B[3] = element.val(_7, 0);
+  B[4] = element.val(_8, 0);
+  B[5] = element.val(_9, 0);
+  B[6] = element.val(_10, 0);
+  B[7] = element.val(_11, 0);
+  B[8] = element.val(_12, 0);
+  float restVolume = element.val(_13, 0);
+
+
   for (int v = 0; v < 4; v++) {
     int ID = IDs[v] - 1;
-    pos_old[v][0] = vertice_array.val(_0, ID) * g_length;
-    pos_old[v][1] = vertice_array.val(_1, ID) * g_length;
-    pos_old[v][2] = vertice_array.val(_2, ID) * g_length;
     p[v][0] = vertice_array.val(_3, ID) * g_length;
     p[v][1] = vertice_array.val(_4, ID) * g_length;
     p[v][2] = vertice_array.val(_5, ID) * g_length;
-    mass[v] = vertice_array.val(_6, ID);
+    //mass[v] = vertice_array.val(_6, ID);
   }
   __syncthreads();
 
-  // float restVolume;
-  // restVolume = (pos_old[3][0] - pos_old[0][0]) * 
-  //          ((pos_old[1][1] - pos_old[0][1]) * 
-  //           (pos_old[2][2] - pos_old[0][2]) - 
-  //           (pos_old[1][2] - pos_old[0][2]) * 
-  //           (pos_old[2][1] - pos_old[0][1])) + 
-  //          (pos_old[3][1] - pos_old[0][1]) * 
-  //          ((pos_old[1][2] - pos_old[0][2]) * 
-  //           (pos_old[2][0] - pos_old[0][0]) - 
-  //           (pos_old[1][0] - pos_old[0][0]) * 
-  //           (pos_old[2][2] - pos_old[0][2])) + 
-  //          (pos_old[3][2] - pos_old[0][2]) * 
-  //          ((pos_old[1][0] - pos_old[0][0]) * 
-  //           (pos_old[2][1] - pos_old[0][1]) - 
-  //           (pos_old[1][1] - pos_old[0][1]) * 
-  //           (pos_old[2][0] - pos_old[0][0]));
-  // restVolume = restVolume/6.f;
+  // float invCheck = matrixDeterminant3d(Binv.data());
+  // matrixInverse(Binv.data(), B.data());
+  //float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
+  // if (restVolume > 1.f){
+  //   printf("Element (%d) Node (%d) giant volume!: (%f)\n", blockIdx.x, IDs[threadIdx.x], restVolume);
+  // }
+  ///
 
-  vec9 Binv;
-  Binv.set(0.f);
-  Binv[0] = pos_old[1][0] - pos_old[0][0];
-  Binv[1] = pos_old[1][1] - pos_old[0][1];
-  Binv[2] = pos_old[1][2] - pos_old[0][2];
-  Binv[3] = pos_old[2][0] - pos_old[0][0];
-  Binv[4] = pos_old[2][1] - pos_old[0][1];
-  Binv[5] = pos_old[2][2] - pos_old[0][2];
-  Binv[6] = pos_old[3][0] - pos_old[0][0];
-  Binv[7] = pos_old[3][1] - pos_old[0][1];
-  Binv[8] = pos_old[3][2] - pos_old[0][2];
-  
-  vec9 B;
-  B.set(0.f);
-  float invCheck = matrixDeterminant3d(Binv.data());
-
-  matrixInverse(Binv.data(), B.data());
-  if (invCheck == 0.f) {
-   printf("Element (%d) Node (%d) no inverse!: (%f)\n", blockIdx.x, IDs[threadIdx.x], invCheck);
-   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[0], B[1], B[2]);
-   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[3], B[4], B[5]);
-   printf("(%f, %f, %f)\n", IDs[threadIdx.x], B[6], B[7], B[8]);
-
-  }
-
-  float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
-  if (restVolume > 1.f){
-    printf("Element (%d) Node (%d) giant volume!: (%f)\n", blockIdx.x, IDs[threadIdx.x], restVolume);
-  }
+  /// Run-Time
   vec9 D;
   D.set(0.f);
   D[0] = p[1][0] - p[0][0];
@@ -3043,13 +3152,15 @@ __global__ void fem2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   vec9 F;
   F.set(0.f);
   matrixMatrixMultiplication3d(D.data(), B.data(), F.data());
+  float J;
+  J = matrixDeterminant3d(F.data());
+  float tension;
+  if (J >= 1.f) tension = 1.f;
+  else tension = -1.f;
 
   vec9 P;
   P.set(0.f);
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
-                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  compute_stress_FEM_fixedcorotated(mu, lambda, F, P);
+  compute_stress_FEM_fixedcorotated(elementBins.mu, elementBins.lambda, F, P);
 
   vec9 H;
   H.set(0.f);
@@ -3077,28 +3188,40 @@ __global__ void fem2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     f[1] = -1.f*(H[1] + H[4] + H[7]);
     f[2] = -1.f*(H[2] + H[5] + H[8]);
   }
-  __syncthreads();
+  //__syncthreads();
 
   f[0] = f[0] * scale;
   f[1] = f[1] * scale; 
   f[2] = f[2] * scale;
 
-  if ((blockIdx.x) == 0){
-      printf("Element (%d) Node (%d) force is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], f[0], f[1], f[2]);
-      printf("Element (%d) Node (%d) position is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], p[threadIdx.x][0], p[threadIdx.x][1], p[threadIdx.x][2]);
-      if ((threadIdx.x) == 0){
-        printf("Element (%d) restVolume is: (%f)\n", blockIdx.x, restVolume);
-      }
+  if (0) {
+    if ((blockIdx.x) == 0){
+        printf("Element (%d) Node (%d) force is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], f[0], f[1], f[2]);
+        printf("Element (%d) Node (%d) position is: (%f %f %f)\n", blockIdx.x, IDs[threadIdx.x], p[threadIdx.x][0], p[threadIdx.x][1], p[threadIdx.x][2]);
+        if ((threadIdx.x) == 0){
+          printf("Element (%d) restVolume is: (%f)\n", blockIdx.x, restVolume);
+        }
+    }
   }
 
-
-  __syncthreads();
+  //__syncthreads();
   {
     int ID = IDs[threadIdx.x] - 1;
+    atomicAdd(&vertice_array.val(_6, ID), tension); //< fz
     atomicAdd(&vertice_array.val(_7, ID), f[0]); //< fx
     atomicAdd(&vertice_array.val(_8, ID), f[1]); //< fy
     atomicAdd(&vertice_array.val(_9, ID), f[2]); //< fz
   }
+}
+
+template <typename Partition, typename Grid, typename VerticeArray, typename ElementArray>
+__global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
+                      const Partition prev_partition, Partition partition,
+                      const Grid grid, Grid next_grid,
+                      VerticeArray vertice_array,
+                      ElementArray element_array,
+                      ElementBuffer<fem_e::Brick> elementBins) {
+                        return;
 }
 
 template <typename Partition, typename Grid, typename VerticeArray>
@@ -3384,29 +3507,36 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         }
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
 
-    float beta = 0.f; //< Position correction factor (ASFLIP)
-    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+    float tension;
+    tension = vertice_array.val(_6, ID);
+    
+    float beta;
+    if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
+    else if (tension <= -1.f) beta = 0.f;
+    else beta = pbuffer.beta_min;
+    
     vel += pbuffer.alpha * (vp_n - vel_n);
+    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
     
     vec3 f;
     f[0] = vertice_array.val(_7, ID);
     f[1] = vertice_array.val(_8, ID);
     f[2] = vertice_array.val(_9, ID);
     
-    for (int dim = 0; dim < 3; dim++){
-      if (isnan(f[dim])){
-        printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-        //f[dim] = 0.f;
-      }
-      if (isinf(f[dim])){
-        printf("Particle %d isinf !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-        //f[dim] = 0.f;
-      }
-      if (fabs(f[dim]) * pbuffer.mass * dt > 1.f){
-        printf("Particle %d isbig !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-      //   f[dim] = 0.f;
-      }
-    }
+    // for (int dim = 0; dim < 3; dim++){
+    //   if (isnan(f[dim])){
+    //     printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+    //     //f[dim] = 0.f;
+    //   }
+    //   if (isinf(f[dim])){
+    //     printf("Particle %d isinf !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+    //     //f[dim] = 0.f;
+    //   }
+    //   if (fabs(f[dim]) * pbuffer.mass * dt > 1.f){
+    //     printf("Particle %d isbig !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
+    //   //   f[dim] = 0.f;
+    //   }
+    // }
 
     {
       {

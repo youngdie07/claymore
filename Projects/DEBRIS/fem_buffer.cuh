@@ -18,26 +18,41 @@ using vertice_array_ =
 
 /// FEM Elements
 /// Hold vertice IDs and material info for force computation
-using ElementArrayDomain = compact_domain<int, config::g_max_fem_element_num>;
+using ElementBinDomain = aligned_domain<char, config::g_fem_element_bin_capacity>;
 using ElementBufferDomain = compact_domain<int, config::g_max_fem_element_bin>;
+using ElementArrayDomain = compact_domain<int, config::g_max_fem_element_num>;
 
 using element_bin4_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ElementArrayDomain, attrib_layout::soa, i32_, i32_, i32_,
+               ElementBinDomain, attrib_layout::soa, i32_, i32_, i32_,
                i32_>; ///< ID.a, ID.b, ID.c, ID.d
 using element_bin8_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ElementArrayDomain, attrib_layout::soa, i32_, i32_, i32_,
+               ElementBinDomain, attrib_layout::soa, i32_, i32_, i32_,
                i32_>; ///< ID.a, ID.b, ID.c, ID.d, ID.e, ID.f, ID.g, ID.h
-
+using element_bin4_10_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ElementBinDomain, attrib_layout::soa, i32_, i32_, i32_,
+               i32_, 
+               f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, 
+               f32_>; ///< ID.a, ID.b, ID.c, ID.d, B[9], restVolume
 
 template <fem_e ft> struct element_bin_;
-template <> struct element_bin_<fem_e::Tetrahedron> : element_bin4_ {};
+template <> struct element_bin_<fem_e::Tetrahedron> : element_bin4_10_ {};
 template <> struct element_bin_<fem_e::Brick> : element_bin8_ {};
+
+template <typename ElementBin>
+using element_buffer_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ElementBufferDomain, attrib_layout::aos, ElementBin>;
 
 // More basic array for elements, no material wrapper or element switches
 using element_array_ =
@@ -47,22 +62,14 @@ using element_array_ =
                ElementArrayDomain, attrib_layout::aos, i32_, i32_, i32_,
                i32_>; //< a, b, c, d
 
-// template <typename ElementBin>
-// using element_buffer_ =
-//     structural<structural_type::dynamic,
-//                decorator<structural_allocation_policy::full_allocation,
-//                          structural_padding_policy::compact>,
-//                ElementBufferDomain, attrib_layout::aos, ElementBin>;
-
 template <fem_e ft>
-//struct ElementBufferImpl : Instance<element_buffer_<element_bin_<ft>>> {
-struct ElementBufferImpl : Instance<element_bin_<ft>> {
+struct ElementBufferImpl : Instance<element_buffer_<element_bin_<ft>>> {
   static constexpr fem_e elementType = ft;
-  using base_t = Instance<element_bin_<ft>>;
+  using base_t = Instance<element_buffer_<element_bin_<ft>>>;
 
   template <typename Allocator>
   ElementBufferImpl(Allocator allocator)
-      : base_t{spawn<element_bin_<ft>, orphan_signature>(
+      : base_t{spawn<element_buffer_<element_bin_<ft>>, orphan_signature>(
             allocator)} {}
 
   template <typename Allocator>
@@ -71,6 +78,7 @@ struct ElementBufferImpl : Instance<element_bin_<ft>> {
       this->resize(allocator, capacity);
   }
 };
+
 
 template <fem_e ft> struct ElementBuffer;
 template <>
@@ -90,6 +98,8 @@ struct ElementBuffer<fem_e::Tetrahedron>
   template <typename Allocator>
   ElementBuffer(Allocator allocator) : base_t{allocator} {}
 };
+
+
 
 template <>
 struct ElementBuffer<fem_e::Brick> : ElementBufferImpl<fem_e::Brick> {
@@ -130,9 +140,9 @@ struct ElementBuffer<fem_e::Brick> : ElementBufferImpl<fem_e::Brick> {
 using element_buffer_t =
     variant<ElementBuffer<fem_e::Tetrahedron>,
             ElementBuffer<fem_e::Brick>>;
-using element_bin_t =
-    variant<ElementBuffer<fem_e::Tetrahedron>,
-            ElementBuffer<fem_e::Brick>>;
+// using element_bin_t =
+//     variant<ElementBuffer<fem_e::Tetrahedron>,
+//             ElementBuffer<fem_e::Brick>>;
 
 struct VerticeArray : Instance<vertice_array_> {
   using base_t = Instance<vertice_array_>;
