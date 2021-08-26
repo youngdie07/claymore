@@ -239,15 +239,18 @@ void init_models(
         //                   vec<float, 3>{off, off, off},
         //                   water_lengths);     
         //vec<float, 3> debris_offset{42.f, 2.f, 0.7538f};
-        vec<float, 3> debris_offset{2.525f, 2.5f, 1.0375f};
-        debris_offset /= g_length;
-        debris_offset = debris_offset + off;
-        vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
-        debris_lengths /= g_length;
-        float debris_ppc = MODEL_PPC_FC;
-        models[1] = read_sdf(std::string{"Debris/OSU_AT162_spacing_5cm_dx0.005_pad1.sdf"}, 
-                          debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
-                          debris_offset, debris_lengths);
+        // vec<float, 3> debris_offset{2.525f, 2.5f, 1.0375f};
+        // debris_offset /= g_length;
+        // debris_offset = debris_offset + off;
+        // vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
+        // debris_lengths /= g_length;
+        // float debris_ppc = MODEL_PPC_FC;
+        // models[1] = read_sdf(std::string{"Debris/OSU_AT162_spacing_5cm_dx0.005_pad1.sdf"}, 
+        //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
+        //                   debris_offset, debris_lengths);
+        load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res8_Vertices.csv"}, ',', models[1], 
+                            vec<float, 3>{2.525f, 2.25f, 1.0375f}, 
+                            vec<float, 3>{0.475f, 0.1f, 2.075f});
       }
   }
   default:

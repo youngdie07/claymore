@@ -521,7 +521,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Add grid-cell boundary for structural block, OSU flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
         struct_dim[0] = (0.8f) / g_length;
-        struct_dim[1] = (0.4f) / g_length;
+        struct_dim[1] = (0.8f) / g_length;
         struct_dim[2] = (0.8f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         struct_pos[0] = (3.0f) / g_length + (2.f * g_dx) + offset;

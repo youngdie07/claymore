@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 1;
+constexpr int g_device_cnt = ;
 constexpr int g_total_frame_cnt = 60;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -167,14 +167,14 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = 0.f;
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 30000; // 8000000
+constexpr int g_max_particle_num = 40000; // 8000000
 constexpr int g_max_active_block = 2000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 0; //140000; //< Max halo blocks (#)
+constexpr std::size_t g_max_halo_block = 1000; //140000; //< Max halo blocks (#)
 constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
