@@ -503,37 +503,38 @@ struct mgsp_benchmark {
         });
         sync();
 
-        // FEM - v2fem2v 
-        // issue([this](int did) {
-        //   auto &cuDev = Cuda::ref_cuda_context(did);
-        //   CudaTimer timer{cuDev.stream_compute()};
-
-        //   timer.tick();
-
-        //   // v2fem2v
-        //   if (g_fem_gpu[did]) {
-        //     if (partitions[rollid][did].h_count)
-        //       cuDev.compute_launch(
-        //           {g_max_fem_element_num, 4},
-        //           v2fem2v, dt, nextDt,
-        //           (const ivec3 *)partitions[rollid][did]._haloBlocks,
-        //           partitions[rollid ^ 1][did], partitions[rollid][did],
-        //           gridBlocks[0][did], gridBlocks[1][did],
-        //           d_vertices[did], d_elements[did]);
-        //     cuDev.syncStream<streamIdx::Compute>();
-        //   }
-        //   timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2fem2v", did,
-        //                          curFrame, curStep));
-        // });
-        // sync();
-
-        /// fem2p2g
+        // FEM - v2fem2v - Halo
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
           CudaTimer timer{cuDev.stream_compute()};
           timer.tick();
 
-          // fem2p2g
+          // v2fem2v - Halo
+          if (g_fem_gpu[did]) {
+            match(elementBins[did])([&](const auto &eb) {
+              if (partitions[rollid][did].h_count)
+                cuDev.compute_launch(
+                    {g_max_fem_element_num, 4},
+                    v2fem2v, dt, nextDt,
+                    (const ivec3 *)partitions[rollid][did]._haloBlocks,
+                    partitions[rollid ^ 1][did], partitions[rollid][did],
+                    gridBlocks[0][did], gridBlocks[1][did],
+                    d_vertices[did], d_elements[did], eb);
+              cuDev.syncStream<streamIdx::Compute>();
+            });
+          }
+          timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2fem2v", did,
+                                 curFrame, curStep));
+        });
+        sync();
+
+        /// fem2p2g - Halo
+        issue([this](int did) {
+          auto &cuDev = Cuda::ref_cuda_context(did);
+          CudaTimer timer{cuDev.stream_compute()};
+          timer.tick();
+
+          // fem2p2g - Halo
           if (g_fem_gpu[did]) {
             match(particleBins[rollid][did])([&](const auto &pb) {
               if (partitions[rollid][did].h_count)
@@ -596,7 +597,7 @@ struct mgsp_benchmark {
         });
         sync();
 
-        // FEM - v2fem2v 
+        // FEM - v2fem2v - non-Halo
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
           CudaTimer timer{cuDev.stream_compute()};
@@ -620,7 +621,7 @@ struct mgsp_benchmark {
         });
         sync();
 
-        /// FEM-to-Particle-to-Grid - fem2p2g
+        /// FEM-to-Particle-to-Grid - fem2p2g - non-Halo
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
           CudaTimer timer{cuDev.stream_compute()};
