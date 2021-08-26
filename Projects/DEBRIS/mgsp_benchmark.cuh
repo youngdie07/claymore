@@ -461,7 +461,7 @@ struct mgsp_benchmark {
                               sizeof(int) * ebcnt[did] * g_blockvolume,
                               cuDev.stream_compute()));
           // g2p2g
-          if (g_fem_gpu == 0){
+          if (g_fem_gpu[did] == 0){
             if (1) {
               match(particleBins[rollid][did])([&](const auto &pb) {
                 if (partitions[rollid][did].h_count)
@@ -482,7 +482,7 @@ struct mgsp_benchmark {
           }
 
           // g2p2g
-          if (g_fem_gpu == 1){
+          if (g_fem_gpu[did] == 1){
               match(particleBins[rollid][did])([&](const auto &pb) {
                 if (partitions[rollid][did].h_count)
                   cuDev.compute_launch(
