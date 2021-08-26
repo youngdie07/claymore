@@ -2,6 +2,7 @@
 #define __SVD3_CUH_
 
 #include <cuda.h>
+#include <stdio.h>
 #include "Utility.h"
 #include "math.h" // CUDA math library
 #include "qr.cuh"
