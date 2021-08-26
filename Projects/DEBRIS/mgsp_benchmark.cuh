@@ -461,49 +461,61 @@ struct mgsp_benchmark {
                               sizeof(int) * ebcnt[did] * g_blockvolume,
                               cuDev.stream_compute()));
           // g2p2g
-          if (0) {
-            match(particleBins[rollid][did])([&](const auto &pb) {
-              if (partitions[rollid][did].h_count)
-                cuDev.compute_launch(
-                    {partitions[rollid][did].h_count, 128,
-                    (512 * 3 * 4) + (512 * 4 * 4)},
-                    g2p2g, dt, nextDt,
-                    (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
-                    get<typename std::decay_t<decltype(pb)>>(
-                        particleBins[rollid ^ 1][did]),
-                    partitions[rollid ^ 1][did], partitions[rollid][did],
-                    gridBlocks[0][did], gridBlocks[1][did],
-                    d_vertices[did]);
-            });
-            cuDev.syncStream<streamIdx::Compute>();
+          if (g_fem_gpu == 0){
+            if (1) {
+              match(particleBins[rollid][did])([&](const auto &pb) {
+                if (partitions[rollid][did].h_count)
+                  cuDev.compute_launch(
+                      {partitions[rollid][did].h_count, 128,
+                      (512 * 6 * 4) + (512 * 7 * 4)},
+                      g2p2g, dt, nextDt,
+                      (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
+                      get<typename std::decay_t<decltype(pb)>>(
+                          particleBins[rollid ^ 1][did]),
+                      partitions[rollid ^ 1][did], partitions[rollid][did],
+                      gridBlocks[0][did], gridBlocks[1][did],
+                      d_vertices[did]);
+              });
+              cuDev.syncStream<streamIdx::Compute>();
+
+            }
           }
-          if (1) {
-            match(particleBins[rollid][did])([&](const auto &pb) {
-              if (partitions[rollid][did].h_count)
+
+          // g2p2g
+          if (g_fem_gpu == 1){
+              match(particleBins[rollid][did])([&](const auto &pb) {
+                if (partitions[rollid][did].h_count)
+                  cuDev.compute_launch(
+                      {partitions[rollid][did].h_count, 128,
+                      (512 * 6 * 4) + (512 * 7 * 4)},
+                      g2p2g, dt, nextDt,
+                      (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
+                      get<typename std::decay_t<decltype(pb)>>(
+                          particleBins[rollid ^ 1][did]),
+                      partitions[rollid ^ 1][did], partitions[rollid][did],
+                      gridBlocks[0][did], gridBlocks[1][did],
+                      d_vertices[did]);
+              });
+              cuDev.syncStream<streamIdx::Compute>();
+
+              match(particleBins[rollid][did])([&](const auto &pb) {
                 cuDev.compute_launch(
-                    {partitions[rollid][did].h_count, 128,
-                    (512 * 6 * 4) + (512 * 7 * 4)},
-                    g2p2g, dt, nextDt,
-                    (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
+                    {pbcnt[did], 128, (512 * 6 * 4) + (512 * 7 * 4)}, g2p2g, dt,
+                    nextDt, (const ivec3 *)nullptr, pb,
                     get<typename std::decay_t<decltype(pb)>>(
                         particleBins[rollid ^ 1][did]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did],
                     d_vertices[did]);
-            });
-            cuDev.syncStream<streamIdx::Compute>();
+              });
+              cuDev.syncStream<streamIdx::Compute>();
 
-
-
-
-            
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2g", did,
                                  curFrame, curStep));
 
 
           timer.tick();
-
           // v2fem2v - Halo
           if (g_fem_gpu[did]) {
             match(elementBins[did])([&](const auto &eb) {
@@ -639,15 +651,9 @@ struct mgsp_benchmark {
           //       device_allocator{}, curNumActiveBlocks[did]);
           //   checkedCnts[did][0]--;
           // }
-        });
-        sync();
-
-        // FEM - v2fem2v - non-Halo
-        issue([this](int did) {
-          auto &cuDev = Cuda::ref_cuda_context(did);
-          CudaTimer timer{cuDev.stream_compute()};
+        
+          // FEM - v2fem2v - non-Halo
           timer.tick();
-
           // v2fem2v
           if (g_fem_gpu[did]) {
             match(elementBins[did])([&](const auto &eb) {
@@ -663,15 +669,9 @@ struct mgsp_benchmark {
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2fem2v", did,
                                  curFrame, curStep));
-        });
-        sync();
-
-        /// FEM-to-Particle-to-Grid - fem2p2g - non-Halo
-        issue([this](int did) {
-          auto &cuDev = Cuda::ref_cuda_context(did);
-          CudaTimer timer{cuDev.stream_compute()};
+          
+          /// FEM-to-Particle-to-Grid - fem2p2g - non-Halo
           timer.tick();
-
           if (g_fem_gpu[did]) { 
             match(particleBins[rollid][did])([&](const auto &pb) {
               cuDev.compute_launch(
@@ -691,8 +691,61 @@ struct mgsp_benchmark {
                 device_allocator{}, curNumActiveBlocks[did]);
             checkedCnts[did][0]--;
           }
+
         });
         sync();
+
+        // // FEM - v2fem2v - non-Halo
+        // issue([this](int did) {
+        //   auto &cuDev = Cuda::ref_cuda_context(did);
+        //   CudaTimer timer{cuDev.stream_compute()};
+        //   timer.tick();
+
+        //   // v2fem2v
+        //   if (g_fem_gpu[did]) {
+        //     match(elementBins[did])([&](const auto &eb) {
+        //       cuDev.compute_launch(
+        //           {g_max_fem_element_num, 4},
+        //           v2fem2v, dt, nextDt,
+        //           (const ivec3 *)nullptr,
+        //           partitions[rollid ^ 1][did], partitions[rollid][did],
+        //           gridBlocks[0][did], gridBlocks[1][did],
+        //           d_vertices[did], d_elements[did], eb);
+        //       cuDev.syncStream<streamIdx::Compute>();
+        //     });
+        //   }
+        //   timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2fem2v", did,
+        //                          curFrame, curStep));
+        // });
+        // sync();
+
+        /// FEM-to-Particle-to-Grid - fem2p2g - non-Halo
+        // issue([this](int did) {
+        //   auto &cuDev = Cuda::ref_cuda_context(did);
+        //   CudaTimer timer{cuDev.stream_compute()};
+        //   timer.tick();
+
+        //   if (g_fem_gpu[did]) { 
+        //     match(particleBins[rollid][did])([&](const auto &pb) {
+        //       cuDev.compute_launch(
+        //           {pbcnt[did], 128, (512 * 6 * 4) + (512 * 7 * 4)}, fem2p2g, dt,
+        //           nextDt, (const ivec3 *)nullptr, pb,
+        //           get<typename std::decay_t<decltype(pb)>>(
+        //               particleBins[rollid ^ 1][did]),
+        //           partitions[rollid ^ 1][did], partitions[rollid][did],
+        //           gridBlocks[0][did], gridBlocks[1][did],
+        //           d_vertices[did]);
+        //     });
+        //   }
+        //   timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_fem2p2g", did,
+        //                          curFrame, curStep));
+        //   if (checkedCnts[did][0] > 0) {
+        //     partitions[rollid ^ 1][did].resizePartition(
+        //         device_allocator{}, curNumActiveBlocks[did]);
+        //     checkedCnts[did][0]--;
+        //   }
+        // });
+        // sync();
 
         reduce_halo_grid_blocks();
 

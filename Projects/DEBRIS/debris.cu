@@ -249,7 +249,7 @@ void init_models(
         //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
         //                   debris_offset, debris_lengths);
         load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res8_Vertices.csv"}, ',', models[1], 
-                            vec<float, 3>{2.525f, 2.25f, 1.0375f}, 
+                            vec<float, 3>{2.525f, 2.125f, 1.0375f}, 
                             vec<float, 3>{0.475f, 0.1f, 2.075f});
       }
   }

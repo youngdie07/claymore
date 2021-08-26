@@ -3060,17 +3060,17 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vel += pbuffer.alpha * (vp_n - vel_n);
 
     {
-      {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
-        particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
-        particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
-        particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
-        particle_bin.val(_3, pidib % g_bin_capacity) = (float)ID; //< ID
-        particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
-        particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
-        particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
-      }
+      // {
+      //   auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
+      //                                               pidib / g_bin_capacity);
+      //   particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
+      //   particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
+      //   particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
+      //   particle_bin.val(_3, pidib % g_bin_capacity) = (float)ID; //< ID
+      //   particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
+      //   particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
+      //   particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
+      // }
       {
         vertice_array.val(_3, ID) = pos[0];
         vertice_array.val(_4, ID) = pos[1];
@@ -3508,23 +3508,24 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
 
     float tension;
+    vec3 f;
     tension = vertice_array.val(_6, ID);
-    
+    f[0] = vertice_array.val(_7, ID);
+    f[1] = vertice_array.val(_8, ID);
+    f[2] = vertice_array.val(_9, ID);
+    vertice_array.val(_6, ID) = 0.f;
+    vertice_array.val(_7, ID) = 0.f;
+    vertice_array.val(_8, ID) = 0.f;
+    vertice_array.val(_9, ID) = 0.f;
     float beta;
     if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     else if (tension <= -1.f) beta = 0.f;
     else beta = pbuffer.beta_min;
     
-    vel += pbuffer.alpha * (vp_n - vel_n);
     pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+    vel += pbuffer.alpha * (vp_n - vel_n);
     
-    vec3 f;
-    f[0] = vertice_array.val(_7, ID);
-    f[1] = vertice_array.val(_8, ID);
-    f[2] = vertice_array.val(_9, ID);
-    vertice_array.val(_7, ID) = 0.f;
-    vertice_array.val(_8, ID) = 0.f;
-    vertice_array.val(_9, ID) = 0.f;
+
     // for (int dim = 0; dim < 3; dim++){
     //   if (isnan(f[dim])){
     //     printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
