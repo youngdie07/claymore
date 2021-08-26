@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::Meshed, material_e::FixedCorotated_ASFLIP, 
+                      material_e::Meshed, material_e::JFluid_ASFLIP, 
                       material_e::JFluid_ASFLIP, material_e::FixedCorotated_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
