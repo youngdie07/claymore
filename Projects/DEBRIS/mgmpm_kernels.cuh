@@ -3522,7 +3522,9 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     f[0] = vertice_array.val(_7, ID);
     f[1] = vertice_array.val(_8, ID);
     f[2] = vertice_array.val(_9, ID);
-    
+    vertice_array.val(_7, ID) = 0.f;
+    vertice_array.val(_8, ID) = 0.f;
+    vertice_array.val(_9, ID) = 0.f;
     // for (int dim = 0; dim < 3; dim++){
     //   if (isnan(f[dim])){
     //     printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
