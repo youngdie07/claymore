@@ -295,7 +295,7 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// J
     pbin.val(_3, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_4, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s ;
     pbin.val(_5, pidib % g_bin_capacity) = 0.f;
     pbin.val(_6, pidib % g_bin_capacity) = 0.f;
 
@@ -521,11 +521,11 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Add grid-cell boundary for structural block, OSU flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
         struct_dim[0] = (0.8f) / g_length;
-        struct_dim[1] = (0.8f) / g_length;
+        struct_dim[1] = (0.4f) / g_length;
         struct_dim[2] = (0.8f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         struct_pos[0] = (3.0f) / g_length + (2.f * g_dx) + offset;
-        struct_pos[1] = (1.8f) / g_length + offset;
+        struct_pos[1] = (0.05f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
         float t = 1.0f * g_dx;
 
@@ -1416,9 +1416,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     float Jc = 1.f; // Critical J for weak-comp fluid
     if (J >= Jc) {
       J = Jc;       // No vol. expansion, Tamp. 2017
-      beta = 1.f;  // beta max
+      beta = pbuffer.beta_max;  // beta max
     } else {
-      beta = 0.05f; // beta min
+      beta = pbuffer.beta_min; // beta min
     }
 
     pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));

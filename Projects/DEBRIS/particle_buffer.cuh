@@ -116,10 +116,12 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
   float mass = (volume * DENSITY);
-  float bulk = 4e7;
+  float bulk = 2e7;
   float gamma = 7.1f;
   float visco = 0.001f;
   float alpha = 0.99f;
+  float beta_max = 1.f;
+  float beta_min = 0.05f;
   void updateParameters(float density, float vol, float b, float g, float v, float a) {
     rho = density;
     volume = vol;

@@ -34,7 +34,7 @@ enum class fem_e { Tetrahedron = 0,
 /// benchmark setup
 namespace config {
 constexpr int g_device_cnt = 2;
-constexpr int g_total_frame_cnt = 60;
+constexpr int g_total_frame_cnt = 120;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
   return type;
@@ -160,11 +160,11 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1e3
-#define YOUNGS_MODULUS 1e6
+#define YOUNGS_MODULUS 1e7
 #define POISSON_RATIO 0.4f
 
 // Ambient parameters
-constexpr float g_gravity = 0.f;
+constexpr float g_gravity = -9.81f;
 
 /// only used on host, reserves memory
 constexpr int g_max_particle_num = 40000; // 8000000
