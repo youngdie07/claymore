@@ -232,7 +232,7 @@ void init_models(
 
       } else if (g_device_cnt == 2) {
         load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res8_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{2.525f, 0.1f, 1.0375f}, 
+                            vec<float, 3>{2.525f, 0.125f, 1.0375f}, 
                             vec<float, 3>{0.475f, 0.1f, 2.075f});
         // models[0] = read_sdf(std::string{"Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf"}, 
         //                   water_ppc, mn::config::g_dx, mn::config::g_domain_size,
@@ -296,7 +296,7 @@ int main() {
   std::cout << "Load FEM Vertices" << '\n';
   //getchar();
   load_FEM_Vertices(std::string{"Debris/OSU_AT162_spacing_2.5cm_res8_Vertices.csv"}, ',', h_FEM_Vertices,
-                    vec<float, 3>{2.525f, 0.1f, 1.0375f}, 
+                    vec<float, 3>{2.525f, 0.125f, 1.0375f}, 
                     vec<float, 3>{0.475f, 0.1f, 2.075f});
 
   std::cout << "Initialize Simulation" << '\n';

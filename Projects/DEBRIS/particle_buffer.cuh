@@ -120,8 +120,8 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float gamma = 7.1f;
   float visco = 0.001f;
   float alpha = 0.99f;
-  float beta_max = 1.f;
-  float beta_min = 0.05f;
+  float beta_max = 0.5f;
+  float beta_min = 0.02f;
   void updateParameters(float density, float vol, float b, float g, float v, float a) {
     rho = density;
     volume = vol;
