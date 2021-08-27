@@ -58,14 +58,14 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 8.f
-#define MODEL_PPC_FC 8.f
+#define MODEL_PPC 1.f
+#define MODEL_PPC_FC 1.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 7
+#define DOMAIN_BITS 8
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -167,20 +167,20 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f;
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 40000; // 8000000
-constexpr int g_max_active_block = 5000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 200000; // 8000000
+constexpr int g_max_active_block = 40000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 2000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 10000; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 10000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 20169; // 162141; // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 85671; //784519; // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 85671; //85671; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 162141; // 20169; // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 784519; // 85671; // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 784519; // 85671; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 
