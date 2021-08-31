@@ -153,7 +153,7 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
 }
 
 // Particle
-#define MAX_PPC 48
+#define MAX_PPC 64
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
@@ -174,7 +174,7 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 7000; //140000; //< Max halo blocks (#)
+constexpr std::size_t g_max_halo_block = 1000; //140000; //< Max halo blocks (#)
 constexpr int g_target_cells = 4000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
