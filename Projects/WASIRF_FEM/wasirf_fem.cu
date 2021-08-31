@@ -239,7 +239,7 @@ void init_models(
         water_offset = water_offset + off;
         vec<float, 3> water_lengths{12.f, 0.2f, 0.9f};
         water_lengths /= g_length;
-        models[0] = read_sdf(std::string{"Water/Water_x12_y0.2_z0.9_dx0.02_pad1.sdf"}, 
+        models[1] = read_sdf(std::string{"Water/Water_x12_y0.2_z0.9_dx0.02_pad1.sdf"}, 
                           water_ppc, mn::config::g_dx, mn::config::g_domain_size,
                           water_offset, water_lengths);
 

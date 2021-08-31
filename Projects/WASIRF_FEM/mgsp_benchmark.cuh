@@ -333,9 +333,9 @@ struct mgsp_benchmark {
       fmt::print(fmt::emphasis::bold, "resizing blocks {} -> {}\n", ebcnt[did],
                  curNumActiveBlocks[did]);
     }
-    if (bincnt[did] > curNumActiveBins[did] * 3 / 4 &&
+    if (bincnt[did] > curNumActiveBins[did] * 5 / 6 &&
         checkedCnts[did][1] == 0) {
-      curNumActiveBins[did] = curNumActiveBins[did] * 3 / 2;
+      curNumActiveBins[did] = curNumActiveBins[did] * 6 / 5;
       checkedCnts[did][1] = 2;
       fmt::print(fmt::emphasis::bold, "resizing bins {} -> {}\n", bincnt[did],
                  curNumActiveBins[did]);
