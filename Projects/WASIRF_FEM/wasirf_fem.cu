@@ -73,7 +73,7 @@ void load_FEM_Particles(const std::string& filename, char sep,
           int col = 0;
           while (getline(sep, field, ',')) {
               if (col >= el) break;
-              arr[col] = (stof(field) + offset[col]) / mn::config::g_length / 4.f + (8.f * mn::config::g_dx);
+              arr[col] = (stof(field) / 4.f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
               col++;
           }
           fields.push_back(arr);
@@ -103,7 +103,7 @@ void load_FEM_Vertices(const std::string& filename, char sep,
           int col = 0;
           while (getline(sep, field, ',')) {
               if (col >= el) break;
-              arr[col] = (stof(field) + offset[col]) / mn::config::g_length / 4.f + (8.f * mn::config::g_dx);
+              arr[col] = (stof(field) / 4.f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
               arr[col+el] = arr[col]; 
               col++;
           }

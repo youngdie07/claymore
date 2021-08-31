@@ -86,7 +86,7 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{1e-4}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+      : dtDefault{7e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
         fps{10}, bRunning{true} {
     // data
     _hostData =
