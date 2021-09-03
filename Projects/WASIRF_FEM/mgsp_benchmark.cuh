@@ -86,7 +86,7 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{7e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+      : dtDefault{9e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
         fps{10}, bRunning{true} {
     // data
     _hostData =
@@ -686,12 +686,15 @@ struct mgsp_benchmark {
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_fem2p2g", did,
                                  curFrame, curStep));
+          
+          timer.tick();
           if (checkedCnts[did][0] > 0) {
             partitions[rollid ^ 1][did].resizePartition(
                 device_allocator{}, curNumActiveBlocks[did]);
             checkedCnts[did][0]--;
           }
-
+          timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_checkedCnts", did,
+                                 curFrame, curStep));
         });
         sync();
 
