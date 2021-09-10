@@ -68,12 +68,13 @@ void load_FEM_Particles(const std::string& filename, char sep,
       while (getline(in, line)) {
           std::stringstream sep(line);
           std::string field;
+          float f = 1.f; // Scale factor
           const int el = 3; // x, y, z - Default
           std::array<float, 3> arr;
           int col = 0;
           while (getline(sep, field, ',')) {
               if (col >= el) break;
-              arr[col] = (stof(field) / 100.f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
+              arr[col] = (stof(field) * f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
               col++;
           }
           fields.push_back(arr);
@@ -98,12 +99,13 @@ void load_FEM_Vertices(const std::string& filename, char sep,
       while (getline(in, line)) {
           std::stringstream sep(line);
           std::string field;
+          float f = 1.f; // Scale factor
           const int el = 3; // x, y, z - Default
           std::array<float, 10> arr;
           int col = 0;
           while (getline(sep, field, ',')) {
               if (col >= el) break;
-              arr[col] = (stof(field) / 100.f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
+              arr[col] = (stof(field) * f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
               arr[col+el] = arr[col]; 
               col++;
           }
@@ -208,13 +210,12 @@ void init_models(
   } break;
   case 4: {
       float off = 8.f * g_dx;
-      float f = 1.f;
       float water_ppc = MODEL_PPC;
 
       if (g_device_cnt == 1) {
-        load_FEM_Particles(std::string{"Debris/WASIRF_Debris_Asome_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.f, 0.11f, 0.2f}, 
-                            vec<float, 3>{0.11875f, 0.025f, 0.51875f});
+        load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
+                            vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{0.f, 0.f, 0.f});
         
         // vec<float, 3> water_offset{0.f, 0.f, 0.f};
         // water_offset /= g_length;
@@ -226,9 +227,9 @@ void init_models(
         //                   water_offset, water_lengths);
 
       } else if (g_device_cnt == 2) {
-        load_FEM_Particles(std::string{"Debris/WASIRF_Debris_Asome_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.f, 0.11f, 0.2f}, 
-                            vec<float, 3>{0.11875f, 0.025f, 0.51875f});
+        load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
+                            vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{0.f, 0.f, 0.f});
 
         // load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res9_Vertices.csv"}, ',', models[1], 
         //                     vec<float, 3>{1.525f, 0.0f, 1.0375f}, 
@@ -289,13 +290,13 @@ int main() {
   init_models(models, 4);
 
   std::cout << "Load FEM Elements" << '\n';
-  load_FEM_Elements(std::string{"Debris/WASIRF_Debris_Asome_spacing_1.5cm_res_1cm_Elements.csv"}, ',', h_FEM_Elements);
+  load_FEM_Elements(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Elements.csv"}, ',', h_FEM_Elements);
 
 
   std::cout << "Load FEM Vertices" << '\n';
-  load_FEM_Vertices(std::string{"Debris/WASIRF_Debris_Asome_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', h_FEM_Vertices,
-                    vec<float, 3>{11.f, 0.11f, 0.2f}, 
-                    vec<float, 3>{0.11875f, 0.025f, 0.51875f});
+  load_FEM_Vertices(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', h_FEM_Vertices,
+                    vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                    vec<float, 3>{0.f, 0.f, 0.f});
 
   std::cout << "Initialize Simulation" << '\n';
   //getchar();

@@ -499,7 +499,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           vel.set(0.f);
 #endif
 
-        // 2 m/s flow condition first 8 m (WASIRF Flume)
+        // 1 m/s flow condition first 8 m (WASIRF Flume)
         if (xc < (8.f / g_length + offset)) vel[0] = 1.f / g_length;
 
 

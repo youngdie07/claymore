@@ -126,7 +126,7 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
   vec9 contrib, C;
   vel.set(0.f), contrib.set(0.f), C.set(0.f);
 
-  vel[0] = 1.f / g_length; // 1 m/s
+  vel[0] = 0.58f / g_length; // 58 cm/s
 
   // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
   float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
@@ -295,7 +295,7 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// J
     pbin.val(_3, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s ;
+    pbin.val(_4, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s ;
     pbin.val(_5, pidib % g_bin_capacity) = 0.f;
     pbin.val(_6, pidib % g_bin_capacity) = 0.f;
 
@@ -358,7 +358,7 @@ array_to_buffer(ParticleArray parray,
     pbin.val(_10, pidib % g_bin_capacity) = 0.f;
     pbin.val(_11, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_12, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s ;
+    pbin.val(_12, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s ;
     pbin.val(_13, pidib % g_bin_capacity) = 0.f;
     pbin.val(_14, pidib % g_bin_capacity) = 0.f;
   }
@@ -451,7 +451,7 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// ID
     pbin.val(_3, pidib % g_bin_capacity) = parid;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 1.f / g_length; //< Vel_x m/s 
+    pbin.val(_4, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s 
     pbin.val(_5, pidib % g_bin_capacity) = 0.f;
     pbin.val(_6, pidib % g_bin_capacity) = 0.f;
   }
@@ -600,8 +600,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 #endif
 
 
-        // 1 m/s flow condition first 8 m (WASIRF Flume)
-        if (xc < (8.f / g_length + offset)) vel[0] = 1.f / g_length;
+        // Flow condition (m/s) first 8 m (WASIRF Flume)
+        if (xc < (8.f / g_length + offset)) vel[0] = 0.58f / g_length;
 
 
         grid_block.val_1d(_1, cidib) = vel[0];
