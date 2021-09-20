@@ -214,7 +214,7 @@ void init_models(
 
       if (g_device_cnt == 1) {
         load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{11.2f, 0.11f, 0.4246f}, 
                             vec<float, 3>{0.f, 0.f, 0.f});
         
         // vec<float, 3> debris_offset{11.5f, 0.11f, 0.2976f};
@@ -228,7 +228,7 @@ void init_models(
 
       } else if (g_device_cnt == 2) {
         load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{11.2f, 0.11f, 0.4246f}, 
                             vec<float, 3>{0.f, 0.f, 0.f});
 
         // load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res9_Vertices.csv"}, ',', models[1], 
@@ -295,9 +295,9 @@ int main() {
 
   std::cout << "Load FEM Vertices" << '\n';
   load_FEM_Vertices(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', h_FEM_Vertices,
-                    vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
+                    vec<float, 3>{11.2f, 0.11f, 0.4246f}, 
                     vec<float, 3>{0.f, 0.f, 0.f});
-
+  //.2976+.127
   std::cout << "Initialize Simulation" << '\n';
   //getchar();
 

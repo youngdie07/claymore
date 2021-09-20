@@ -127,7 +127,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float visco = 0.001f;
   float alpha = 0.99f;
   float beta_min = 0.02f;
-  float beta_max = 0.5f;
+  float beta_max = 0.25f;
   void updateParameters(float density, float vol, float b, float g, float v, float a) {
     rho = density;
     volume = vol;
@@ -288,7 +288,7 @@ struct ParticleBuffer<material_e::Meshed>
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
   float alpha = 0.99f;
   float beta_min = 0.05f;
-  float beta_max = 0.1f;
+  float beta_max = 0.2f;
   void updateParameters(float density, float vol, float E, float nu, float a) {
     rho = density;
     volume = vol;
