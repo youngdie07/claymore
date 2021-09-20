@@ -86,7 +86,7 @@ struct mgsp_benchmark {
       initParticles<I + 1>();
   }
   mgsp_benchmark()
-      : dtDefault{3e-6}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+      : dtDefault{2.5e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
         fps{10}, bRunning{true} {
     // data
     _hostData =
@@ -999,9 +999,9 @@ struct mgsp_benchmark {
                         cudaMemcpyDefault, cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
 
-    if (1) {
-      /// Output to Partio as 'gridTarget_frame[i].bgeo'
-      std::string fn = std::string{"gridTarget"} + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(freq_step) + "].bgeo";
+    if ((freq_step % (int)h_target_freq) == 0) {
+      /// Output to Partio as 'gridTarget_dev[ ]_frame[ ].bgeo'
+      std::string fn = std::string{"gridTarget"} + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(curFrame) + "].bgeo";
       IO::insert_job([fn, m = h_gridTarget[did]]() { write_partio_gridTarget<float, 10>(fn, m); });
       fmt::print(fg(fmt::color::red), "BGEO write finished.\n");
     }

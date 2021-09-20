@@ -294,7 +294,7 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
 
 template <typename T = float>
 __forceinline__ __device__ void
-compute_stress_FEM_fixedcorotated(T mu, T lambda, const vec<T, 9> &F,
+compute_stress_FEM_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
                               vec<T, 9> &P) {
   T U[9], S[3], V[9];
   math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],

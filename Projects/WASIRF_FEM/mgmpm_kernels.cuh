@@ -451,9 +451,10 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// ID
     pbin.val(_3, pidib % g_bin_capacity) = parid;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s 
-    pbin.val(_5, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_6, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_4, pidib % g_bin_capacity) = 0.f / g_length; //< Vel_x m/s 
+    pbin.val(_5, pidib % g_bin_capacity) = 0.f; //< Vel_z
+    pbin.val(_6, pidib % g_bin_capacity) = 0.f; //< Vel_y
+    pbin.val(_7, pidib % g_bin_capacity) = 0.f; //< J
   }
 }
 
@@ -527,7 +528,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_pos[0] = (12.f) / g_length + (2.f * g_dx) + offset;
         struct_pos[1] = (0.075f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 1.01f * g_dx;
+        float t = 2.01f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
@@ -571,7 +572,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             // Check if 111 (7), set 000 (0) otherwise
             isOnStructFace[iter] = 0;
           } else {
-            isOnStructFace[iter] = (1 << iter / 2);
+            if (iter != 5) isOnStructFace[iter] = (1 << iter / 2);
+            else {
+              if (vel[0] > 0.f) {
+                isOnStructFace[iter] = (1 << iter / 2);
+              }
+            }
           }
           isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
         }
@@ -709,7 +715,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
         struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 1.0f * g_dx;
+        float t = 0.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
@@ -2983,6 +2989,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
+      //J = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -3057,6 +3064,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
     float tension = vertice_array.val(_6, ID);
     float beta;
+
+    // if (J >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
+    // else if (J < 1.f) beta = pbuffer.beta_min;
+    // else beta = 0.f;
     if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     else if (tension <= -1.f) beta = 0.f;
     else beta = pbuffer.beta_min;
@@ -3129,17 +3140,9 @@ __global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
     p[v][0] = vertice_array.val(_3, ID) * g_length;
     p[v][1] = vertice_array.val(_4, ID) * g_length;
     p[v][2] = vertice_array.val(_5, ID) * g_length;
-    //mass[v] = vertice_array.val(_6, ID);
+    vertice_array.val(_6, ID) = 0.f;
   }
   __syncthreads();
-
-  // float invCheck = matrixDeterminant3d(Binv.data());
-  // matrixInverse(Binv.data(), B.data());
-  //float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
-  // if (restVolume > 1.f){
-  //   printf("Element (%d) Node (%d) giant volume!: (%f)\n", blockIdx.x, IDs[threadIdx.x], restVolume);
-  // }
-  ///
 
   /// Run-Time
   vec9 D;
@@ -3158,22 +3161,22 @@ __global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
   F.set(0.f);
   matrixMatrixMultiplication3d(D.data(), B.data(), F.data());
   float J;
+  float Jc = 1.002;
   J = matrixDeterminant3d(F.data());
   float tension;
-  if (J >= 1.f) tension = 1.f;
-  else tension = -1.f;
-
+  if (J >= Jc) tension = 1.f;
+  else if (J < 0.998f) tension = -1.f;
+  else tension = 0.f;
   vec9 P;
   P.set(0.f);
-  compute_stress_FEM_fixedcorotated(elementBins.mu, elementBins.lambda, F, P);
+  compute_stress_FEM_fixedcorotated(restVolume, elementBins.mu, elementBins.lambda, F, P);
 
   vec9 H;
   H.set(0.f);
   matrixMatrixTransposeMultiplication3d(P.data(), B.data(), H.data());
-
+  
   __syncthreads();
 
-  float scale = restVolume / g_length;
   vec3 f;
   f.set(0.f);
   if (threadIdx.x == 1){
@@ -3189,12 +3192,11 @@ __global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
     f[1] = H[7];
     f[2] = H[8];
   } else {
-    f[0] = -1.f*(H[0] + H[3] + H[6]);
-    f[1] = -1.f*(H[1] + H[4] + H[7]);
-    f[2] = -1.f*(H[2] + H[5] + H[8]);
+    f[0] = - (H[0] + H[3] + H[6]);
+    f[1] = - (H[1] + H[4] + H[7]);
+    f[2] = - (H[2] + H[5] + H[8]);
   }
-  //__syncthreads();
-
+  float scale = restVolume / g_length;
   f[0] = f[0] * scale;
   f[1] = f[1] * scale; 
   f[2] = f[2] * scale;
@@ -3284,15 +3286,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       VerticeArray vertice_array) {
                         return;
                       }
-// template <typename Partition, typename Grid, typename VerticeArray>
-// __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
-//                       const ParticleBuffer<material_e::Meshed> pbuffer,
-//                       ParticleBuffer<material_e::Meshed> next_pbuffer,
-//                       const Partition prev_partition, Partition partition,
-//                       const Grid grid, Grid next_grid,
-//                       VerticeArray vertice_array) {
-//                         return;
-//                       }
+
 
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
@@ -3439,6 +3433,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
+      //J = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -3513,7 +3508,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
 
     float tension;
-    vec3 f;
+    vec3 f; //< Internal nodes forces
     tension = vertice_array.val(_6, ID);
     f[0] = vertice_array.val(_7, ID);
     f[1] = vertice_array.val(_8, ID);
@@ -3523,28 +3518,15 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vertice_array.val(_8, ID) = 0.f;
     vertice_array.val(_9, ID) = 0.f;
     float beta;
+    // if (J >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
+    // else if (J < 1.f) beta = pbuffer.beta_min;
+    // else beta = 0.f;
     if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     else if (tension <= -1.f) beta = 0.f;
     else beta = pbuffer.beta_min;
     
     pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
     vel += pbuffer.alpha * (vp_n - vel_n);
-    
-
-    // for (int dim = 0; dim < 3; dim++){
-    //   if (isnan(f[dim])){
-    //     printf("Particle %d isnan !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-    //     //f[dim] = 0.f;
-    //   }
-    //   if (isinf(f[dim])){
-    //     printf("Particle %d isinf !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-    //     //f[dim] = 0.f;
-    //   }
-    //   if (fabs(f[dim]) * pbuffer.mass * dt > 1.f){
-    //     printf("Particle %d isbig !: (%f %f %f)\n", ID, f[0], f[1], f[2]);
-    //   //   f[dim] = 0.f;
-    //   }
-    // }
 
     {
       {
@@ -3557,6 +3539,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
         particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
         particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
+        particle_bin.val(_7, pidib % g_bin_capacity) = tension; //< tension
       }
     }
 
@@ -3923,10 +3906,7 @@ retrieve_particle_buffer_attributes(Partition partition,
         (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
       pattrib.val(_0, parid) = J;              //< J (V/Vo)
       pattrib.val(_1, parid) = pressure;       //< Pressure (Pa)
-      // pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
-      // pattrib.val(_0, parid) = source_bin.val(_4, _source_pidib);              //< J (V/Vo)
-      // pattrib.val(_1, parid) = source_bin.val(_5, _source_pidib);       //< Pressure (Pa)
-      pattrib.val(_2, parid) = source_bin.val(_4, _source_pidib);    //< Particle count for block (#)    }
+      pattrib.val(_2, parid) = source_bin.val(_4, _source_pidib); // Vel_x
     }
   }
 }
@@ -4156,7 +4136,7 @@ retrieve_particle_buffer_attributes(Partition partition,
       /// Send attributes to pattribs (device --> device)
       pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
       pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib); //< vel_x
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+      pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< J/Tension
     }
   }
 }
@@ -4264,6 +4244,7 @@ __global__ void retrieve_selected_grid_cells(
         garray.val(_8, node_id) = fy;
         garray.val(_9, node_id) = fz;
         __syncthreads(); // Sync threads in block
+        //if (fx > 0.f) atomicAdd(forceSum, fx);
         atomicAdd(forceSum, fx);
         __syncthreads(); // Sync threads in block
       }

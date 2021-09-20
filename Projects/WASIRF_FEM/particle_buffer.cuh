@@ -20,7 +20,13 @@ using particle_bin7_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_>; ///< pos, J, vel
+               f32_, f32_, f32_, f32_>; ///< pos, ID, vel
+using particle_bin8_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
+               f32_, f32_, f32_, f32_, f32_>; ///< pos, ID, vel, J
 using particle_bin12_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -48,7 +54,7 @@ template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin13_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin13_ {};
-template <> struct particle_bin_<material_e::Meshed> : particle_bin7_ {};
+template <> struct particle_bin_<material_e::Meshed> : particle_bin8_ {};
 
 
 template <typename ParticleBin>
@@ -116,12 +122,12 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
   float mass = (volume * DENSITY);
-  float bulk = 2e6;
+  float bulk = 5e6;
   float gamma = 7.1f;
   float visco = 0.001f;
   float alpha = 0.99f;
-  float beta_max = 0.5f;
   float beta_min = 0.02f;
+  float beta_max = 0.5f;
   void updateParameters(float density, float vol, float b, float g, float v, float a) {
     rho = density;
     volume = vol;
@@ -172,7 +178,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.99f;
+  float alpha = 0.f;
   void updateParameters(float density, float vol, float E, float nu, float a) {
     rho = density;
     volume = vol;
@@ -282,7 +288,7 @@ struct ParticleBuffer<material_e::Meshed>
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
   float alpha = 0.99f;
   float beta_min = 0.05f;
-  float beta_max = 0.2f;
+  float beta_max = 0.1f;
   void updateParameters(float density, float vol, float E, float nu, float a) {
     rho = density;
     volume = vol;

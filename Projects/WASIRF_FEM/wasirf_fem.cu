@@ -214,21 +214,21 @@ void init_models(
 
       if (g_device_cnt == 1) {
         load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
                             vec<float, 3>{0.f, 0.f, 0.f});
         
-        // vec<float, 3> water_offset{0.f, 0.f, 0.f};
-        // water_offset /= g_length;
-        // water_offset = water_offset + off;
-        // vec<float, 3> water_lengths{12.f, 0.2f, 0.9f};
-        // water_lengths /= g_length;
-        // models[0] = read_sdf(std::string{"Water/Water_x12_y0.2_z0.9_dx0.02_pad1.sdf"}, 
-        //                   water_ppc, mn::config::g_dx, mn::config::g_domain_size,
-        //                   water_offset, water_lengths);
+        // vec<float, 3> debris_offset{11.5f, 0.11f, 0.2976f};
+        // debris_offset /= g_length;
+        // debris_offset = debris_offset + off;
+        // vec<float, 3> debris_lengths{0.3048f, 0.0681f, 0.3048f};
+        // debris_lengths /= g_length;
+        // models[0] = read_sdf(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_dx0.0025_pad1.sdf"}, 
+        //                   MODEL_PPC_FC, mn::config::g_dx, mn::config::g_domain_size,
+        //                   debris_offset, debris_lengths);
 
       } else if (g_device_cnt == 2) {
         load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-                            vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                            vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
                             vec<float, 3>{0.f, 0.f, 0.f});
 
         // load_FEM_Particles(std::string{"Debris/OSU_AT162_spacing_2.5cm_res9_Vertices.csv"}, ',', models[1], 
@@ -279,7 +279,7 @@ int main() {
   h_point_a[1] = 0.075f / g_length;
   h_point_a[2] = (0.9f - 0.254f) / 2.f / g_length;
   h_point_a = h_point_a + off;
-  h_point_b[0] = h_point_a[0] + (1.01f * g_dx);
+  h_point_b[0] = h_point_a[0] + (2.01f * g_dx);
   h_point_b[1] = h_point_a[1] + 0.254f / g_length;
   h_point_b[2] = h_point_a[2] + 0.254f / g_length;
 
@@ -295,7 +295,7 @@ int main() {
 
   std::cout << "Load FEM Vertices" << '\n';
   load_FEM_Vertices(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', h_FEM_Vertices,
-                    vec<float, 3>{11.f, 0.11f, 0.2976f}, 
+                    vec<float, 3>{11.2f, 0.11f, 0.2976f}, 
                     vec<float, 3>{0.f, 0.f, 0.f});
 
   std::cout << "Initialize Simulation" << '\n';
@@ -304,7 +304,7 @@ int main() {
   /// Loop through GPU devices
   for (int did = 0; did < g_device_cnt; ++did) {
     benchmark->initModel(did, models[did]);
-    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 1.f);
+    benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 48.f);
     benchmark->initFEM(did, h_FEM_Vertices, h_FEM_Elements);
     // benchmark->initFEMElements();
   }

@@ -34,7 +34,7 @@ enum class fem_e { Tetrahedron = 0,
 /// benchmark setup
 namespace config {
 constexpr int g_device_cnt = 2;
-constexpr int g_total_frame_cnt = 40;
+constexpr int g_total_frame_cnt = 60;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
   return type;
@@ -58,7 +58,7 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 1.f
+#define MODEL_PPC 1.25f
 #define MODEL_PPC_FC 1.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
@@ -81,8 +81,7 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 31.25f
-//#define DOMAIN_VOLUME 16777216.f
+#define DOMAIN_VOLUME 8000.f //< g_length^3, IMPORTANT, scales mass-volume
 constexpr float g_length   = 20.0f; //< Domain full length (m)
 constexpr float g_length_x = 20.0f; //< Domain x length (m)
 constexpr float g_length_y = 1.25f;   //< Domain y length (m)
@@ -153,18 +152,18 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
 }
 
 // Particle
-#define MAX_PPC 128
+#define MAX_PPC 32
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
-#define DENSITY 1e3
-#define YOUNGS_MODULUS 1e7
-#define POISSON_RATIO 0.4f
+#define DENSITY 1000       // kg/m3
+#define YOUNGS_MODULUS 3e6 // Pascals
+#define POISSON_RATIO 0.4f // rad
 
 // Ambient parameters
-constexpr float g_gravity = 0.f;
+constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
 constexpr int g_max_particle_num = 1400000; // 8000000
@@ -174,8 +173,8 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 1000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 4000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 1500; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 2000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
 constexpr int g_max_fem_vertice_num = 915; //7260;  // Max no. of vertice on FEM mesh
