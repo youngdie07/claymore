@@ -6,7 +6,13 @@ target_sources(wasirf_fem
 )
 target_link_libraries(wasirf_fem
     PRIVATE     mnio
+                cxxopts
+                spdlog
                 fmt
+                rapidjson
+                range-v3
+                filesystem
+                stdc++fs
 )
 
 endif()

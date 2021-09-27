@@ -115,7 +115,7 @@ __global__ void register_exterior_blocks(uint32_t blockCount,
 template <typename Grid, typename Partition>
 __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
                           Grid grid, const Partition partition, float dt,
-                          float mass) {
+                          float mass, vec3 vel0) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
   if (parid >= particleCount)
     return;
@@ -126,7 +126,9 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
   vec9 contrib, C;
   vel.set(0.f), contrib.set(0.f), C.set(0.f);
 
-  vel[0] = 0.58f / g_length; // 58 cm/s
+  vel[0] = vel0[0]; // 58 cm/s
+  vel[1] = vel0[1]; // 58 cm/s
+  vel[2] = vel0[2]; // 58 cm/s
 
   // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
   float Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
@@ -260,7 +262,7 @@ __global__ void fem_precompute(VerticeArray vertice_array,
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid> pbuffer,
-                                Partition partition) {
+                                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -280,7 +282,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
-                                Partition partition) {
+                                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -295,9 +297,9 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// J
     pbin.val(_3, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s ;
-    pbin.val(_5, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_6, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_4, pidib % g_bin_capacity) = vel[0]; //< Vel_x m/s
+    pbin.val(_5, pidib % g_bin_capacity) = vel[1]; //< Vel_y m/s
+    pbin.val(_6, pidib % g_bin_capacity) = vel[2]; //< Vel_z m/s
 
   }
 }
@@ -306,7 +308,7 @@ template <typename ParticleArray, typename Partition>
 __global__ void
 array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::FixedCorotated> pbuffer,
-                Partition partition) {
+                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -335,7 +337,7 @@ template <typename ParticleArray, typename Partition>
 __global__ void
 array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
-                Partition partition) {
+                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -358,16 +360,16 @@ array_to_buffer(ParticleArray parray,
     pbin.val(_10, pidib % g_bin_capacity) = 0.f;
     pbin.val(_11, pidib % g_bin_capacity) = 1.f;
     /// vel
-    pbin.val(_12, pidib % g_bin_capacity) = 0.58f / g_length; //< Vel_x m/s ;
-    pbin.val(_13, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_14, pidib % g_bin_capacity) = 0.f;
+    pbin.val(_12, pidib % g_bin_capacity) = vel[0]; //< Vel_x m/s
+    pbin.val(_13, pidib % g_bin_capacity) = vel[1]; //< Vel_y m/s
+    pbin.val(_14, pidib % g_bin_capacity) = vel[2]; //< Vel_z m/s
   }
 }
 
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::Sand> pbuffer,
-                                Partition partition) {
+                                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -398,7 +400,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::NACC> pbuffer,
-                                Partition partition) {
+                                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -429,7 +431,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename ParticleArray, typename Partition>
 __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::Meshed> pbuffer,
-                                Partition partition) {
+                                Partition partition, vec3 vel) {
   uint32_t blockno = blockIdx.x;
   int pcnt = partition._ppbs[blockno];
   auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
@@ -451,9 +453,9 @@ __global__ void array_to_buffer(ParticleArray parray,
     /// ID
     pbin.val(_3, pidib % g_bin_capacity) = parid;
     /// vel
-    pbin.val(_4, pidib % g_bin_capacity) = 0.f / g_length; //< Vel_x m/s 
-    pbin.val(_5, pidib % g_bin_capacity) = 0.f; //< Vel_z
-    pbin.val(_6, pidib % g_bin_capacity) = 0.f; //< Vel_y
+    pbin.val(_4, pidib % g_bin_capacity) = vel[0]; //< Vel_x m/s
+    pbin.val(_5, pidib % g_bin_capacity) = vel[1]; //< Vel_y m/s
+    pbin.val(_6, pidib % g_bin_capacity) = vel[2]; //< Vel_z m/s
     pbin.val(_7, pidib % g_bin_capacity) = 0.f; //< J
   }
 }
@@ -475,7 +477,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   auto blockid = partition._activeKeys[blockno];
   int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
                   ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
-                  (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
+                   (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
+
   if (threadIdx.x < numWarps)
     sh_maxvels[threadIdx.x] = 0.0f;
   __syncthreads();
@@ -510,14 +513,18 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
         vel_n[2] = grid_block.val_1d(_6, cidib); //< mvz
 
+        int isLeaveBound = ((vel[0] < 0.f || vel[0] > 0.f) << 2) |
+                           ((vel[1] < 0.f || vel[1] > 0.f) << 1) |
+                            (vel[2] < 0.f || vel[2] > 0.f);
+        isInBound &= isLeaveBound;
+
         float flumex = 20.f / g_length; // Length
         float flumey = 1.f / g_length; // Depth
         float flumez = 0.9f / g_length; // Width
-        int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
-                         ((yc < offset || yc >= flumey + offset) << 1) |
-                          (zc < offset || zc >= flumez + offset);
+        int isInFlume =  (((xc < offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
+                         (((yc < offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
+                          ((zc < offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));
         isInBound |= isInFlume; // Update with regular boundary for efficiency
-
 
         // Add grid-cell boundary for structural block, OSU flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
@@ -529,6 +536,18 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_pos[1] = (0.075f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
         float t = 2.01f * g_dx;
+
+        // Columns beneath structure
+        // 4x4?, 1cm diameters?, 1inch spacing?, 2inch corner offset?
+        if (0) {
+        float d = 4.01 * g_dx;
+        float s = 0.02f / g_length;
+        int isOutColumns  = ((xc >= struct_pos[0] && xc < struct_pos[0] + d) << 2) | 
+                            ((yc > 0.f && yc <= struct_pos[1]) << 1) |
+                             (zc >= struct_pos[2] && zc < struct_pos[2] + d);        
+        if (isOutColumns != 7) isOutColumns = 0; // Check if 111, reset otherwise
+        isInBound |= isOutColumns; // Update with regular boundary for efficiency
+        }
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
@@ -3136,7 +3155,7 @@ __global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
 
   for (int v = 0; v < 4; v++) {
-    int ID = IDs[v] - 1;
+    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
     p[v][0] = vertice_array.val(_3, ID) * g_length;
     p[v][1] = vertice_array.val(_4, ID) * g_length;
     p[v][2] = vertice_array.val(_5, ID) * g_length;

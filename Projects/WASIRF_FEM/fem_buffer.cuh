@@ -95,6 +95,16 @@ struct ElementBuffer<fem_e::Tetrahedron>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
+  void updateParameters(float density, float vol, float ym, float pr) {
+    rho = density;
+    //volume = vol;
+    E = ym;
+    nu = pr;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
+
   template <typename Allocator>
   ElementBuffer(Allocator allocator) : base_t{allocator} {}
 };

@@ -33,15 +33,15 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 2;
-constexpr int g_total_frame_cnt = 60;
+constexpr int g_device_cnt = 1;
+constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
   return type;
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::Meshed, material_e::JFluid_ASFLIP, 
+                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
                       material_e::JFluid_ASFLIP, material_e::FixedCorotated_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -50,7 +50,7 @@ constexpr std::array<fem_e, 5> g_fem_element_list = {
                       fem_e::Tetrahedron, fem_e::Tetrahedron, 
                       fem_e::Tetrahedron};
 
-constexpr std::array<int, 5> g_fem_gpu = {1, 0, 0, 0, 0};
+constexpr std::array<int, 5> g_fem_gpu = {0, 0, 0, 0, 0};
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
@@ -59,7 +59,7 @@ constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
 #define MODEL_PPC 1.25f
-#define MODEL_PPC_FC 1.f
+#define MODEL_PPC_FC 6.640625f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
@@ -84,7 +84,7 @@ constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 #define DOMAIN_VOLUME 8000.f //< g_length^3, IMPORTANT, scales mass-volume
 constexpr float g_length   = 20.0f; //< Domain full length (m)
 constexpr float g_length_x = 20.0f; //< Domain x length (m)
-constexpr float g_length_y = 1.25f;   //< Domain y length (m)
+constexpr float g_length_y = 0.625f;   //< Domain y length (m)
 constexpr float g_length_z = 1.25f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
@@ -159,7 +159,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1000       // kg/m3
-#define YOUNGS_MODULUS 3e6 // Pascals
+#define YOUNGS_MODULUS 1e8 // Pascals
 #define POISSON_RATIO 0.4f // rad
 
 // Ambient parameters
@@ -173,13 +173,13 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 1500; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 2000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 0; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 10000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 915; //7260;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 1810; //24551;  // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 1810; //24551;  // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 4250; //20169; //915; //7260;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 12800; //85671; //1810; //24551;  // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 12800; //85671; //1810; //24551;  // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 

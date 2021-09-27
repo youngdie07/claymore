@@ -125,17 +125,20 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float bulk = 5e6;
   float gamma = 7.1f;
   float visco = 0.001f;
-  float alpha = 0.99f;
-  float beta_min = 0.02f;
-  float beta_max = 0.25f;
-  void updateParameters(float density, float vol, float b, float g, float v, float a) {
+  float alpha = 0.f;
+  float beta_min = 0.f;
+  float beta_max = 0.f;
+  void updateParameters(float density, float vol, float b, float g, float v, 
+                      float a, float bmin, float bmax) {
     rho = density;
-    volume = vol;
+    //volume = vol;
     mass = volume * density;
     bulk = b;
     gamma = g;
     visco = v;
     alpha = a;
+    beta_min = bmin;
+    beta_max = bmax;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -179,13 +182,18 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
   float alpha = 0.f;
-  void updateParameters(float density, float vol, float E, float nu, float a) {
+  float beta_min = 0.f;
+  float beta_max = 0.f;
+  void updateParameters(float density, float vol, float E, float nu, 
+                        float a, float bmin, float bmax) {
     rho = density;
-    volume = vol;
+    //volume = vol;
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
     alpha = a;
+    beta_min = bmin;
+    beta_max = bmax;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -286,16 +294,21 @@ struct ParticleBuffer<material_e::Meshed>
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.99f;
-  float beta_min = 0.05f;
-  float beta_max = 0.2f;
-  void updateParameters(float density, float vol, float E, float nu, float a) {
+  float alpha = 0.f;
+  float beta_min = 0.f;
+  float beta_max = 0.f;
+  void updateParameters(float density, float vol, float ym, float pr, float a,
+                        float bmin, float bmax) {
     rho = density;
-    volume = vol;
+    //volume = vol;
+    E = ym;
+    nu = pr;
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
     alpha = a;
+    beta_min = bmin;
+    beta_max = bmax;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}

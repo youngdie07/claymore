@@ -70,13 +70,17 @@ struct mgsp_benchmark {
     
     particles[I] = spawn<particle_array_, orphan_signature>(device_allocator{});
     pattribs[I] = spawn<particle_array_, orphan_signature>(device_allocator{}); //< Particle attributes on device
-    
+    //vel0.emplace_back(sizeof(vec3));
     d_vertices[I] = spawn<vertice_array_, orphan_signature>(device_allocator{}); //< FEM vertices
     d_elements[I] = spawn<element_array_, orphan_signature>(device_allocator{}); //< FEM elements
 
     d_gridTarget.emplace_back(
         std::move(GridTarget{spawn<grid_target_, orphan_signature>(
             device_allocator{}, sizeof(std::array<float, 10>) * config::g_target_cells)}));
+    vel0[I][0] = 0.f;
+    vel0[I][1] = 0.f;
+    vel0[I][2] = 0.f;
+
     checkedCnts[I][0] = 0;
     checkedCnts[I][1] = 0;
     curNumActiveBlocks[I] = config::g_max_active_block;
@@ -85,9 +89,9 @@ struct mgsp_benchmark {
     if constexpr (I + 1 < config::g_device_cnt)
       initParticles<I + 1>();
   }
-  mgsp_benchmark()
-      : dtDefault{2.5e-5}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
-        fps{10}, bRunning{true} {
+  mgsp_benchmark(float dt = 1e-4, int fp = 24, int frames = 60)
+      : dtDefault{dt}, curTime{0.f}, rollid{0}, curFrame{0}, curStep{0},
+        fps{fp}, nframes{frames}, bRunning{true} {
     // data
     _hostData =
         spawn<signed_distance_field_, orphan_signature>(host_allocator{});
@@ -118,15 +122,15 @@ struct mgsp_benchmark {
 
   // Allow for diff. materials
   //template <material_e m>
-  void initModel(int devid, const std::vector<std::array<float, 3>> &model) {
+  void initModel(int devid, const std::vector<std::array<float, 3>> &model,
+                  const mn::vec<float, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
     
-    // for (int copyid = 0; copyid < 2; ++copyid) {
-    //   particleBins[copyid].emplace_back(
-    //     ParticleBuffer<m>{device_allocator{}});
-    // }
-    // cuDev.syncStream<streamIdx::Compute>();
+    // Initial velocity of particles on GPU
+    for (int i = 0; i < 3; ++i)
+      vel0[devid][i] = v0[i];
+
 
     pcnt[devid] = model.size();
     fmt::print("init model[{}] with {} particles\n", devid, pcnt[devid]);
@@ -166,12 +170,6 @@ struct mgsp_benchmark {
                     sizeof(std::array<int, 4>) * h_elements.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
-
-
-    // std::string fn = std::string{"model"} + "_dev[" + std::to_string(devid) +
-    //                  "]_frame[0].bgeo";
-    // IO::insert_job([fn, model]() { write_partio<float, 3>(fn, model); });
-    // IO::flush();
   }
 
   void initBoundary(std::string fn) {
@@ -194,7 +192,7 @@ struct mgsp_benchmark {
                       const std::vector<std::array<float, 10>> &h_gridTarget, 
                       const mn::vec<float, 3> &h_point_a, 
                       const mn::vec<float, 3> &h_point_b, 
-                      const float target_freq) {
+                      float target_freq) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
     fmt::print("Entered initGridTarget in gmpm_simulator.cuh!\n");
@@ -212,14 +210,14 @@ struct mgsp_benchmark {
                     sizeof(std::array<float, 10>) * h_gridTarget.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
-    fmt::print("Populated target in initGridTarget gmpm_simulator.cuh!\n");
+    fmt::print("Populated target in initGridTarget mgsp_benchmark.cuh!\n");
 
     /// Write target data to a *.bgeo output file using Partio  
     std::string fn = std::string{"gridTarget"}  + "_dev[" + std::to_string(devid) + "]_frame[0].bgeo";
     IO::insert_job([fn, h_gridTarget]() { write_partio_gridTarget<float, 10>(fn, h_gridTarget); });
     IO::flush();
 
-    fmt::print("Exiting initGridTarget in gmpm_simulator.cuh!\n");
+    fmt::print("Exiting initGridTarget in mgsp_benchmark.cuh!\n");
   }
 
 
@@ -248,58 +246,109 @@ struct mgsp_benchmark {
     fmt::print("Set waveMaker with step {}, time {}s, disp {}m, vel {}m/s\n", step, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
   }
 
-  void updateJFluidParameters(float rho, float vol, float bulk, float gamma,
+  void updateJFluidParameters(int did, float rho, float vol, float bulk, float gamma,
                               float visco) {
-    match(particleBins[0].back())([&](auto &pb) {},
+    match(particleBins[0][did])([&](auto &pb) {},
                                   [&](ParticleBuffer<material_e::JFluid> &pb) {
                                     pb.updateParameters(rho, vol, bulk, gamma,
                                                         visco);
                                   });
-    match(particleBins[1].back())([&](auto &pb) {},
+    match(particleBins[1][did])([&](auto &pb) {},
                                   [&](ParticleBuffer<material_e::JFluid> &pb) {
                                     pb.updateParameters(rho, vol, bulk, gamma,
                                                         visco);
                                   });
   }
-  void updateFRParameters(float rho, float vol, float ym, float pr) {
-    match(particleBins[0].back())(
+
+  void updateJFluidASFLIPParameters(int did, float rho, float vol, float bulk, float gamma,
+                              float visco,
+                              float a, float bmin, float bmax) {
+    match(particleBins[0][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::JFluid_ASFLIP> &pb) {
+          pb.updateParameters(rho, vol, bulk, gamma,
+                              visco, a, bmin, bmax);
+        });
+    match(particleBins[1][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::JFluid_ASFLIP> &pb) {
+          pb.updateParameters(rho, vol, bulk, gamma,
+                              visco, a, bmin, bmax);
+        });
+  }
+
+  void updateFRParameters(int did, float rho, float vol, float ym, float pr) {
+    match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
           pb.updateParameters(rho, vol, ym, pr);
         });
-    match(particleBins[1].back())(
+    match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
           pb.updateParameters(rho, vol, ym, pr);
         });
   }
-  void updateSandParameters(float rho, float vol, float ym, float pr) {
-    match(particleBins[0].back())(
+
+  void updateFRASFLIPParameters(int did, float rho, float vol, float ym, float pr,
+                                float a, float bmin, float bmax) {
+    match(particleBins[0][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+        });
+    match(particleBins[1][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+        });
+  }
+  void updateSandParameters(int did, float rho, float vol, float ym, float pr) {
+    match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Sand> &pb) {
           pb.updateParameters(rho, vol, ym, pr);
         });
-    match(particleBins[1].back())(
+    match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Sand> &pb) {
           pb.updateParameters(rho, vol, ym, pr);
         });
   }
-  void updateNACCParameters(float rho, float vol, float ym, float pr,
+  void updateNACCParameters(int did, float rho, float vol, float ym, float pr,
                             float beta, float xi) {
-    match(particleBins[0].back())(
+    match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::NACC> &pb) {
           pb.updateParameters(rho, vol, ym, pr, beta,
                               xi);
         });
-    match(particleBins[1].back())(
+    match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::NACC> &pb) {
           pb.updateParameters(rho, vol, ym, pr, beta,
                               xi);
         });
   }
+  void updateMeshedParameters(int did, float rho, float vol, float ym, float pr,
+                            float a, float bmin, float bmax) {
+    match(particleBins[0][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Meshed> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+        });
+    match(particleBins[1][did])(
+        [&](auto &pb) {},
+        [&](ParticleBuffer<material_e::Meshed> &pb) {
+          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+        });
+    match(elementBins[did])(
+        [&](auto &eb) {},
+        [&](ElementBuffer<fem_e::Tetrahedron> &eb) {
+          eb.updateParameters(rho, vol, ym, pr);
+        });    
+  }
+
 
 
   template <typename CudaContext>
@@ -393,7 +442,7 @@ struct mgsp_benchmark {
     initial_setup();
     curTime = dt;
     freq_step = 0;
-    for (curFrame = 1; curFrame <= config::g_total_frame_cnt; ++curFrame) {
+    for (curFrame = 1; curFrame <= nframes; ++curFrame) {
       for (; curTime < nextTime; curTime += dt, curStep++) {
         /// max grid vel
         issue([this](int did) {
@@ -436,8 +485,8 @@ struct mgsp_benchmark {
         maxVel = std::sqrt(maxVel);
         nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
         fmt::print(fmt::emphasis::bold,
-                   "{} --{}--> {}, defaultDt: {}, maxVel: {}\n", curTime,
-                   nextDt, nextTime, dtDefault, maxVel);
+                   "{} [s] --{}--> {} [s], defaultDt: {} [s], maxVel: {} [m/s]\n", curTime,
+                   nextDt, nextTime, dtDefault, (maxVel*g_length));
 
         /// g2p2g
         issue([this](int did) {
@@ -1055,9 +1104,10 @@ struct mgsp_benchmark {
             sizeof(int), cudaMemcpyDefault, cuDev.stream_compute()));
         cuDev.syncStream<streamIdx::Compute>();
       }
+
       match(particleBins[rollid][did])([&](const auto &pb) {
         cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did],
-                             pb, partitions[rollid ^ 1][did]);
+                             pb, partitions[rollid ^ 1][did], vel0[did]);
       });
       //FEM Precompute
       if (g_fem_gpu[did]){
@@ -1109,9 +1159,10 @@ struct mgsp_benchmark {
 
       timer.tick();
       gridBlocks[0][did].reset(nbcnt[did], cuDev);
+
       cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
                            particles[did], gridBlocks[0][did],
-                           partitions[rollid][did], dt, getMass(did));
+                           partitions[rollid][did], dt, getMass(did), vel0[did]);
       cuDev.compute_launch({pbcnt[did], 128}, init_adv_bucket,
                            (const int *)partitions[rollid][did]._ppbs,
                            partitions[rollid][did]._blockbuckets);
@@ -1264,7 +1315,7 @@ struct mgsp_benchmark {
   ///
   /// animation runtime settings
   float dt, nextDt, dtDefault, curTime, maxVel;
-  uint64_t curFrame, curStep, fps;
+  uint64_t curFrame, curStep, fps, nframes;
   /// data on device, double buffering
   std::vector<optional<SignedDistanceGrid>> collisionObjs;
   std::vector<GridBuffer> gridBlocks[2];
@@ -1280,6 +1331,8 @@ struct mgsp_benchmark {
   std::vector<GridTarget> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
   vec3 d_point_a; ///< Point A of target (JB)
   vec3 d_point_b; ///< Point B of target (JB)
+  vec3 vel0[config::g_device_cnt]; ///< Set initial velocities per gpu model (JB)
+
 
   vec<ParticleArray, config::g_device_cnt> particles;
   vec<ParticleArray, config::g_device_cnt> pattribs;
