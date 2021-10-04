@@ -513,10 +513,15 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
         vel_n[2] = grid_block.val_1d(_6, cidib); //< mvz
 
-        int isLeaveBound = ((vel[0] < 0.f || vel[0] > 0.f) << 2) |
-                           ((vel[1] < 0.f || vel[1] > 0.f) << 1) |
-                            (vel[2] < 0.f || vel[2] > 0.f);
-        isInBound &= isLeaveBound;
+        // int isLeaveBound = ((vel[0] < 0.f || vel[0] > 0.f) << 2) |
+        //                    ((vel[1] < 0.f || vel[1] > 0.f) << 1) |
+        //                     (vel[2] < 0.f || vel[2] > 0.f);
+
+        isInBound = (((blockid[0] < bc && vel[0] < 0.f) || (blockid[0] >= g_grid_size_x - bc && vel[0] > 0.f)) << 2) |
+                    (((blockid[1] < bc && vel[1] < 0.f) || (blockid[1] >= g_grid_size_y - bc && vel[1] > 0.f)) << 1) |
+                   ((blockid[2] < bc && vel[2] < 0.f) || (blockid[2] >= g_grid_size_z - bc  && vel[2] > 0.f));
+
+        //isInBound &= isLeaveBound;
 
         float flumex = 20.f / g_length; // Length
         float flumey = 1.f / g_length; // Depth
@@ -1809,7 +1814,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       }
       compute_stress_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
                                     F, contrib);
-      contrib = (C * pbuffer.mass - contrib * newDt) *Dp_inv;
+      contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
     }
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
@@ -2135,8 +2140,8 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                 F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
                 F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
       float beta;
-      if (J >= Jc) beta = 0.2f; //< beta max
-      else beta = 0.f;          //< beta min
+      if (J >= Jc) beta = pbuffer.beta_max; //< beta max
+      else beta = pbuffer.beta_min;          //< beta min
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n)); //< pos update
       vel += pbuffer.alpha * (vp_n - vel_n); //< vel update
       {
@@ -2998,6 +3003,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
     vec3 vp_n; //< Particle vel. at n
+    float tension;
     //float J;   //< Particle volume ratio at n
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -3008,7 +3014,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
-      //J = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
+      tension = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -3081,7 +3087,6 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
           vel_n += vi_n * W; 
         }
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
-    float tension = vertice_array.val(_6, ID);
     float beta;
 
     // if (J >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
@@ -3180,11 +3185,11 @@ __global__ void v2fem2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
   F.set(0.f);
   matrixMatrixMultiplication3d(D.data(), B.data(), F.data());
   float J;
-  float Jc = 1.002;
+  float Jc = 1.0;
   J = matrixDeterminant3d(F.data());
   float tension;
   if (J >= Jc) tension = 1.f;
-  else if (J < 0.998f) tension = -1.f;
+  else if (J < 0.99f) tension = -1.f;
   else tension = 0.f;
   vec9 P;
   P.set(0.f);
@@ -3442,6 +3447,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
     vec3 vp_n; //< Particle vel. at n
+    float tension;
     //float J;   //< Particle volume ratio at n
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -3452,7 +3458,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
-      //J = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
+      tension = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -3526,9 +3532,9 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         }
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
 
-    float tension;
+    float new_tension;
     vec3 f; //< Internal nodes forces
-    tension = vertice_array.val(_6, ID);
+    new_tension = vertice_array.val(_6, ID);
     f[0] = vertice_array.val(_7, ID);
     f[1] = vertice_array.val(_8, ID);
     f[2] = vertice_array.val(_9, ID);
@@ -3558,7 +3564,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
         particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
         particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
-        particle_bin.val(_7, pidib % g_bin_capacity) = tension; //< tension
+        particle_bin.val(_7, pidib % g_bin_capacity) = new_tension; //< tension
       }
     }
 
@@ -3602,17 +3608,17 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
-                             C[6] * pos[2])) - W * (f[0] * dt));
+                             C[6] * pos[2])) - W * (f[0] * newDt));
           atomicAdd(
               &p2gbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
-                             C[7] * pos[2])) - W * (f[1] * dt));
+                             C[7] * pos[2])) - W * (f[1] * newDt));
           atomicAdd(
               &p2gbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
               wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
-                             C[8] * pos[2])) - W * (f[2] * dt));
+                             C[8] * pos[2])) - W * (f[2] * newDt));
           // ASFLIP unstressed velocity
           atomicAdd(
               &p2gbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
@@ -4263,8 +4269,8 @@ __global__ void retrieve_selected_grid_cells(
         garray.val(_8, node_id) = fy;
         garray.val(_9, node_id) = fz;
         __syncthreads(); // Sync threads in block
-        //if (fx > 0.f) atomicAdd(forceSum, fx);
-        atomicAdd(forceSum, fx);
+        if (fx > 0.f) atomicAdd(forceSum, fx);
+        //atomicAdd(forceSum, fx);
         __syncthreads(); // Sync threads in block
       }
     }

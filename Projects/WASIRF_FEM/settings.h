@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
+                      material_e::Meshed, material_e::JFluid_ASFLIP, 
                       material_e::JFluid_ASFLIP, material_e::FixedCorotated_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -50,7 +50,7 @@ constexpr std::array<fem_e, 5> g_fem_element_list = {
                       fem_e::Tetrahedron, fem_e::Tetrahedron, 
                       fem_e::Tetrahedron};
 
-constexpr std::array<int, 5> g_fem_gpu = {0, 0, 0, 0, 0};
+constexpr std::array<int, 5> g_fem_gpu = {1, 0, 0, 0, 0};
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
@@ -59,7 +59,7 @@ constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
 #define MODEL_PPC 1.25f
-#define MODEL_PPC_FC 6.640625f
+#define MODEL_PPC_FC 6.0385f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
@@ -159,7 +159,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1000       // kg/m3
-#define YOUNGS_MODULUS 1e8 // Pascals
+#define YOUNGS_MODULUS 1e6 // Pascals
 #define POISSON_RATIO 0.4f // rad
 
 // Ambient parameters
@@ -173,13 +173,13 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 0; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 10000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 2000; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 4250; //20169; //915; //7260;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 12800; //85671; //1810; //24551;  // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 12800; //85671; //1810; //24551;  // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 8500; //20169; //915; //7260;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 25600; //85671; //1810; //24551;  // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 25600; //85671; //1810; //24551;  // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 

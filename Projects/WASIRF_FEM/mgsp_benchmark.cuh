@@ -1030,7 +1030,7 @@ struct mgsp_benchmark {
               {curNumActiveBlocks[did], 32}, retrieve_selected_grid_cells, 
               (uint32_t)nbcnt[did], partitions[rollid][did], 
               gridBlocks[0][did], d_gridTarget[did],
-              dt, d_forceSum, d_point_a, d_point_b);
+              nextDt, d_forceSum, d_point_a, d_point_b);
     cuDev.syncStream<streamIdx::Compute>();
 
     // Copy force summation to host
