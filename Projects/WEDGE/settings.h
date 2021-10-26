@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 11
+#define DOMAIN_BITS 6
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -81,11 +81,11 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 8000.f //< g_length^3, IMPORTANT, scales mass-volume
-constexpr float g_length   = 20.0f; //< Domain full length (m)
-constexpr float g_length_x = 20.0f; //< Domain x length (m)
-constexpr float g_length_y = 0.625f;   //< Domain y length (m)
-constexpr float g_length_z = 1.25f;   //< Domain z length (m)
+#define DOMAIN_VOLUME 3.375f //< g_length^3, IMPORTANT, scales mass-volume
+constexpr float g_length   = 1.5f; //< Domain full length (m)
+constexpr float g_length_x = 1.5f; //< Domain x length (m)
+constexpr float g_length_y = 1.5f;   //< Domain y length (m)
+constexpr float g_length_z = 0.75f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -163,11 +163,11 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 #define POISSON_RATIO 0.4f // rad
 
 // Ambient parameters
-constexpr float g_gravity = 0.f; // m/s2
+constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 5000; // 8000000
-constexpr int g_max_active_block = 5000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 100000; // 8000000
+constexpr int g_max_active_block = 15000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);

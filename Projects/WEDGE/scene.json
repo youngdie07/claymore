@@ -10,30 +10,30 @@
 		{
 			"gpu": 0,
 			"type": "mesh",
-			"file": "Debris/WASIRF_Debris_B_AL8_res0.635cm_deg90.mesh",
-			"file_elements": "Debris/WASIRF_Debris_B_AL8_res0.635cm_deg90_Elements.csv",
-			"file_vertices": "Debris/WASIRF_Debris_B_AL8_res0.635cm_deg90_Vertices.csv",
+			"file": "Debris/WEDGE_res3.125cm_deg45.mesh",
+			"file_elements": "Debris/WEDGE_res3.125cm_deg45_Elements.csv",
+			"file_vertices": "Debris/WEDGE_res3.125cm_deg45_Vertices.csv",
 			"constitutive": "Meshed",
-			"ppc": 6.0385,
+			"ppc": 0.244141,
 			"volume": 1,
-			"rho": 1e3,
+			"rho": 2e3,
 			"youngs_modulus": 1e6,
 			"poisson_ratio": 0.4,
 			"alpha": 0.99,
 			"beta_min": 0.05,
 			"beta_max": 0.2,
 			"offset": [
-				11.6418, 
-				0.12, 
-				0.5008
+				0.146447, 
+				0.2925, 
+				0.0
 			],
 			"span": [
-				0.05,
-				0.05,
-				0.05
+				0.0,
+				0.0,
+				0.0
 			],
 			"velocity": [
-				0.58,
+				0,
 				0,
 				0
 			]
@@ -48,24 +48,24 @@
 			"ppc": 1.25,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 2e5,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0.99,
 			"beta_min": 0.05,
 			"beta_max": 0.5,
 			"offset": [
-				4, 
+				0, 
 				0, 
 				0
 			],
 			"span": [
-				8,
-				0.1,
-				0.9
+				1,
+				0.25,
+				0.125
 			],
 			"velocity": [
-				0.58,
+				0,
 				0,
 				0
 			]
