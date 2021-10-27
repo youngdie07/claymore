@@ -59,7 +59,7 @@ constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
 #define MODEL_PPC 1.25f
-#define MODEL_PPC_FC 0.244141f
+#define MODEL_PPC_FC 1.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
 
@@ -81,11 +81,11 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 3.375f //< g_length^3, IMPORTANT, scales mass-volume
-constexpr float g_length   = 1.5f; //< Domain full length (m)
-constexpr float g_length_x = 1.5f; //< Domain x length (m)
-constexpr float g_length_y = 1.5f;   //< Domain y length (m)
-constexpr float g_length_z = 0.75f;   //< Domain z length (m)
+#define DOMAIN_VOLUME 8.f //< g_length^3, IMPORTANT, scales mass-volume
+constexpr float g_length   = 2.f; //< Domain full length (m)
+constexpr float g_length_x = 2.f; //< Domain x length (m)
+constexpr float g_length_y = 2.f;   //< Domain y length (m)
+constexpr float g_length_z = 1.f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -159,7 +159,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 1000       // kg/m3
-#define YOUNGS_MODULUS 1e6 // Pascals
+#define YOUNGS_MODULUS 1e7 // Pascals
 #define POISSON_RATIO 0.4f // rad
 
 // Ambient parameters
