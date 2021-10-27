@@ -523,8 +523,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         //isInBound &= isLeaveBound;
 
-        float flumex = 3.f / g_length; // Length
-        float flumey = 3.f / g_length; // Depth
+        float flumex = 7.f / g_length; // Length
+        float flumey = 7.f / g_length; // Depth
         float flumez = 0.1f / g_length; // Width
         int isInFlume =  (((xc < offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
                          (((yc < offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |

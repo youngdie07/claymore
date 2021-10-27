@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 6
+#define DOMAIN_BITS 7
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -81,10 +81,10 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 64.f //< g_length^3, IMPORTANT, scales mass-volume
-constexpr float g_length   = 4.f; //< Domain full length (m)
-constexpr float g_length_x = 4.f; //< Domain x length (m)
-constexpr float g_length_y = 4.f;   //< Domain y length (m)
+#define DOMAIN_VOLUME 512.f //< g_length^3, IMPORTANT, scales mass-volume
+constexpr float g_length   = 8.f; //< Domain full length (m)
+constexpr float g_length_x = 8.f; //< Domain x length (m)
+constexpr float g_length_y = 8.f;   //< Domain y length (m)
 constexpr float g_length_z = 2.f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
