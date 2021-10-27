@@ -553,10 +553,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Wedge condition (m/s)
         if (yc > (0.5f / g_length + offset)) {
-          if (curTime < 1.f) vel[0] = 0.f;
-          else if (curTime >= 1.f && curTime < 2.f) vel[0] = -0.29f / g_length;
-          else if (curTime >= 2.f && curTime < 3.f) vel[0] = 0.29f / g_length;
-          else vel[0] = 0.f;
+          vel[0] = 0;
+          vel[1] = 0;
+          vel[2] = 0;
+          
+          if (curTime < 1.f) vel[1] = 0.f;
+          else if (curTime >= 1.f && curTime < 2.f) vel[1] = -0.29f / g_length;
+          else if (curTime >= 2.f && curTime < 3.f) vel[1] = 0.29f / g_length;
+          else vel[1] = 0.f;
         }
 
         grid_block.val_1d(_1, cidib) = vel[0];
