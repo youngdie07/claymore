@@ -58,7 +58,7 @@ constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
 constexpr int g_particle_batch_capacity = 128;
 
-#define MODEL_PPC 1.25f
+#define MODEL_PPC 1.f
 #define MODEL_PPC_FC 1.f
 constexpr float g_model_ppc = MODEL_PPC;
 constexpr float cfl = 0.5f;
@@ -177,9 +177,9 @@ constexpr std::size_t g_max_halo_block = 0; //140000; //< Max halo blocks (#)
 constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 3636;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 12500; // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 369; //3636;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 800; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 800; //12500; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 

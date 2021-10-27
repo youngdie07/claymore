@@ -246,6 +246,7 @@ struct mgsp_benchmark {
     fmt::print("Set waveMaker with step {}, time {}s, disp {}m, vel {}m/s\n", step, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
   }
 
+  // vol is ppc here
   void updateJFluidParameters(int did, float rho, float vol, float bulk, float gamma,
                               float visco) {
     match(particleBins[0][did])([&](auto &pb) {},
