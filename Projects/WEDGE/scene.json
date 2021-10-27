@@ -2,9 +2,9 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": 0.0,
-		"fps": 120,
-		"frames": 60,
-		"default_dt": 2e-5
+		"fps": 10,
+		"frames": 40,
+		"default_dt": 5e-5
 	},
 	"meshes": [
 		{
@@ -43,7 +43,7 @@
 		{
 			"gpu": 1,
 			"type": "particles",
-			"file": "Water/Water_x8_y0.1_z0.9_dx0.02_pad1.sdf",
+			"file": "Water/Water_x1_y0.25_z0.1_dx0.01_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 1.25,
 			"volume": 1,
@@ -62,29 +62,12 @@
 			"span": [
 				1,
 				0.25,
-				0.125
+				0.1
 			],
 			"velocity": [
 				0,
 				0,
 				0
-			]
-		}
-	],
-	"targets": [
-		{
-			"gpu": "all",
-			"type": "grid",
-			"output_frequency": 8,
-			"point_a": [
-				4, 
-				0, 
-				0
-			],
-			"point_b": [
-				8,
-				0.1,
-				0.9
 			]
 		}
 	]
