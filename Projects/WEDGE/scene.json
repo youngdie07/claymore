@@ -70,5 +70,22 @@
 				0
 			]
 		}
+	],
+	"targets": [
+		{
+			"gpu": "all",
+			"type": "grid",
+			"output_frequency": 6,
+			"point_a": [
+				0.98, 
+				0, 
+				0
+			],
+			"point_b": [
+				1,
+				0.25,
+				0.1
+			]
+		}
 	]
 }
