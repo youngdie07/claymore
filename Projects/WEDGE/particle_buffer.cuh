@@ -102,9 +102,10 @@ struct ParticleBuffer<material_e::JFluid>
   float bulk = 2e6;
   float gamma = 7.1f;
   float visco = 0.001f;
-  void updateParameters(float density, float vol, float b, float g, float v) {
+  void updateParameters(float density, float ppc, float b, float g, float v) {
     rho = density;
-    volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     bulk = b;
     gamma = g;
@@ -128,10 +129,11 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   float alpha = 0.f;
   float beta_min = 0.f;
   float beta_max = 0.f;
-  void updateParameters(float density, float vol, float b, float g, float v, 
+  void updateParameters(float density, float ppc, float b, float g, float v, 
                       float a, float bmin, float bmax) {
     rho = density;
-    //volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     bulk = b;
     gamma = g;
@@ -157,9 +159,10 @@ struct ParticleBuffer<material_e::FixedCorotated>
   float lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  void updateParameters(float density, float vol, float E, float nu) {
+  void updateParameters(float density, float ppc, float E, float nu) {
     rho = density;
-    volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
@@ -184,10 +187,11 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   float alpha = 0.f;
   float beta_min = 0.f;
   float beta_max = 0.f;
-  void updateParameters(float density, float vol, float E, float nu, 
+  void updateParameters(float density, float ppc, float E, float nu, 
                         float a, float bmin, float bmax) {
     rho = density;
-    //volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
@@ -224,9 +228,10 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   static constexpr float yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
   static constexpr bool volumeCorrection = true;
-  void updateParameters(float density, float vol, float E, float nu) {
+  void updateParameters(float density, float ppc, float E, float nu) {
     rho = density;
-    volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
@@ -265,10 +270,11 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   static constexpr float Msqr = 3.423772074299613;
   static constexpr bool hardeningOn = true;
 
-  void updateParameters(float density, float vol, float E, float nu, float be,
+  void updateParameters(float density, float ppc, float E, float nu, float be,
                         float x) {
     rho = density;
-    volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
@@ -297,10 +303,11 @@ struct ParticleBuffer<material_e::Meshed>
   float alpha = 0.f;
   float beta_min = 0.f;
   float beta_max = 0.f;
-  void updateParameters(float density, float vol, float ym, float pr, float a,
+  void updateParameters(float density, float ppc, float ym, float pr, float a,
                         float bmin, float bmax) {
     rho = density;
-    //volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                (1 << DOMAIN_BITS) / ppc);
     E = ym;
     nu = pr;
     mass = volume * density;

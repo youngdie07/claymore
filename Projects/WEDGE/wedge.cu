@@ -365,7 +365,7 @@ void parse_scene(std::string fn,
 
               benchmark->updateMeshedParameters(
                 model["gpu"].GetInt(),
-                model["rho"].GetFloat(), model["volume"].GetFloat(),
+                model["rho"].GetFloat(), model["ppc"].GetFloat(),
                 model["youngs_modulus"].GetFloat(),
                 model["poisson_ratio"].GetFloat(),
                 model["alpha"].GetFloat(),
@@ -429,37 +429,37 @@ void parse_scene(std::string fn,
 
               if (constitutive == "jfluid") {
                 benchmark->updateJFluidParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["bulk_modulus"].GetFloat(), model["gamma"].GetFloat(),
                     model["viscosity"].GetFloat());
               } else if (constitutive == "JFluid_ASFLIP") {
                 benchmark->updateJFluidASFLIPParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["bulk_modulus"].GetFloat(), model["gamma"].GetFloat(),
                     model["viscosity"].GetFloat(), 
                     model["alpha"].GetFloat(), 
                     model["beta_min"].GetFloat(), model["beta_max"].GetFloat());
               } else if (constitutive == "fixed_corotated") {
                 benchmark->updateFRParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());
               } else if (constitutive == "FixedCorotated_ASFLIP") {
                 benchmark->updateFRASFLIPParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat(), 
                     model["alpha"].GetFloat(), 
                     model["beta_min"].GetFloat(), model["beta_max"].GetFloat());
               } else if (constitutive == "nacc") {
                 benchmark->updateNACCParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat(), model["beta"].GetFloat(),
                     model["xi"].GetFloat());
               } else if (constitutive == "sand") { 
                 benchmark->updateSandParameters( model["gpu"].GetInt(),
-                    model["rho"].GetFloat(), model["volume"].GetFloat(),
+                    model["rho"].GetFloat(), model["ppc"].GetFloat(),
                     model["youngs_modulus"].GetFloat(),
                     model["poisson_ratio"].GetFloat());              
               }
