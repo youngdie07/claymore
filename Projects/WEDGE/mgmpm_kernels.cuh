@@ -523,9 +523,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         //isInBound &= isLeaveBound;
 
-        float flumex = 0.99f / g_length; // Length
-        float flumey = 0.99f / g_length; // Depth
-        float flumez = 0.099f / g_length; // Width
+        float flumex = 4.f / g_length; // Length
+        float flumey = 4.f / g_length; // Depth
+        float flumez = 0.4f / g_length; // Width
         int isInFlume =  (((xc < offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
                          (((yc < offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
                           ((zc < offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));
@@ -1385,7 +1385,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
     float beta; //< Position correction factor (ASFLIP)
     float Jc = 1.f; // Critical J for weak-comp fluid
-    if (J >= Jc) {
+    if (J > Jc) {
       J = Jc;       // No vol. expansion, Tamp. 2017
       beta = pbuffer.beta_max;  // beta max
     } else {
@@ -3867,7 +3867,7 @@ retrieve_particle_buffer_attributes(Partition partition,
         (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
       pattrib.val(_0, parid) = J;              //< J (V/Vo)
       pattrib.val(_1, parid) = pressure;       //< Pressure (Pa)
-      pattrib.val(_2, parid) = source_bin.val(_4, _source_pidib); // Vel_x
+      pattrib.val(_2, parid) = source_bin.val(_5, _source_pidib); // Vel_x
     }
   }
 }

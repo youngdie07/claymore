@@ -46,10 +46,6 @@ struct SimulatorConfigs {
   std::vector<float> _offset;
 } simConfigs;
 
-// dragon_particles.bin, 775196
-// cube256_2.bin, 1048576
-// two_dragons.bin, 388950
-
 decltype(auto) load_model(std::size_t pcnt, std::string filename) {
   std::vector<std::array<float, 3>> rawpos(pcnt);
   auto addr_str = std::string(AssetDirPath) + "MpmParticles/";
@@ -96,7 +92,7 @@ void load_FEM_Particles(const std::string& filename, char sep,
       while (getline(in, line)) {
           std::stringstream sep(line);
           std::string field;
-          float f = 1.f; // Scale factor
+          float f = 4.f; // Scale factor
           const int el = 3; // x, y, z - Default
           std::array<float, 3> arr;
           int col = 0;
@@ -126,7 +122,7 @@ void load_FEM_Vertices(const std::string& filename, char sep,
       while (getline(in, line)) {
           std::stringstream sep(line);
           std::string field;
-          float f = 1.f; // Scale factor
+          float f = 4.f; // Scale factor
           const int el = 3; // x, y, z - Default
           std::array<float, 10> arr;
           int col = 0;
