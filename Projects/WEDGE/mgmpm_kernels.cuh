@@ -508,6 +508,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Retrieve grid momentums (kg*m/s2)
         vel[0] = grid_block.val_1d(_1, cidib); //< mvx
         vel[1] = grid_block.val_1d(_2, cidib); //< mvy
+        vel[1] +=  (g_gravity / g_length) * dt;
         vel[2] = grid_block.val_1d(_3, cidib); //< mvz
         vel_n[0] = grid_block.val_1d(_4, cidib); //< mvx
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
@@ -526,13 +527,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float flumex = 4.f / g_length; // Length
         float flumey = 4.f / g_length; // Depth
         float flumez = 0.4f / g_length; // Width
-        int isInFlume =  (((xc < offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
-                         (((yc < offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
-                          ((zc < offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));
+        int isInFlume =  (((xc <= offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
+                         (((yc <= offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
+                          ((zc <= offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));
         
-        int isInFlumeASFLIP = (((xc < offset && vel_n[0] < 0.f) || (xc >= flumex + offset && vel_n[0] > 0.f)) << 2) |
-                              (((yc < offset && vel_n[1] < 0.f) || (yc >= flumey + offset && vel_n[1] > 0.f)) << 1) |
-                                ((zc < offset && vel_n[2] < 0.f) || (zc >= flumez + offset && vel_n[2] > 0.f));
+        int isInFlumeASFLIP = (((xc <= offset && vel_n[0] < 0.f) || (xc >= flumex + offset && vel_n[0] > 0.f)) << 2) |
+                              (((yc <= offset && vel_n[1] < 0.f) || (yc >= flumey + offset && vel_n[1] > 0.f)) << 1) |
+                                ((zc <= offset && vel_n[2] < 0.f) || (zc >= flumez + offset && vel_n[2] > 0.f));
               
         isInBound |= isInFlume; // Update with regular boundary for efficiency
 
@@ -541,7 +542,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Set cell velocity after grid-block/cell boundary check
         vel[0] = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
         vel[1] = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
-        vel[1] += isInBound & 2 ? 0.f : (g_gravity / g_length) * dt;  //< Grav. effect
+        //vel[1] += isInBound & 2 ? 0.f : (g_gravity / g_length) * dt;  //< Grav. effect
         vel[2] = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         vel_n[0] = isInFlumeASFLIP & 4 ? 0.f : vel_n[0] * mass; //< vx = mvx / m
         vel_n[1] = isInFlumeASFLIP & 2 ? 0.f : vel_n[1] * mass; //< vy = mvy / m
