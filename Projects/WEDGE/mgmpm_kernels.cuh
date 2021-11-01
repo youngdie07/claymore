@@ -508,7 +508,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Retrieve grid momentums (kg*m/s2)
         vel[0] = grid_block.val_1d(_1, cidib); //< mvx
         vel[1] = grid_block.val_1d(_2, cidib); //< mvy
-        vel[1] +=  (g_gravity / g_length) * dt;
+        vel[1] +=  (g_gravity / g_length) * dt / mass;
         vel[2] = grid_block.val_1d(_3, cidib); //< mvz
         vel_n[0] = grid_block.val_1d(_4, cidib); //< mvx
         vel_n[1] = grid_block.val_1d(_5, cidib); //< mvy
