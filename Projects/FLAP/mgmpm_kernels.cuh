@@ -536,6 +536,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               
         if (yc <= offset){
           vel[0] = 0.f;
+          vel[1] = 0.f;
           vel[2] = 0.f;
         }
         isInBound |= isInFlume; // Update with regular boundary for efficiency
