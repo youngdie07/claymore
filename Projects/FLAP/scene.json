@@ -1,0 +1,91 @@
+{
+	"simulation": {
+		"gpuid": 0,
+		"gravity": -9.81,
+		"fps": 120,
+		"frames": 120,
+		"default_dt": 1e-5
+	},
+	"meshes": [
+		{
+			"gpu": 0,
+			"type": "mesh",
+			"file": "Debris/FLAP_x0.012_y0.082_z0.012_res0.2cm.mesh",
+			"file_elements": "Debris/FLAP_x0.012_y0.082_z0.012_res0.2cm_Elements.csv",
+			"file_vertices": "Debris/FLAP_x0.012_y0.082_z0.012_res0.2cm_Vertices.csv",
+			"constitutive": "Meshed",
+			"ppc": 1.953125,
+			"volume": 1,
+			"rho": 2500,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.3,
+			"alpha": 0.98,
+			"beta_min": 0.05,
+			"beta_max": 0.2,
+			"offset": [
+				0.292, 
+				-0.002, 
+				0
+			],
+			"span": [
+				0.012,
+				0.82,
+				0.012
+			],
+			"velocity": [
+				0.05,
+				0,
+				0
+			]
+		}
+	],
+	"models": [
+		{
+			"gpu": 1,
+			"type": "particles",
+			"file": "Water/FLAP_Water_x0.146_y0.292_z0.012_dx0.002_pad1.sdf",
+			"constitutive": "JFluid_ASFLIP",
+			"ppc": 1.5,
+			"volume": 1,
+			"rho": 1e3,
+			"bulk_modulus": 2e6,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0, 
+				0, 
+				0
+			],
+			"span": [
+				0.146,
+				0.292,
+				0.012
+			],
+			"velocity": [
+				0,
+				0,
+				0
+			]
+		}
+	],
+	"targets": [
+		{
+			"gpu": "all",
+			"type": "grid",
+			"output_frequency": 1,
+			"point_a": [
+				0, 
+				0, 
+				0
+			],
+			"point_b": [
+				0,
+				0.0,
+				0.0
+			]
+		}
+	]
+}
