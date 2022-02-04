@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 4;
+constexpr int g_device_cnt = 3;
 constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::Meshed, material_e::JFluid_ASFLIP, 
+                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
                       material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -50,7 +50,7 @@ constexpr std::array<fem_e, 5> g_fem_element_list = {
                       fem_e::Tetrahedron, fem_e::Tetrahedron, 
                       fem_e::Tetrahedron};
 
-constexpr std::array<int, 5> g_fem_gpu = {1, 0, 0, 0, 0};
+constexpr std::array<int, 5> g_fem_gpu = {0, 0, 0, 0, 0};
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 11
+#define DOMAIN_BITS 12
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -152,7 +152,7 @@ constexpr box_domain<int, 3> get_domain(int did) noexcept {
 }
 
 // Particle
-#define MAX_PPC 64
+#define MAX_PPC 32
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
@@ -166,14 +166,14 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 1200000; // 8000000
-constexpr int g_max_active_block = 20000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 1500000; // 8000000
+constexpr int g_max_active_block = 45000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 5000; //140000; //< Max halo blocks (#)
+constexpr std::size_t g_max_halo_block = 20000; //140000; //< Max halo blocks (#)
 constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)

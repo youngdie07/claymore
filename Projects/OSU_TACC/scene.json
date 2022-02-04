@@ -3,12 +3,12 @@
 		"gpuid": 0,
 		"gravity": 0.0,
 		"fps": 10,
-		"frames": 200,
-		"default_dt": 1.5e-4
+		"frames": 240,
+		"default_dt": 3e-5
 	},
 	"meshes": [
 		{
-			"gpu": 0,
+			"gpu": 3,
 			"type": "mesh",
 			"file": "Debris/OSU_L4_s0.05_res2.5cm.mesh",
 			"file_elements": "Debris/OSU_L4_s0.05_res2.5cm_Elements.csv",
@@ -41,14 +41,14 @@
 	],
 	"models": [
 		{
-			"gpu": 1,
+			"gpu": 0,
 			"type": "particles",
 			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 2,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 1e8,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -58,6 +58,36 @@
 				0, 
 				0, 
 				0
+			],
+			"span": [
+				85.8236028,
+				2,
+				1.2192
+			],
+			"velocity": [
+				0,
+				0,
+				0
+			]
+		},
+		{
+			"gpu": 1,
+			"type": "particles",
+			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
+			"constitutive": "JFluid_ASFLIP",
+			"ppc": 2,
+			"volume": 1,
+			"rho": 1e3,
+			"bulk_modulus": 1e8,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0, 
+				0, 
+				1.2192
 			],
 			"span": [
 				85.8236028,
@@ -78,37 +108,7 @@
 			"ppc": 2,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
-			"gamma": 7.1,
-			"viscosity": 0.001,
-			"alpha": 0,
-			"beta_min": 0,
-			"beta_max": 0,
-			"offset": [
-				0, 
-				0, 
-				1.2192
-			],
-			"span": [
-				85.8236028,
-				2,
-				1.2192
-			],
-			"velocity": [
-				0,
-				0,
-				0
-			]
-		},
-		{
-			"gpu": 3,
-			"type": "particles",
-			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
-			"constitutive": "JFluid_ASFLIP",
-			"ppc": 2,
-			"volume": 1,
-			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 1e8,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -129,7 +129,9 @@
 				0,
 				0
 			]
-		},
+		}
+	],
+	"targets": [
 		{
 			"gpu": "all",
 			"type": "grid",
