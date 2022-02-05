@@ -475,16 +475,35 @@ void parse_scene(std::string fn,
               velocity[d] = model["velocity"].GetArray()[d].GetFloat() / g_length;
             }
             if (p.extension() == ".sdf") {
-              auto positions = mn::read_sdf(
-                  model["file"].GetString(), model["ppc"].GetFloat(),
-                  mn::config::g_dx, mn::config::g_domain_size, offset, span);
-
-              mn::IO::insert_job([&]() {
+              if (model["partition"].GetFloat()){
+                mn::vec<float, 3> point_a, point_b;
+                for (int d = 0; d < 3; ++d) {
+                  point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
+                  point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
+                }
+                auto positions = mn::read_sdf(
+                    model["file"].GetString(), model["ppc"].GetFloat(),
+                    mn::config::g_dx, mn::config::g_domain_size, offset, span,
+                    point_a, point_b);  
+                mn::IO::insert_job([&]() {
+                  mn::write_partio<float, 3>(std::string{p.stem()} + ".bgeo",
+                                            positions);
+                });              
+                mn::IO::flush();
+                initModel(positions, velocity);
+              }
+              else {
+                auto positions = mn::read_sdf(
+                    model["file"].GetString(), model["ppc"].GetFloat(),
+                    mn::config::g_dx, mn::config::g_domain_size, offset, span);
+                mn::IO::insert_job([&]() {
                 mn::write_partio<float, 3>(std::string{p.stem()} + ".bgeo",
                                            positions);
-              });
-              mn::IO::flush();
-              initModel(positions, velocity);
+                });
+                mn::IO::flush();
+                initModel(positions, velocity);
+              }
+
             }
           }
         }
@@ -506,6 +525,12 @@ void parse_scene(std::string fn,
             for (int d = 0; d < 3; ++d) {
               h_point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length + off;
               h_point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length + off;
+            }
+
+            if (1) {
+              h_point_b[0] = h_point_b[0] + (1.f * g_dx);              
+              h_point_a[1] = h_point_a[1] + (1.f * g_dx);
+              h_point_b[1] = h_point_b[1] + (1.f * g_dx);
             }
 
             // ----------------

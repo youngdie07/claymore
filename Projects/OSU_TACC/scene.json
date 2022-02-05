@@ -4,7 +4,7 @@
 		"gravity": 0.0,
 		"fps": 10,
 		"frames": 240,
-		"default_dt": 3e-5
+		"default_dt": 1e-4
 	},
 	"meshes": [
 		{
@@ -48,7 +48,7 @@
 			"ppc": 2,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 1e8,
+			"bulk_modulus": 2e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -68,17 +68,28 @@
 				0,
 				0,
 				0
+			],
+			"partition": 1,
+			"point_a": [
+				0,
+				0,
+				0
+			],
+			"point_b": [
+				29,
+				2,
+				1.8288
 			]
 		},
 		{
 			"gpu": 1,
 			"type": "particles",
-			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 2,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 1e8,
+			"bulk_modulus": 2e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -98,6 +109,17 @@
 				0,
 				0,
 				0
+			],
+			"partition": 1,
+			"point_a": [
+				0,
+				0,
+				1.8288
+			],
+			"point_b": [
+				29,
+				2,
+				3.6576
 			]
 		},
 		{
@@ -105,10 +127,10 @@
 			"type": "particles",
 			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
-			"ppc": 2,
+			"ppc": 8,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 1e8,
+			"bulk_modulus": 2e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -128,6 +150,17 @@
 				0,
 				0,
 				0
+			],
+			"partition": 1,
+			"point_a": [
+				29,
+				0,
+				0
+			],
+			"point_b": [
+				85.8236028,
+				2,
+				3.6576
 			]
 		}
 	],
@@ -142,7 +175,7 @@
 				1.44145
 			],
 			"point_b": [
-				43.6,
+				43.5356,
 				2.3935,
 				2.22855
 				
