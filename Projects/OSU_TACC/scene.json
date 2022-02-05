@@ -43,7 +43,7 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 2,
 			"volume": 1,
@@ -62,7 +62,7 @@
 			"span": [
 				85.8236028,
 				2,
-				1.2192
+				3.6576
 			],
 			"velocity": [
 				0,
@@ -98,12 +98,12 @@
 			"offset": [
 				0, 
 				0, 
-				1.2192
+				0
 			],
 			"span": [
 				85.8236028,
 				2,
-				1.2192
+				3.6576
 			],
 			"velocity": [
 				0,
@@ -125,7 +125,7 @@
 		{
 			"gpu": 2,
 			"type": "particles",
-			"file": "Water/OSU_Water_Third_ft_281.5735x_6.5617y_4z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 8,
 			"volume": 1,
@@ -139,12 +139,12 @@
 			"offset": [
 				0, 
 				0, 
-				2.4384
+				0
 			],
 			"span": [
 				85.8236028,
 				2,
-				1.2192
+				3.6576
 			],
 			"velocity": [
 				0,
