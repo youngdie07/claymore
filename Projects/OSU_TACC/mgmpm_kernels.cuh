@@ -534,12 +534,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Add grid-cell boundary for structural block, WASIRF flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (0.7871f) / g_length;
-        struct_dim[1] = (0.3935f) / g_length;
-        struct_dim[2] = (0.7871f) / g_length;
+        struct_dim[0] = (0.1016f) / g_length;
+        struct_dim[1] = (0.615f) / g_length;
+        struct_dim[2] = (0.1016f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + (1.f * g_dx)+ offset;
+        //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+        struct_pos[0] = (43.790f) / g_length + offset;
+        struct_pos[1] = (2.f) / g_length + offset;
         struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
         float t = 1.0f * g_dx;
 
@@ -615,7 +616,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         vec3 ns; //< Ramp boundary surface normal
         float ys;
-        float xs;
         float xo;
 
         // Start ramp segment definition for OSU flume
@@ -627,7 +627,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = offset;
           float yo = offset;
-          xs = xc;
           ys = yo;
 
         } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
@@ -637,7 +636,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = (14.2748 / g_length) + offset;
           float yo = offset;
-          xs = xc;
           ys = yo;
 
         } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
@@ -647,7 +645,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = (17.9324 / g_length) + offset;
           float yo = offset;
-          xs = xc;
           ys = 1.f/12.f * (xc - xo) + yo;
 
         } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
@@ -657,7 +654,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = (28.905 / g_length) + offset;
           float yo = (0.9144 / g_length) + offset;
-          xs = xc;
           ys = 1.f/24.f * (xc - xo) + yo;
 
         } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
@@ -667,7 +663,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = (43.5356 / g_length) + offset;
           float yo = (1.524 / g_length) + offset;
-          xs = xc;
           ys = yo;
 
         } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
@@ -677,7 +672,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[2] = 0.f;
           xo = (80.1116 / g_length) + offset;
           float yo = (1.524 / g_length) + offset;
-          xs = xc;
           ys = 1.f/12.f * (xc - xo) + yo;
 
         } else {
@@ -4374,6 +4368,71 @@ __global__ void retrieve_selected_grid_cells(
         __syncthreads(); // Sync threads in block
         if (fx > 0.f) atomicAdd(forceSum, fx);
         //atomicAdd(forceSum, fx);
+        __syncthreads(); // Sync threads in block
+      }
+    }
+  }
+}
+
+/// Retrieve wave-gauge surface elevation between points a & b from grid-buffer to waveMax (JB)
+template <typename Partition, typename Grid>
+__global__ void retrieve_wave_gauge(
+    uint32_t blockCount, const Partition partition,
+    Grid prev_grid,
+    float dt, float *waveMax, vec3 point_a, vec3 point_b) {
+
+  auto blockno = blockIdx.x;  //< Block number in partition
+  if (1) {
+    //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
+    auto blockid = partition._activeKeys[blockno];
+    if (blockno < blockCount) {
+      // if (blockno == -1)
+      //   return;
+      auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+
+      // Tolerance layer thickness around wg space
+      float tol = g_dx * 0.0f;
+
+      // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+      for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+
+        // Grid node coordinate [i,j,k] in grid-block
+        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+        int j = (cidib >> g_blockbits) & g_blockmask;
+        int k = cidib & g_blockmask;
+
+        // Grid node position [x,y,z] in entire domain 
+        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+        float offset = (8.f * g_dx);
+        // Exit thread if cell is not inside wave-gauge domain +/- tol
+        if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
+        if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
+        if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
+        __syncthreads(); // Sync threads in block
+
+        /// Set values of cell (mass, momentum) from grid-buffer
+        float mass = sourceblock.val(_0, i, j, k); // Mass [kg]
+        float vx1  = sourceblock.val(_1, i, j, k); // M x []
+        float vy1  = sourceblock.val(_2, i, j, k); // M y []
+        float vz1  = sourceblock.val(_3, i, j, k); // M z []
+        __syncthreads(); // Sync threads in block
+
+        // Check for mass (material in cell, i.e wave surface)
+        if (mass > 0.f) {
+          mass = 1.f / mass; //< Invert mass, avoids division operator
+          vx1 = vx1 * mass * g_length; // Vel x [m]
+          vy1 = vy1 * mass * g_length; // Vel y [m]
+          vz1 = vz1 * mass * g_length; // Vel z [m]
+          float elev = (yc - offset) * g_length; // Elevation [m]
+          __syncthreads(); // Sync threads in block
+          
+          // Aggregate elevations of occupied cells
+          // Report max across threads/blocks (i.e. wave surface)
+          atomicMax(waveMax, elev);
+          __syncthreads(); // Sync threads in block
+        }
         __syncthreads(); // Sync threads in block
       }
     }

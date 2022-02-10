@@ -546,6 +546,37 @@ void parse_scene(std::string fn,
       }
     } ///< end grid-target parsing
     {
+      auto it = doc.FindMember("wave-gauges");
+      if (it != doc.MemberEnd()) {
+        if (it->value.IsArray()) {
+          fmt::print("has {} wave-gauges\n", it->value.Size());
+          for (auto &model : it->value.GetArray()) {
+
+            float g_length = mn::config::g_length;
+            float g_dx = mn::config::g_dx;
+            float off = 8.f * g_dx;
+            mn::vec<float, 3> h_point_a, h_point_b;
+            for (int d = 0; d < 3; ++d) {
+              h_point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length + off;
+              h_point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length + off;
+            }
+
+            if (1) {
+              h_point_b[0] = h_point_b[0] + (1.f * g_dx);              
+            }
+
+            // ----------------
+            /// Loop through GPU devices
+            for (int did = 0; did < mn::config::g_device_cnt; ++did) {
+              fmt::print("device {} wave-gauge\n", did);
+              benchmark->initWaveGauge(did, h_point_a, h_point_b, 
+                model["output_frequency"].GetFloat());
+            }
+          }
+        }
+      }
+    } ///< end wave-gauge parsing
+    {
       auto it = doc.FindMember("wave");
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {

@@ -220,6 +220,26 @@ struct mgsp_benchmark {
     fmt::print("Exiting initGridTarget in mgsp_benchmark.cuh!\n");
   }
 
+  /// Initialize target from host setting (&h_gridTarget), output as *.bgeo (JB)
+  void initWaveGauge(int devid,
+                      const mn::vec<float, 3> &h_wg_point_a, 
+                      const mn::vec<float, 3> &h_wg_point_b, 
+                      float wg_freq) {
+    auto &cuDev = Cuda::ref_cuda_context(devid);
+    cuDev.setContext();
+    fmt::print("Entered initWaveGauge in gmpm_simulator.cuh!\n");
+    h_wg_freq = wg_freq; // Set output frequency for wave-gauge (host)
+
+    // Set points a/b (device) for wave-gauge (host, from JSON)
+    for (int d = 0; d < 3; d++){
+      d_wg_point_a[d] = h_wg_point_a[d];
+      d_wg_point_b[d] = h_wg_point_b[d];
+    }
+
+    cuDev.syncStream<streamIdx::Compute>();
+
+    fmt::print("Exiting initWaveGauge in mgsp_benchmark.cuh!\n");
+  }
 
   /// Init OSU wave-maker on device (d_waveMaker) from host (&h_waveMaker) (JB)
   void initWaveMaker(int devid,
@@ -443,6 +463,7 @@ struct mgsp_benchmark {
     initial_setup();
     curTime = dt;
     freq_step = 0;
+    wg_freq_step = 0;
     for (curFrame = 1; curFrame <= nframes; ++curFrame) {
       for (; curTime < nextTime; curTime += dt, curStep++) {
         /// max grid vel
@@ -941,6 +962,21 @@ struct mgsp_benchmark {
           }
         }
         sync();
+
+        // Output wave-gauge
+        {
+          // Set appropiate output frequency rate
+          int maxFreqStep = (int)(1.f / dtDefault / fps / h_wg_freq);
+          if (curStep % maxFreqStep == 0){
+            wg_freq_step += 1; // Iterate freq_step           
+            issue([this](int did) {
+              IO::flush();    // Clear IO
+              output_wave_gauge(did); // Output wave-gauge csv
+            });
+          }
+        }
+        sync();
+
       }
       issue([this](int did) {
         IO::flush();
@@ -1070,6 +1106,48 @@ struct mgsp_benchmark {
                            curFrame, curStep));
   }
 
+
+
+  /// Output data from grid blocks (mass, momentum) to *.bgeo (JB)
+  void output_wave_gauge(int did) {
+    auto &cuDev = Cuda::ref_cuda_context(did);
+    cuDev.setContext();
+    CudaTimer timer{cuDev.stream_compute()};
+    timer.tick();
+    fmt::print(fg(fmt::color::red), "Entered output_wave_gauge\n");
+
+    // Setup forceSum to sum all forces in grid-target in a kernel
+    float waveMax, *d_waveMax = (float *)cuDev.borrow(sizeof(float));
+    checkCudaErrors(
+        cudaMemsetAsync(d_waveMax, 0.f, sizeof(float), cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+    fmt::print(fg(fmt::color::red), "About to launch retrieve_wave_gauge\n");
+
+    /// Copy down-sampled grid value from buffer (device) to target (device)
+    cuDev.compute_launch(
+              {curNumActiveBlocks[did], 32}, retrieve_wave_gauge, 
+              (uint32_t)nbcnt[did], partitions[rollid][did], 
+              gridBlocks[0][did],
+              nextDt, d_waveMax, d_wg_point_a, d_wg_point_b);
+    cuDev.syncStream<streamIdx::Compute>();
+
+    // Copy force summation to host
+    checkCudaErrors(cudaMemcpyAsync(&waveMax, d_waveMax, sizeof(float),
+                                    cudaMemcpyDefault,
+                                    cuDev.stream_compute()));
+    cuDev.syncStream<streamIdx::Compute>();
+    fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} N\n", waveMax);
+
+    std::string fn = "wg[0]_dev[" + std::to_string(did) + "].csv";
+    std::ofstream waveMaxFile;
+    waveMaxFile.open (fn, std::ios::out | std::ios::app);
+    waveMaxFile << curTime << "," << waveMax << ",\n";
+    waveMaxFile.close();
+    fmt::print(fg(fmt::color::red), "CSV write finished.\n");
+
+    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_wave_gauge", did,
+                           curFrame, curStep));
+  }
 
   void initial_setup() {
     issue([this](int did) {
@@ -1334,6 +1412,8 @@ struct mgsp_benchmark {
   std::vector<GridTarget> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
   vec3 d_point_a; ///< Point A of target (JB)
   vec3 d_point_b; ///< Point B of target (JB)
+  vec3 d_wg_point_a; ///< Point A of target (JB)
+  vec3 d_wg_point_b; ///< Point B of target (JB)
   vec3 vel0[config::g_device_cnt]; ///< Set initial velocities per gpu model (JB)
 
 
@@ -1395,8 +1475,12 @@ struct mgsp_benchmark {
 
   vec3 h_point_a;   ///< Point A of target on host (JB)
   vec3 h_point_b;   ///< Point B of target on host (JB)
+  vec3 h_wg_point_a;   ///< Point A of wave-gauge on host (JB)
+  vec3 h_wg_point_b;   ///< Point B of wave-gauge on host (JB)
   float h_target_freq;
+  float h_wg_freq;
   int freq_step; ///< Frequency step for target output (JB)
+  int wg_freq_step; ///< Frequency step for wave-gauge output (JB)
   std::ofstream forceFile;
 
   Instance<signed_distance_field_> _hostData;
