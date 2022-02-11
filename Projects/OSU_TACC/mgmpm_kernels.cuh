@@ -541,7 +541,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
         struct_pos[0] = (43.790f) / g_length + offset;
         struct_pos[1] = (2.f) / g_length + offset;
-        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
+        struct_pos[2] = (1.322) / 2.f + offset;
         float t = 1.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
@@ -4433,6 +4433,7 @@ __global__ void retrieve_wave_gauge(
           atomicMax(waveMax, elev);
           __syncthreads(); // Sync threads in block
         }
+        else atomicMax(waveMax, 0.f);
         __syncthreads(); // Sync threads in block
       }
     }

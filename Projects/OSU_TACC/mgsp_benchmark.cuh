@@ -970,7 +970,6 @@ struct mgsp_benchmark {
           if (curStep % maxFreqStep == 0){
             wg_freq_step += 1; // Iterate freq_step           
             issue([this](int did) {
-              IO::flush();    // Clear IO
               output_wave_gauge(did); // Output wave-gauge csv
             });
           }
@@ -1136,15 +1135,16 @@ struct mgsp_benchmark {
                                     cudaMemcpyDefault,
                                     cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
-    fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} N\n", waveMax);
+    fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} meters\n", waveMax);
 
-    std::string fn = "wg[0]_dev[" + std::to_string(did) + "].csv";
-    std::ofstream waveMaxFile;
-    waveMaxFile.open (fn, std::ios::out | std::ios::app);
-    waveMaxFile << curTime << "," << waveMax << ",\n";
-    waveMaxFile.close();
-    fmt::print(fg(fmt::color::red), "CSV write finished.\n");
-
+    if (1) {
+      std::string fn = "wg[0]_dev[" + std::to_string(did) + "].csv";
+      std::ofstream waveMaxFile;
+      waveMaxFile.open (fn, std::ios::out | std::ios::app);
+      waveMaxFile << curTime << "," << waveMax << ",\n";
+      waveMaxFile.close();
+      fmt::print(fg(fmt::color::red), "CSV write finished.\n");
+    }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_wave_gauge", did,
                            curFrame, curStep));
   }
