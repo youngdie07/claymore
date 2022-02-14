@@ -4414,27 +4414,27 @@ __global__ void retrieve_wave_gauge(
 
         /// Set values of cell (mass, momentum) from grid-buffer
         float mass = sourceblock.val(_0, i, j, k); // Mass [kg]
-        float vx1  = sourceblock.val(_1, i, j, k); // M x []
-        float vy1  = sourceblock.val(_2, i, j, k); // M y []
-        float vz1  = sourceblock.val(_3, i, j, k); // M z []
+        float elev = (yc - offset) * g_length; // Elevation [m]
+        //float vx1  = sourceblock.val(_1, i, j, k); // M x []
+        //float vy1  = sourceblock.val(_2, i, j, k); // M y []
+        //float vz1  = sourceblock.val(_3, i, j, k); // M z []
         __syncthreads(); // Sync threads in block
 
         // Check for mass (material in cell, i.e wave surface)
-        if (mass > 0.f) {
-          mass = 1.f / mass; //< Invert mass, avoids division operator
-          vx1 = vx1 * mass * g_length; // Vel x [m]
-          vy1 = vy1 * mass * g_length; // Vel y [m]
-          vz1 = vz1 * mass * g_length; // Vel z [m]
-          float elev = (yc - offset) * g_length; // Elevation [m]
-          __syncthreads(); // Sync threads in block
+        if (mass > 0.f) atomicMax(waveMax, elev);
+          //mass = 1.f / mass; //< Invert mass, avoids division operator
+          //vx1 = vx1 * mass * g_length; // Vel x [m]
+          //vy1 = vy1 * mass * g_length; // Vel y [m]
+          //vz1 = vz1 * mass * g_length; // Vel z [m]
+          //__syncthreads(); // Sync threads in block
           
           // Aggregate elevations of occupied cells
           // Report max across threads/blocks (i.e. wave surface)
-          atomicMax(waveMax, elev);
-          __syncthreads(); // Sync threads in block
-        }
-        else atomicMax(waveMax, 0.f);
-        __syncthreads(); // Sync threads in block
+          //atomicMax(waveMax, elev);
+          //__syncthreads(); // Sync threads in block
+        
+        //else atomicMax(waveMax, 0.f);
+        //__syncthreads(); // Sync threads in block
       }
     }
   }

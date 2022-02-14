@@ -949,19 +949,7 @@ struct mgsp_benchmark {
         rollid ^= 1;
         dt = nextDt;
 
-        // Output gridTarget
-        {
-          // Set appropiate output frequency rate
-          int maxFreqStep = (int)(1.f / dtDefault / fps / h_target_freq);
-          if (curStep % maxFreqStep == 0){
-            freq_step += 1; // Iterate freq_step           
-            issue([this](int did) {
-              IO::flush();    // Clear IO
-              output_gridcell_target(did); // Output gridTarget as *.bgeo
-            });
-          }
-        }
-        sync();
+
 
         // Output wave-gauge
         {
@@ -972,9 +960,24 @@ struct mgsp_benchmark {
             issue([this](int did) {
               output_wave_gauge(did); // Output wave-gauge csv
             });
+            sync();
           }
         }
-        sync();
+
+        // Output gridTarget
+        {
+          // Set appropiate output frequency rate
+          int maxFreqStep = (int)(1.f / dtDefault / fps / h_target_freq);
+          if (curStep % maxFreqStep == 0){
+            freq_step += 1; // Iterate freq_step           
+            issue([this](int did) {
+              IO::flush();    // Clear IO
+              output_gridcell_target(did); // Output gridTarget as *.bgeo
+            });
+            sync();
+          }
+        }
+
 
       }
       issue([this](int did) {
@@ -1129,6 +1132,9 @@ struct mgsp_benchmark {
               gridBlocks[0][did],
               nextDt, d_waveMax, d_wg_point_a, d_wg_point_b);
     cuDev.syncStream<streamIdx::Compute>();
+
+    fmt::print(fg(fmt::color::red), "FINISHED retrieve_wave_gauge\n");
+
 
     // Copy force summation to host
     checkCudaErrors(cudaMemcpyAsync(&waveMax, d_waveMax, sizeof(float),

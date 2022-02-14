@@ -4,7 +4,7 @@
 		"gravity": 0.0,
 		"fps": 2,
 		"frames": 48,
-		"default_dt": 1e-4
+		"default_dt": 3e-4
 	},
 	"meshes": [
 		{
@@ -48,7 +48,7 @@
 			"ppc": 2,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e7,
+			"bulk_modulus": 1e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -181,16 +181,16 @@
 	],
 	"wave-gauges": [
 		{
-			"output_frequency": 6,
+			"output_frequency": 60,
 			"point_a": [
 				14.275, 
 				0.0, 
-				1.322
+				1.0
 			],
 			"point_b": [
-				14.375,
+				14.275,
 				4.0,
-				2.338
+				1.2
 			]
 		}
 	],
