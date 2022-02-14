@@ -528,7 +528,10 @@ void parse_scene(std::string fn,
             }
 
             if (1) {
-              h_point_b[0] = h_point_b[0] + (1.f * g_dx);              
+              h_point_b[0] = h_point_b[0] + (1.f * g_dx);    
+              h_point_a[1] = h_point_a[1] + (1.f * g_dx);
+              h_point_a[2] = h_point_a[2] + (1.f * g_dx);
+              h_point_b[2] = h_point_b[2] - (1.f * g_dx);       
             }
 
             // ----------------

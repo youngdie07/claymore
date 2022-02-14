@@ -4,7 +4,7 @@
 		"gravity": 0.0,
 		"fps": 2,
 		"frames": 48,
-		"default_dt": 9e-4
+		"default_dt": 5e-4
 	},
 	"meshes": [
 		{
@@ -51,7 +51,7 @@
 			"bulk_modulus": 2e6,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"alpha": 0.99,
+			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
@@ -92,7 +92,7 @@
 			"bulk_modulus": 2e6,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"alpha": 0.99,
+			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
@@ -127,13 +127,13 @@
 			"type": "particles",
 			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
-			"ppc": 8,
+			"ppc": 3,
 			"volume": 1,
 			"rho": 1e3,
 			"bulk_modulus": 2e6,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"alpha": 0.99,
+			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [

@@ -536,13 +536,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
         struct_dim[0] = (1.016f) / g_length;
         struct_dim[1] = (0.615f) / g_length;
-        struct_dim[2] = (1.1016f) / g_length;
+        struct_dim[2] = (1.016f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
         struct_pos[0] = (43.790f) / g_length + offset;
         struct_pos[1] = (2.f) / g_length + offset;
-        struct_pos[2] = (1.322) / 2.f + offset;
-        float t = 0.0f * g_dx;
+        struct_pos[2] = (1.322) / g_length + offset;
+        float t = 1.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
         // Subtract slip-layer thickness from structural box dimension for geometry
