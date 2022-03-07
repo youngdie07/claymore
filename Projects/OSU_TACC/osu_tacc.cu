@@ -63,6 +63,10 @@ void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
   auto addr_str = std::string(AssetDirPath) + "WaveMaker/";
   std::ifstream in((addr_str + filename).c_str());
   if (in) {
+      int iter;
+      iter = 0;
+      int rate;
+      rate = 10; // Convert 12000 hz to 120 hz
       std::string line;
       while (getline(in, line)) {
           std::stringstream sep(line);
@@ -71,10 +75,11 @@ void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
           std::array<float, 3> arr;
           while (getline(sep, field, ',')) {
               if (col >= 3) break;
-              arr[col] = stof(field);
+              if ((iter % rate) == 0) arr[col] = stof(field);
               col++;
           }
           fields.push_back(arr);
+          iter++;
       }
   }
   if (verbose) {
@@ -409,9 +414,9 @@ void parse_scene(std::string fn,
 
             if (1) {
               h_point_b[0] = h_point_b[0] + (1.f * g_dx);    
-              h_point_a[1] = h_point_a[1] + (1.f * g_dx);
-              h_point_a[2] = h_point_a[2] + (1.f * g_dx);
-              h_point_b[2] = h_point_b[2] - (1.f * g_dx);       
+              // h_point_a[1] = h_point_a[1] + (1.f * g_dx);
+              // h_point_a[2] = h_point_a[2] + (1.f * g_dx);
+              // h_point_b[2] = h_point_b[2] - (1.f * g_dx);       
             }
 
             // ----------------
@@ -448,11 +453,11 @@ void parse_scene(std::string fn,
 
             // ----------------
             /// Loop through GPU devices
-            for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-              fmt::print("device {} wave-gauge\n", did);
-              benchmark->initWaveGauge(did, h_point_a, h_point_b, 
+            //for (int did = 0; did < mn::config::g_device_cnt; ++did) {
+              //fmt::print("device {} wave-gauge\n", did);
+              benchmark->initWaveGauge(0, h_point_a, h_point_b, 
                 model["output_frequency"].GetFloat());
-            }
+            //}
           }
         }
       }

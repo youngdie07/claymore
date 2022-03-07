@@ -2,8 +2,8 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": 0.0,
-		"fps": 2,
-		"frames": 120,
+		"fps": 1,
+		"frames": 60,
 		"default_dt": 4e-4
 	},
 	"meshes": [
@@ -83,7 +83,7 @@
 		{
 			"gpu": 1,
 			"type": "particles",
-			"file": "Water/OSU_Water_88.106x_2.25y_4z_dx0.1_pad1.sdf",
+			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 3,
 			"volume": 1,
@@ -124,7 +124,7 @@
 		{
 			"gpu": 2,
 			"type": "particles",
-			"file": "Water/OSU_Water_88.106x_2.25y_4z_dx0.1_pad1.sdf",
+			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 3,
 			"volume": 1,
@@ -165,7 +165,7 @@
 	],
 	"targets": [
 		{
-			"output_frequency": 60,
+			"output_frequency": 120,
 			"point_a": [
 				45.790, 
 				2.0, 
@@ -180,7 +180,7 @@
 	],
 	"wave-gauges": [
 		{
-			"output_frequency": 60,
+			"output_frequency": 120,
 			"point_a": [
 				16.0, 
 				1.0, 
@@ -193,7 +193,7 @@
 			]
 		},
 		{
-			"output_frequency": 60,
+			"output_frequency": 120,
 			"point_a": [
 				34.269, 
 				1.0, 
@@ -206,7 +206,7 @@
 			]
 		},
 		{
-			"output_frequency": 60,
+			"output_frequency": 120,
 			"point_a": [
 				38.114, 
 				1.0, 
