@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 3;
+constexpr int g_device_cnt = 1;
 constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -95,72 +95,72 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 
 
 // Partition domains
-constexpr box_domain<int, 3> get_domain(int did) noexcept {
-  constexpr int len = g_grid_size / 2;
-  box_domain<int, 3> domain{};
-  for (int d = 0; d < 3; ++d) {
-    domain._min[d] = 0;
-    if (d == 0) domain._max[d] = g_grid_size_x - 1;
-    else if (d == 1) domain._max[d] = g_grid_size_y - 1;
-    else if (d == 2) domain._max[d] = g_grid_size_z - 1;
-  }
-  if constexpr (g_device_cnt == 1) {
-    /// default
-  } else if (g_device_cnt == 2) {
-    if (did == 0)
-      domain._max[0] = g_grid_size_x / 2;
-    else if (did == 1)
-      domain._min[0] = g_grid_size_x / 2 + 1;
-  } else if (g_device_cnt == 4) {
-    if (did == 0) {
-      domain._min[1] = 0;
-      domain._max[1] = g_grid_size_z / 4;
-    }
-    else if (did == 1) {
-      domain._min[1] = g_grid_size_z / 4 + 1;
-      domain._max[1] = 2 * g_grid_size_z / 4;
-    }
-    else if (did == 2) {
-      domain._min[1] = 2 * g_grid_size_z / 4 + 1;
-      domain._max[1] = 3 * g_grid_size_z / 4;
-    }
-    else if (did == 3) {
-      domain._min[1] = 3 * g_grid_size_z / 4 + 1;
-      domain._max[1] = g_grid_size_z - 1;
-    }    
-  } else if (g_device_cnt == 5) {
-    if (did == 0) {
-      domain._min[1] = 0;
-      domain._max[1] = g_grid_size_z / 4;
-    } else if (did == 1) {
-      domain._min[1] = g_grid_size_z / 4 + 1;
-      domain._max[1] = 2 * g_grid_size_z / 4;
-    } else if (did == 2) {
-      domain._min[1] = 2 * g_grid_size_z / 4 + 1;
-      domain._max[1] = 3 * g_grid_size_z / 4;
-    } else if (did == 3) {
-      domain._min[1] = 3 * g_grid_size_z / 4 + 1;
-      domain._max[1] = g_grid_size_z - 1;
-    } else if (did == 4) {
-      domain._min[1] = 0;
-      domain._max[1] = g_grid_size_z - 1;
-    }
+// constexpr box_domain<int, 3> get_domain(int did) noexcept {
+//   constexpr int len = g_grid_size / 2;
+//   box_domain<int, 3> domain{};
+//   for (int d = 0; d < 3; ++d) {
+//     domain._min[d] = 0;
+//     if (d == 0) domain._max[d] = g_grid_size_x - 1;
+//     else if (d == 1) domain._max[d] = g_grid_size_y - 1;
+//     else if (d == 2) domain._max[d] = g_grid_size_z - 1;
+//   }
+//   if constexpr (g_device_cnt == 1) {
+//     /// default
+//   } else if (g_device_cnt == 2) {
+//     if (did == 0)
+//       domain._max[0] = g_grid_size_x / 2;
+//     else if (did == 1)
+//       domain._min[0] = g_grid_size_x / 2 + 1;
+//   } else if (g_device_cnt == 4) {
+//     if (did == 0) {
+//       domain._min[1] = 0;
+//       domain._max[1] = g_grid_size_z / 4;
+//     }
+//     else if (did == 1) {
+//       domain._min[1] = g_grid_size_z / 4 + 1;
+//       domain._max[1] = 2 * g_grid_size_z / 4;
+//     }
+//     else if (did == 2) {
+//       domain._min[1] = 2 * g_grid_size_z / 4 + 1;
+//       domain._max[1] = 3 * g_grid_size_z / 4;
+//     }
+//     else if (did == 3) {
+//       domain._min[1] = 3 * g_grid_size_z / 4 + 1;
+//       domain._max[1] = g_grid_size_z - 1;
+//     }    
+//   } else if (g_device_cnt == 5) {
+//     if (did == 0) {
+//       domain._min[1] = 0;
+//       domain._max[1] = g_grid_size_z / 4;
+//     } else if (did == 1) {
+//       domain._min[1] = g_grid_size_z / 4 + 1;
+//       domain._max[1] = 2 * g_grid_size_z / 4;
+//     } else if (did == 2) {
+//       domain._min[1] = 2 * g_grid_size_z / 4 + 1;
+//       domain._max[1] = 3 * g_grid_size_z / 4;
+//     } else if (did == 3) {
+//       domain._min[1] = 3 * g_grid_size_z / 4 + 1;
+//       domain._max[1] = g_grid_size_z - 1;
+//     } else if (did == 4) {
+//       domain._min[1] = 0;
+//       domain._max[1] = g_grid_size_z - 1;
+//     }
 
-  } else
-    domain._max[0] = domain._max[1] = domain._max[2] = -3;
-  return domain;
-}
+//   } else
+//     domain._max[0] = domain._max[1] = domain._max[2] = -3;
+//   return domain;
+// }
 
 // Particle
-#define MAX_PPC 32
+#define MAX_PPC 16
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
-#define DENSITY 1000       // kg/m3
-#define YOUNGS_MODULUS 1e7 // Pascals
-#define POISSON_RATIO 0.4f // rad
+#define DENSITY 10       // kg/m3
+#define YOUNGS_MODULUS 1e6 // Pascals
+#define POISSON_RATIO 0.3f // rad
 
 // Ambient parameters
 constexpr float g_gravity = -9.81f; // m/s2

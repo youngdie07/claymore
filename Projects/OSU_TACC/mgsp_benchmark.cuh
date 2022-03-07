@@ -230,10 +230,12 @@ struct mgsp_benchmark {
     fmt::print("Entered initWaveGauge in gmpm_simulator.cuh!\n");
     h_wg_freq = wg_freq; // Set output frequency for wave-gauge (host)
 
+    d_wg_point_a.emplace_back();
+    d_wg_point_b.emplace_back();
     // Set points a/b (device) for wave-gauge (host, from JSON)
     for (int d = 0; d < 3; d++){
-      d_wg_point_a[d] = h_wg_point_a[d];
-      d_wg_point_b[d] = h_wg_point_b[d];
+      d_wg_point_a.back()[d] = h_wg_point_a[d];
+      d_wg_point_b.back()[d] = h_wg_point_b[d];
     }
 
     cuDev.syncStream<streamIdx::Compute>();
@@ -395,6 +397,9 @@ struct mgsp_benchmark {
     return match(particleBins[rollid][did])(
         [&](const auto &particleBuffer) { return particleBuffer.mass; });
   }
+  
+  int getWaveGaugeCnt() const noexcept {return (int)d_wg_point_a.size();}
+
   void checkCapacity(int did) {
     if (ebcnt[did] > curNumActiveBlocks[did] * 4 / 5 &&
         checkedCnts[did][0] == 0) {
@@ -632,59 +637,6 @@ struct mgsp_benchmark {
         });
         sync();
 
-        // // FEM - v2fem2v - Halo
-        // issue([this](int did) {
-        //   auto &cuDev = Cuda::ref_cuda_context(did);
-        //   CudaTimer timer{cuDev.stream_compute()};
-        //   timer.tick();
-
-        //   // v2fem2v - Halo
-        //   if (g_fem_gpu[did]) {
-        //     match(elementBins[did])([&](const auto &eb) {
-        //       if (partitions[rollid][did].h_count)
-        //         cuDev.compute_launch(
-        //             {g_max_fem_element_num, 4},
-        //             v2fem2v, dt, nextDt,
-        //             (const ivec3 *)partitions[rollid][did]._haloBlocks,
-        //             partitions[rollid ^ 1][did], partitions[rollid][did],
-        //             gridBlocks[0][did], gridBlocks[1][did],
-        //             d_vertices[did], d_elements[did], eb);
-        //       cuDev.syncStream<streamIdx::Compute>();
-        //     });
-        //   }
-        //   timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2fem2v", did,
-        //                          curFrame, curStep));
-        // });
-        // sync();
-
-        // /// fem2p2g - Halo
-        // issue([this](int did) {
-        //   auto &cuDev = Cuda::ref_cuda_context(did);
-        //   CudaTimer timer{cuDev.stream_compute()};
-        //   timer.tick();
-
-        //   // fem2p2g - Halo
-        //   if (g_fem_gpu[did]) {
-        //     match(particleBins[rollid][did])([&](const auto &pb) {
-        //       if (partitions[rollid][did].h_count)
-        //         cuDev.compute_launch(
-        //             {partitions[rollid][did].h_count, 128,
-        //             (512 * 6 * 4) + (512 * 7 * 4)},
-        //             fem2p2g, dt, nextDt,
-        //             (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
-        //             get<typename std::decay_t<decltype(pb)>>(
-        //                 particleBins[rollid ^ 1][did]),
-        //             partitions[rollid ^ 1][did], partitions[rollid][did],
-        //             gridBlocks[0][did], gridBlocks[1][did],
-        //             d_vertices[did]);
-        //     });
-        //     cuDev.syncStream<streamIdx::Compute>();
-        //   }
-        //   timer.tock(fmt::format("GPU[{}] frame {} step {} halo_fem2p2g", did,
-        //                          curFrame, curStep));
-        // });
-        // sync();
-
         collect_halo_grid_blocks();
 
         /// g2p2g - non-Halo
@@ -719,11 +671,6 @@ struct mgsp_benchmark {
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p2g", did,
                                  curFrame, curStep));
-          // if (checkedCnts[did][0] > 0) {
-          //   partitions[rollid ^ 1][did].resizePartition(
-          //       device_allocator{}, curNumActiveBlocks[did]);
-          //   checkedCnts[did][0]--;
-          // }
         
           // FEM - v2fem2v - non-Halo
           timer.tick();
@@ -770,58 +717,6 @@ struct mgsp_benchmark {
                                  curFrame, curStep));
         });
         sync();
-
-        // // FEM - v2fem2v - non-Halo
-        // issue([this](int did) {
-        //   auto &cuDev = Cuda::ref_cuda_context(did);
-        //   CudaTimer timer{cuDev.stream_compute()};
-        //   timer.tick();
-
-        //   // v2fem2v
-        //   if (g_fem_gpu[did]) {
-        //     match(elementBins[did])([&](const auto &eb) {
-        //       cuDev.compute_launch(
-        //           {g_max_fem_element_num, 4},
-        //           v2fem2v, dt, nextDt,
-        //           (const ivec3 *)nullptr,
-        //           partitions[rollid ^ 1][did], partitions[rollid][did],
-        //           gridBlocks[0][did], gridBlocks[1][did],
-        //           d_vertices[did], d_elements[did], eb);
-        //       cuDev.syncStream<streamIdx::Compute>();
-        //     });
-        //   }
-        //   timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2fem2v", did,
-        //                          curFrame, curStep));
-        // });
-        // sync();
-
-        /// FEM-to-Particle-to-Grid - fem2p2g - non-Halo
-        // issue([this](int did) {
-        //   auto &cuDev = Cuda::ref_cuda_context(did);
-        //   CudaTimer timer{cuDev.stream_compute()};
-        //   timer.tick();
-
-        //   if (g_fem_gpu[did]) { 
-        //     match(particleBins[rollid][did])([&](const auto &pb) {
-        //       cuDev.compute_launch(
-        //           {pbcnt[did], 128, (512 * 6 * 4) + (512 * 7 * 4)}, fem2p2g, dt,
-        //           nextDt, (const ivec3 *)nullptr, pb,
-        //           get<typename std::decay_t<decltype(pb)>>(
-        //               particleBins[rollid ^ 1][did]),
-        //           partitions[rollid ^ 1][did], partitions[rollid][did],
-        //           gridBlocks[0][did], gridBlocks[1][did],
-        //           d_vertices[did]);
-        //     });
-        //   }
-        //   timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_fem2p2g", did,
-        //                          curFrame, curStep));
-        //   if (checkedCnts[did][0] > 0) {
-        //     partitions[rollid ^ 1][did].resizePartition(
-        //         device_allocator{}, curNumActiveBlocks[did]);
-        //     checkedCnts[did][0]--;
-        //   }
-        // });
-        // sync();
 
         reduce_halo_grid_blocks();
 
@@ -1116,40 +1011,45 @@ struct mgsp_benchmark {
     cuDev.setContext();
     CudaTimer timer{cuDev.stream_compute()};
     timer.tick();
-    fmt::print(fg(fmt::color::red), "Entered output_wave_gauge\n");
 
-    // Setup forceSum to sum all forces in grid-target in a kernel
-    float waveMax, *d_waveMax = (float *)cuDev.borrow(sizeof(float));
-    checkCudaErrors(
-        cudaMemsetAsync(d_waveMax, 0.f, sizeof(float), cuDev.stream_compute()));
-    cuDev.syncStream<streamIdx::Compute>();
-    fmt::print(fg(fmt::color::red), "About to launch retrieve_wave_gauge\n");
+    // Iterate through all wave-gauges
+    for (int i = 0; i < getWaveGaugeCnt(); ++i){
 
-    /// Copy down-sampled grid value from buffer (device) to target (device)
-    cuDev.compute_launch(
-              {curNumActiveBlocks[did], 32}, retrieve_wave_gauge, 
-              (uint32_t)nbcnt[did], partitions[rollid][did], 
-              gridBlocks[0][did],
-              nextDt, d_waveMax, d_wg_point_a, d_wg_point_b);
-    cuDev.syncStream<streamIdx::Compute>();
+      fmt::print(fg(fmt::color::red), "Entered output_wave_gauge\n");
 
-    fmt::print(fg(fmt::color::red), "FINISHED retrieve_wave_gauge\n");
+      // Setup forceSum to sum all forces in grid-target in a kernel
+      float waveMax, *d_waveMax = (float *)cuDev.borrow(sizeof(float));
+      checkCudaErrors(
+          cudaMemsetAsync(d_waveMax, 0.f, sizeof(float), cuDev.stream_compute()));
+      cuDev.syncStream<streamIdx::Compute>();
+      fmt::print(fg(fmt::color::red), "About to launch retrieve_wave_gauge\n");
+
+      /// Copy down-sampled grid value from buffer (device) to target (device)
+      cuDev.compute_launch(
+                {curNumActiveBlocks[did], 32}, retrieve_wave_gauge, 
+                (uint32_t)nbcnt[did], partitions[rollid][did], 
+                gridBlocks[0][did],
+                nextDt, d_waveMax, d_wg_point_a[i], d_wg_point_b[i]);
+      cuDev.syncStream<streamIdx::Compute>();
+
+      fmt::print(fg(fmt::color::red), "FINISHED retrieve_wave_gauge\n");
 
 
-    // Copy force summation to host
-    checkCudaErrors(cudaMemcpyAsync(&waveMax, d_waveMax, sizeof(float),
-                                    cudaMemcpyDefault,
-                                    cuDev.stream_compute()));
-    cuDev.syncStream<streamIdx::Compute>();
-    fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} meters\n", waveMax);
+      // Copy force summation to host
+      checkCudaErrors(cudaMemcpyAsync(&waveMax, d_waveMax, sizeof(float),
+                                      cudaMemcpyDefault,
+                                      cuDev.stream_compute()));
+      cuDev.syncStream<streamIdx::Compute>();
+      fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} meters\n", waveMax);
 
-    if (1) {
-      std::string fn = "wg[0]_dev[" + std::to_string(did) + "].csv";
-      std::ofstream waveMaxFile;
-      waveMaxFile.open (fn, std::ios::out | std::ios::app);
-      waveMaxFile << curTime << "," << waveMax << ",\n";
-      waveMaxFile.close();
-      fmt::print(fg(fmt::color::red), "CSV write finished.\n");
+      if (1) {
+        std::string fn = "wg[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
+        std::ofstream waveMaxFile;
+        waveMaxFile.open (fn, std::ios::out | std::ios::app);
+        waveMaxFile << curTime << "," << waveMax << ",\n";
+        waveMaxFile.close();
+        fmt::print(fg(fmt::color::red), "CSV write finished.\n");
+      }
     }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_wave_gauge", did,
                            curFrame, curStep));
@@ -1418,8 +1318,8 @@ struct mgsp_benchmark {
   std::vector<GridTarget> d_gridTarget; ///< Target node structure on device, 7+ f32 (x,y,z, mass, mx,my,mz, fx, fy, fz) (JB)
   vec3 d_point_a; ///< Point A of target (JB)
   vec3 d_point_b; ///< Point B of target (JB)
-  vec3 d_wg_point_a; ///< Point A of target (JB)
-  vec3 d_wg_point_b; ///< Point B of target (JB)
+  std::vector<vec3> d_wg_point_a; ///< Point A of target (JB)
+  std::vector<vec3> d_wg_point_b; ///< Point B of target (JB)
   vec3 vel0[config::g_device_cnt]; ///< Set initial velocities per gpu model (JB)
 
 
@@ -1481,8 +1381,10 @@ struct mgsp_benchmark {
 
   vec3 h_point_a;   ///< Point A of target on host (JB)
   vec3 h_point_b;   ///< Point B of target on host (JB)
-  vec3 h_wg_point_a;   ///< Point A of wave-gauge on host (JB)
-  vec3 h_wg_point_b;   ///< Point B of wave-gauge on host (JB)
+  // vec3 h_wg_point_a;   ///< Point A of wave-gauge on host (JB)
+  // vec3 h_wg_point_b;   ///< Point B of wave-gauge on host (JB)
+  // std::vector<vec3> h_wg_point_a;
+  // std::vector<vec3> h_wg_point_b;
   float h_target_freq;
   float h_wg_freq;
   int freq_step; ///< Frequency step for target output (JB)

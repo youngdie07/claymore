@@ -520,15 +520,17 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // OSU Flume (Slip)
         // Acts on individual grid-cell velocities
+        float wmn = -2.0f; // Wave-maker neutral
         float flumex = 87.4268f / g_length - g_dx; // Length
+        //float flumex = 29.f / g_length - g_dx;
         float flumey = 4.572f / g_length - g_dx; //  Depth
         float flumez = 3.6576f / g_length - g_dx; //  Width
         // int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
         //                  ((yc <= offset || yc >= flumey + offset) << 1) |
         //                   (zc <= offset || zc >= flumez + offset);
-        int isInFlume =  (((xc < offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
-                         (((yc < offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
-                          ((zc < offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));                          
+        int isInFlume =  (((xc <= offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
+                         (((yc <= offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
+                          ((zc <= offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));                          
         isInBound |= isInFlume; // Update with regular boundary for efficiency
 
 
@@ -539,7 +541,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         struct_dim[2] = (1.016f) / g_length;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[0] = (43.790f) / g_length + offset;
+        struct_pos[0] = (43.790f - wmn) / g_length + offset;
         struct_pos[1] = (2.f) / g_length + offset;
         struct_pos[2] = (1.322) / g_length + offset;
         float t = 1.0f * g_dx;
@@ -618,60 +620,81 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float ys;
         float xo;
 
+
+        float bathx[7];
+        float bathy[7];
+
+
+        bathx[0] = 0.f - wmn; //
+        bathx[1] = 14.275f + bathx[0];
+        bathx[2] = 3.658f + bathx[1];
+        bathx[3] = 10.973f + bathx[2];
+        bathx[4] = 14.63f + bathx[3];
+        bathx[5] = 36.57f + bathx[4];
+        bathx[6] = 7.354f + bathx[5];
+
+
+        bathy[0] = 0.0f;
+        bathy[1] = (0.15 + 0.076) + bathy[0]; // Bathymetry slap raised ~0.15m, 0.076m thick
+        bathy[2] = 0.0f + bathy[1];
+        bathy[3] = (10.973f / 12.f) + bathy[2];
+        bathy[4] = 1.75f; //(14.63f / 24.f) + bathy[3];
+        bathy[5] = 0.f + bathy[4];
+        bathy[6] = (7.354f / 12.f) + bathy[5]; 
         // Start ramp segment definition for OSU flume
         // Based on bathymetry diagram, February
-        if (xc < (14.2748/g_length)+offset) {
+        if (xc < (bathx[1]/g_length)+offset) {
           // Flat, 0' elev., 0' - 46'10
-          ns[0] = 0.f;
+          ns[0] = -1.f/72.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
           xo = offset;
-          float yo = offset;
-          ys = yo;
+          float yo = bathy[0]/g_length + offset;
+          ys = 1.f/72.f * (xc -xo) + yo;
 
-        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
+        } else if (xc >= (bathx[1]/g_length)+offset && xc < (bathx[2]/g_length)+offset){
           // Flat (adjustable), 0' elev., 46'10 - 58'10
           ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (14.2748 / g_length) + offset;
-          float yo = offset;
+          xo = (bathx[1] / g_length) + offset;
+          float yo = bathy[1]/g_length + offset;
           ys = yo;
 
-        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
+        } else if (xc >= (bathx[2]/g_length)+offset && xc < (bathx[3]/g_length)+offset) {
           // 1:12, 0' elev., 58'10 - 94'10
           ns[0] = -1.f/12.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (17.9324 / g_length) + offset;
-          float yo = offset;
+          xo = (bathx[2] / g_length) + offset;
+          float yo = bathy[2] / g_length + offset;
           ys = 1.f/12.f * (xc - xo) + yo;
 
-        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
+        } else if (xc >= (bathx[3]/g_length)+offset && xc < (bathx[4]/g_length)+offset) {
           // 1:24, 3' elev., 94'10 - 142'10
           ns[0] = -1.f/24.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (28.905 / g_length) + offset;
-          float yo = (0.9144 / g_length) + offset;
+          xo = (bathx[3] / g_length) + offset;
+          float yo = (bathy[3] / g_length) + offset;
           ys = 1.f/24.f * (xc - xo) + yo;
 
-        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
+        } else if (xc >= (bathx[4]/g_length)+offset && xc < (bathx[5]/g_length)+offset) {
           // Flat, 5' elev., 142'10 - 262'10
           ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (43.5356 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
+          xo = (bathx[4] / g_length) + offset;
+          float yo = (bathy[4] / g_length) + offset;
           ys = yo;
 
-        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
+        } else if (xc >= (bathx[5]/g_length)+offset && xc < (bathx[6]/g_length)+offset) {
           // 1:12, 5' elev., 262'10 - 286'10
           ns[0] = -1.f/12.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (80.1116 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
+          xo = (bathx[5] / g_length) + offset;
+          float yo = (bathy[5] / g_length) + offset;
           ys = 1.f/12.f * (xc - xo) + yo;
 
         } else {
@@ -679,7 +702,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[0]=0.f;
           ns[1]=1.f;
           ns[2]=0.f;
-          float yo = (2.1336 / g_length) + offset;
+          float yo = (bathy[6] / g_length) + offset;
           ys = yo;        
         }
 

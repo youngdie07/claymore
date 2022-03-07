@@ -181,126 +181,6 @@ void load_FEM_Elements(const std::string& filename, char sep,
 }
 
 
-
-void load_FEM(const std::string& filename, char sep, 
-                       VerticeHolder& vertice_fields, 
-                       ElementHolder& element_fields,
-                       mn::vec<float, 3> offset){
-  auto addr_str = std::string(AssetDirPath) + "TetMesh/";
-  std::ifstream in((addr_str + filename).c_str());
-  if (in) {
-      std::string line;
-      int vertice_flag = 0;
-      int element_flag = 0;
-      int rel_row;
-      float vertice_max; 
-      float element_max;
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          
-          if (vertice_flag == 1) {
-            vertice_max = stof(field); // Set num of vertice from file
-            std::cout << "Vertice Num " << vertice_max << ', ' << "g_max_vert";
-            std::cout << '\n';
-            break;
-          }
-
-          int col = 0;
-          while (getline(sep, field, ',')) {
-            if (col >= 1) break;
-            if (field == "Vertices") {
-              std::cout << field << ' ';
-              std::cout << '\n';
-              vertice_flag = 1;  // Trip flag for vertice start in file
-            }          
-            col++;
-          }
-      }
-
-      rel_row = 0;
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          
-          
-          if (rel_row >= vertice_max) break;
-
-          float f = 1.f; // Scale factor
-          const int el = 3; // x, y, z - Default
-          std::array<float, 10> arr;
-          int col = 0;
-          while (getline(sep, field, ',')) {
-              if (col >= el) break;
-              arr[col] = (stof(field) * f + offset[col]) / mn::config::g_length + (8.f * mn::config::g_dx);
-              arr[col+el] = arr[col]; 
-              col++;
-          }
-          arr[6] = 0.f;
-          arr[7] = 0.f;
-          arr[8] = 0.f;
-          arr[9] = 0.f;
-          vertice_fields.push_back(arr);
-          rel_row++;
-      }
-
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          
-          if (element_flag == 1) {
-            element_max = stoi(field); // Set num of elements from file
-            std::cout << "Element Num " << element_max << ', ' << "g_max_element" ;
-            std::cout << '\n';
-            break;
-          }
-
-          int col = 0;
-          while (getline(sep, field, ',')) {
-            if (col >= 1) break;
-            if (field == "Tetrahedra") {
-              std::cout << field << ' ';
-              std::cout << '\n';
-              element_flag = 1;  // Trip flag for element start in file
-            }          
-            col++;
-          }
-      }
-
-      rel_row = 0;
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          
-          if (rel_row >= element_max) break;
-
-          int col = 0;
-          // Elements hold integer IDs of vertices
-          const int el = 4; // 1st-Order Tetrahedron
-          std::array<int, el> arr;
-          while (getline(sep, field, ',')) {
-              if (col >= el) break;
-              arr[col] = stoi(field); // string to integer
-              col++;
-          }
-          element_fields.push_back(arr);
-          rel_row++;
-      }
-  }
-  if (verbose) {
-    for (auto row : vertice_fields) {
-        for (auto field : row) std::cout << field << ' ';
-        std::cout << '\n';
-    }
-    for (auto row : element_fields) {
-        for (auto field : row) std::cout << field << ' ';
-        std::cout << '\n';
-    }
-  }
-}
-
-
-
 void parse_scene(std::string fn,
                  std::unique_ptr<mn::mgsp_benchmark> &benchmark,
                  std::vector<std::array<float, 3>> models[mn::config::g_device_cnt]) {
@@ -625,60 +505,6 @@ void init_models(
       }
     }
   } break;
-  case 1: {
-      float off = 8.f * g_dx;
-      float water_ppc = MODEL_PPC;
-
-      if (g_device_cnt == 1) {
-        // load_FEM_Particles(std::string{"Debris/WASIRF_Debris_B_L10_res0.635cm_Vertices.csv"}, ',', models[0], 
-        //                     vec<float, 3>{11.75f, 0.11f, 0.2555f});
-        
-        // vec<float, 3> debris_offset{11.5f, 0.11f, 0.2976f};
-        // debris_offset /= g_length;
-        // debris_offset = debris_offset + off;
-        // vec<float, 3> debris_lengths{0.3048f, 0.0681f, 0.3048f};
-        // debris_lengths /= g_length;
-        // models[0] = read_sdf(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_dx0.0025_pad1.sdf"}, 
-        //                   MODEL_PPC_FC, mn::config::g_dx, mn::config::g_domain_size,
-        //                   debris_offset, debris_lengths);
-
-        // vec<float, 3> water_offset{4.f, 0.f, 0.f};
-        // water_offset /= g_length;
-        // water_offset = water_offset + off;
-        // vec<float, 3> water_lengths{8.f, 0.1f, 0.9f};
-        // water_lengths /= g_length;
-        // models[0] = read_sdf(std::string{"Water/Water_x8_y0.1_z0.9_dx0.02_pad1.sdf"}, 
-        //                   water_ppc, mn::config::g_dx, mn::config::g_domain_size,
-        //                   water_offset, water_lengths);
-
-
-      } else if (g_device_cnt == 2) {
-        // load_FEM_Particles(std::string{"Debris/WASIRF_Debris_G_Cross1_spacing_1.5cm_res_1cm_Vertices.csv"}, ',', models[0], 
-        //                     vec<float, 3>{11.2f, 0.11f, 0.4246f});
-
-        load_FEM_Particles(std::string{"Debris/WASIRF_Debris_B_L10_res0.635cm_Vertices.csv"}, ',', models[1], 
-                            vec<float, 3>{11.75f, 0.11f, 0.2555f});
-
-        vec<float, 3> water_offset{4.f, 0.f, 0.f};
-        water_offset /= g_length;
-        water_offset = water_offset + off;
-        vec<float, 3> water_lengths{8.f, 0.1f, 0.9f};
-        water_lengths /= g_length;
-        models[1] = read_sdf(std::string{"Water/Water_x8_y0.1_z0.9_dx0.02_pad1.sdf"}, 
-                          water_ppc, mn::config::g_dx, mn::config::g_domain_size,
-                          water_offset, water_lengths);
-
-        // vec<float, 3> debris_offset{42.f, 2.f, 0.7538f};
-        // debris_offset /= g_length;
-        // debris_offset = debris_offset + off;
-        // vec<float, 3> debris_lengths{0.558f, 0.051f, 2.15f};
-        // debris_lengths /= g_length;
-        // float debris_ppc = MODEL_PPC_FC;
-        // models[1] = read_sdf(std::string{"Debris/OSU_AT162_spacing_5cm_dx0.005_pad1.sdf"}, 
-        //                   debris_ppc, mn::config::g_dx, mn::config::g_domain_size,
-        //                   debris_offset, debris_lengths);
-      }
-  }
   default:
     break;
   }
@@ -722,13 +548,6 @@ int main(int argc, char *argv[]) {
   //                                                 std::array<float, 10>{0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f});
   // vec<float, 3> h_point_a;
   // vec<float, 3> h_point_b;
-  // h_point_a[0] = 12.f / g_length + (2.f * g_dx);
-  // h_point_a[1] = 0.075f / g_length;
-  // h_point_a[2] = (0.9f - 0.254f) / 2.f / g_length;
-  // h_point_a = h_point_a + off;
-  // h_point_b[0] = h_point_a[0] + (2.01f * g_dx);
-  // h_point_b[1] = h_point_a[1] + 0.254f / g_length;
-  // h_point_b[2] = h_point_a[2] + 0.254f / g_length;
   // // ----------------
   // /// Loop through GPU devices
   // for (int did = 0; did < g_device_cnt; ++did) {

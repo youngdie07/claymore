@@ -4,7 +4,7 @@
 		"gravity": 0.0,
 		"fps": 2,
 		"frames": 48,
-		"default_dt": 5e-4
+		"default_dt": 4e-4
 	},
 	"meshes": [
 		{
@@ -43,13 +43,12 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 3,
-			"volume": 1,
 			"rho": 1e3,
 			"bulk_modulus": 2e6,
-			"gamma": 7.1,
+			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
 			"beta_min": 0,
@@ -60,9 +59,9 @@
 				0
 			],
 			"span": [
-				85.8236028,
-				2,
-				3.6576
+				88.106,
+				2.25,
+				4.0
 			],
 			"velocity": [
 				0,
@@ -77,20 +76,20 @@
 			],
 			"point_b": [
 				29,
-				1.85,
+				2.0,
 				1.8288
 			]
 		},
 		{
 			"gpu": 1,
 			"type": "particles",
-			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_88.106x_2.25y_4z_dx0.1_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 3,
 			"volume": 1,
 			"rho": 1e3,
 			"bulk_modulus": 2e6,
-			"gamma": 7.1,
+			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
 			"beta_min": 0,
@@ -101,9 +100,9 @@
 				0
 			],
 			"span": [
-				85.8236028,
-				2,
-				3.6576
+				88.106,
+				2.25,
+				4.0
 			],
 			"velocity": [
 				0,
@@ -118,20 +117,20 @@
 			],
 			"point_b": [
 				29,
-				1.85,
+				2.0,
 				3.6576
 			]
 		},
 		{
 			"gpu": 2,
 			"type": "particles",
-			"file": "Water/OSU_Water_Bath_ft_281.5735x_6.5617y_12z_dx0.2_pad1.sdf",
+			"file": "Water/OSU_Water_88.106x_2.25y_4z_dx0.1_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
 			"ppc": 3,
 			"volume": 1,
 			"rho": 1e3,
 			"bulk_modulus": 2e6,
-			"gamma": 7.1,
+			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
 			"beta_min": 0,
@@ -142,9 +141,9 @@
 				0
 			],
 			"span": [
-				85.8236028,
-				2,
-				3.6576
+				88.106,
+				2.25,
+				4.0
 			],
 			"velocity": [
 				0,
@@ -158,8 +157,8 @@
 				0
 			],
 			"point_b": [
-				85.8236028,
-				1.85,
+				85.106,
+				2.0,
 				3.6576
 			]
 		}
@@ -168,12 +167,12 @@
 		{
 			"output_frequency": 60,
 			"point_a": [
-				43.790, 
+				45.790, 
 				2.0, 
 				1.322
 			],
 			"point_b": [
-				43.790,
+				45.790,
 				2.615,
 				2.338
 			]
@@ -189,6 +188,19 @@
 			],
 			"point_b": [
 				14.275,
+				4.0,
+				1.2
+			]
+		},
+		{
+			"output_frequency": 60,
+			"point_a": [
+				30.0, 
+				0.0, 
+				1.0
+			],
+			"point_b": [
+				30.0,
 				4.0,
 				1.2
 			]
