@@ -261,11 +261,12 @@ struct mgsp_benchmark {
                     float curTime) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
-    float wm_dt = (float)h_waveMaker[1][0] - (float)h_waveMaker[0][0]; //< Wave-maker time-step
+    //float wm_dt = (float)h_waveMaker[1][0] - (float)h_waveMaker[0][0]; //< Wave-maker time-step
+    float wm_dt = 1.f/120.f;
     int step = (int)(curTime / wm_dt); //< Index for time
     if (step >= h_waveMaker.size()) step = h_waveMaker.size() - 1; //< Index-limit
     for (int d = 0; d < 3; d++) d_waveMaker[d] = (float)h_waveMaker[step][d]; //< Set vals
-    fmt::print("Set waveMaker with step {}, time {}s, disp {}m, vel {}m/s\n", step, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
+    fmt::print("Set waveMaker with step {}, dt {}s, time {}s, disp {}m, vel {}m/s\n", step, wm_dt, d_waveMaker[0], d_waveMaker[1], d_waveMaker[2]);
   }
 
   // vol is ppc here
