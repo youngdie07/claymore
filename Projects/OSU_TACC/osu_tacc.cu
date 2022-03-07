@@ -78,7 +78,7 @@ void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields){
               if ((iter % rate) == 0) arr[col] = stof(field);
               col++;
           }
-          fields.push_back(arr);
+          if ((iter & rate) == 0) fields.push_back(arr);
           iter++;
       }
   }

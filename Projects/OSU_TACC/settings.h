@@ -41,8 +41,8 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
-                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
+                      material_e::JFluid, material_e::JFluid, 
+                      material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
 constexpr std::array<fem_e, 5> g_fem_element_list = {
@@ -94,62 +94,6 @@ constexpr int g_grid_size_y = g_grid_size * g_grid_ratio_y; //< Domain y grid-bl
 constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-blocks
 
 
-// Partition domains
-// constexpr box_domain<int, 3> get_domain(int did) noexcept {
-//   constexpr int len = g_grid_size / 2;
-//   box_domain<int, 3> domain{};
-//   for (int d = 0; d < 3; ++d) {
-//     domain._min[d] = 0;
-//     if (d == 0) domain._max[d] = g_grid_size_x - 1;
-//     else if (d == 1) domain._max[d] = g_grid_size_y - 1;
-//     else if (d == 2) domain._max[d] = g_grid_size_z - 1;
-//   }
-//   if constexpr (g_device_cnt == 1) {
-//     /// default
-//   } else if (g_device_cnt == 2) {
-//     if (did == 0)
-//       domain._max[0] = g_grid_size_x / 2;
-//     else if (did == 1)
-//       domain._min[0] = g_grid_size_x / 2 + 1;
-//   } else if (g_device_cnt == 4) {
-//     if (did == 0) {
-//       domain._min[1] = 0;
-//       domain._max[1] = g_grid_size_z / 4;
-//     }
-//     else if (did == 1) {
-//       domain._min[1] = g_grid_size_z / 4 + 1;
-//       domain._max[1] = 2 * g_grid_size_z / 4;
-//     }
-//     else if (did == 2) {
-//       domain._min[1] = 2 * g_grid_size_z / 4 + 1;
-//       domain._max[1] = 3 * g_grid_size_z / 4;
-//     }
-//     else if (did == 3) {
-//       domain._min[1] = 3 * g_grid_size_z / 4 + 1;
-//       domain._max[1] = g_grid_size_z - 1;
-//     }    
-//   } else if (g_device_cnt == 5) {
-//     if (did == 0) {
-//       domain._min[1] = 0;
-//       domain._max[1] = g_grid_size_z / 4;
-//     } else if (did == 1) {
-//       domain._min[1] = g_grid_size_z / 4 + 1;
-//       domain._max[1] = 2 * g_grid_size_z / 4;
-//     } else if (did == 2) {
-//       domain._min[1] = 2 * g_grid_size_z / 4 + 1;
-//       domain._max[1] = 3 * g_grid_size_z / 4;
-//     } else if (did == 3) {
-//       domain._min[1] = 3 * g_grid_size_z / 4 + 1;
-//       domain._max[1] = g_grid_size_z - 1;
-//     } else if (did == 4) {
-//       domain._min[1] = 0;
-//       domain._max[1] = g_grid_size_z - 1;
-//     }
-
-//   } else
-//     domain._max[0] = domain._max[1] = domain._max[2] = -3;
-//   return domain;
-// }
 
 // Particle
 #define MAX_PPC 16
@@ -167,14 +111,14 @@ constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
 constexpr int g_max_particle_num = 3400000; // 8000000
-constexpr int g_max_active_block = 35000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_active_block = 37000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 10000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 5000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 8000; //140000; //< Max halo blocks (#)
+constexpr int g_target_cells = 2000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
 constexpr int g_max_fem_vertice_num = 1260; //3636;  // Max no. of vertice on FEM mesh
