@@ -166,7 +166,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 1500000; // 8000000
+constexpr int g_max_particle_num = 3400000; // 8000000
 constexpr int g_max_active_block = 35000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
