@@ -3,7 +3,7 @@
 		"gpuid": 0,
 		"gravity": 0.0,
 		"fps": 2,
-		"frames": 48,
+		"frames": 120,
 		"default_dt": 4e-4
 	},
 	"meshes": [
@@ -182,33 +182,46 @@
 		{
 			"output_frequency": 60,
 			"point_a": [
-				14.275, 
-				0.0, 
+				16.0, 
+				1.0, 
 				1.0
 			],
 			"point_b": [
-				14.275,
-				4.0,
-				1.2
+				16.0,
+				3.5,
+				1.1
 			]
 		},
 		{
 			"output_frequency": 60,
 			"point_a": [
-				30.0, 
-				0.0, 
+				34.269, 
+				1.0, 
 				1.0
 			],
 			"point_b": [
-				30.0,
-				4.0,
-				1.2
+				34.269,
+				3.5,
+				1.1
+			]
+		},
+		{
+			"output_frequency": 60,
+			"point_a": [
+				38.114, 
+				1.0, 
+				1.0
+			],
+			"point_b": [
+				38.114,
+				3.5,
+				1.1
 			]
 		}
 	],
 	"wave": [
 		{
-			"file": "wmdisp_hydro4sec_09062021.csv"
+			"file": "wmdisp_unbroken_20210329_HydroError_25s_1200hz_17022022.csv"
 		}
 	]
 }
