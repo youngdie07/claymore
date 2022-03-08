@@ -414,9 +414,10 @@ void parse_scene(std::string fn,
 
             if (1) {
               h_point_b[0] = h_point_b[0] + (1.f * g_dx);    
-              // h_point_a[1] = h_point_a[1] + (1.f * g_dx);
-              // h_point_a[2] = h_point_a[2] + (1.f * g_dx);
-              // h_point_b[2] = h_point_b[2] - (1.f * g_dx);       
+              h_point_a[1] = h_point_a[1] + (0.5f * g_dx);
+              h_point_b[1] = h_point_b[1] - (0.5f * g_dx);
+              h_point_a[2] = h_point_a[2] + (0.5f * g_dx);
+              h_point_b[2] = h_point_b[2] - (0.5f * g_dx);       
             }
 
             // ----------------
@@ -447,16 +448,16 @@ void parse_scene(std::string fn,
               h_point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length + off;
             }
 
-            if (1) {
+            if (h_point_a[0] == h_point_b[0]) {
               h_point_b[0] = h_point_b[0] + (1.f * g_dx);              
             }
 
             // ----------------
             /// Loop through GPU devices
             //for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-              //fmt::print("device {} wave-gauge\n", did);
-              benchmark->initWaveGauge(0, h_point_a, h_point_b, 
-                model["output_frequency"].GetFloat());
+            //fmt::print("device {} wave-gauge\n", did);
+            benchmark->initWaveGauge(0, h_point_a, h_point_b, 
+              model["output_frequency"].GetFloat());
             //}
           }
         }

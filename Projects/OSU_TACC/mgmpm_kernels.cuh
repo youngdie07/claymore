@@ -536,14 +536,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Add grid-cell boundary for structural block, WASIRF flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (1.016f) / g_length;
-        struct_dim[1] = (0.615f) / g_length;
-        struct_dim[2] = (1.016f) / g_length;
+        struct_dim[0] = (1.016f) / g_length - g_dx;
+        struct_dim[1] = (0.615f) / g_length - g_dx;
+        struct_dim[2] = (1.016f) / g_length - g_dx;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[0] = (43.790f - wmn) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + offset;
-        struct_pos[2] = (1.322) / g_length + offset;
+        struct_pos[0] = (43.790f - wmn) / g_length + offset + (0.5f * g_dx);
+        struct_pos[1] = (2.f) / g_length + offset  + (0.5f * g_dx);
+        struct_pos[2] = (1.322) / g_length + offset  + (0.5f * g_dx);
         float t = 1.0f * g_dx;
 
         // Check if grid-cell is within sticky interior of structural box
@@ -716,7 +716,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Decay coefficient
         float ySF;
-        if (yc > ys + g_dx) {
+        if (yc >= ys + g_dx) {
           ySF = 0.f;
         } else if (yc <= ys){
           ySF = 1.f;
@@ -739,10 +739,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           }
         }
         if (1) {
-          // Free above surface, normal adjusted below
-          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
+          if (ySF == 1.f) {
+            vel[0] = vel[1] = vel[2] = 0.f;
+          } else if (ySF > 0.f && ySF < 1.f) {
+            // Free above surface, normal adjusted below
+            vel[0] = vel[0] - ySF * (vdotns * ns[0]);
+            vel[1] = vel[1] - ySF * (vdotns * ns[1]);
+            vel[2] = vel[2] - ySF * (vdotns * ns[2]);
+          }
         }
 
 
@@ -750,7 +754,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           // OSU Wave-Maker - CSV Control
           if (xc <= (waveMaker[1] / g_length + offset)) {
              //vel[0] = fmax(waveMaker[2] / g_length, abs(vel[0]));
-             vel[0] = waveMaker[2] / g_length;
+             if (vel[0] < waveMaker[2] / g_length) vel[0] = waveMaker[2] / g_length;
           }
         }
 
@@ -4294,105 +4298,97 @@ __global__ void retrieve_selected_grid_cells(
     float dt, float *forceSum, vec3 point_a, vec3 point_b) {
 
   auto blockno = blockIdx.x;  //< Block number in partition
-  if (1) {
-    //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
-    auto blockid = partition._activeKeys[blockno];
-    if (blockno < blockCount) {
-      // if (blockno == -1)
-      //   return;
+  auto blockid = partition._activeKeys[blockno];
 
-      auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+  // Check if gridblock contains part of the point_a to point_b region
+  // End all threads in block if not
+  if ((4.f*blockid[0] + 3.f)*g_dx < point_a[0] || (4.f*blockid[0])*g_dx > point_b[0]) return;
+  if ((4.f*blockid[1] + 3.f)*g_dx < point_a[1] || (4.f*blockid[1])*g_dx > point_b[1]) return;
+  if ((4.f*blockid[2] + 3.f)*g_dx < point_a[2] || (4.f*blockid[2])*g_dx > point_b[2]) return;
+  
 
-      // Tolerance layer thickness around designated target space
-      float tol = g_dx * 0.0f;
+  //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
+  if (blockno < blockCount) {
 
-      // Add +1 to each? For point_b ~= point_a...
-      ivec3 maxNodes_coord;
-      maxNodes_coord[0] = (int)((point_b[0] + tol - point_a[0] + tol) * g_dx_inv + 0.5);
-      maxNodes_coord[1] = (int)((point_b[1] + tol - point_a[1] + tol) * g_dx_inv + 0.5);
-      maxNodes_coord[2] = (int)((point_b[2] + tol - point_a[2] + tol) * g_dx_inv + 0.5);
-      int maxNodes = maxNodes_coord[0] * maxNodes_coord[1] * maxNodes_coord[2];
-      if (maxNodes >= g_target_cells) printf("Allocate more space for gridTarget!\n");
+    auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+    float tol = g_dx * 0.0f; // Tolerance layer around target domain
 
-      // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
-      for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+    // Add +1 to each? For point_b ~= point_a...
+    ivec3 maxNodes_coord;
+    maxNodes_coord[0] = (int)((point_b[0] + tol - point_a[0] + tol) * g_dx_inv + 1);
+    maxNodes_coord[1] = (int)((point_b[1] + tol - point_a[1] + tol) * g_dx_inv + 1);
+    maxNodes_coord[2] = (int)((point_b[2] + tol - point_a[2] + tol) * g_dx_inv + 1);
+    int maxNodes = maxNodes_coord[0] * maxNodes_coord[1] * maxNodes_coord[2];
+    if (maxNodes >= g_target_cells && threadIdx.x == 0) printf("Allocate more space for gridTarget!\n");
 
-        // Grid node coordinate [i,j,k] in grid-block
-        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-        int j = (cidib >> g_blockbits) & g_blockmask;
-        int k = cidib & g_blockmask;
+    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
 
-        // Grid node position [x,y,z] in entire domain 
-        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
-        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
-        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+      // Grid node coordinate [i,j,k] in grid-block
+      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+      int j = (cidib >> g_blockbits) & g_blockmask;
+      int k = cidib & g_blockmask;
 
-        // Exit thread if cell is not inside grid-target +/- tol
-        if (xc < point_a[0] - tol || xc > point_b[0] + tol) {
-          continue;
-        }
-        if (yc < point_a[1] - tol || yc > point_b[1] + tol) {
-          continue;
-        }
-        if (zc < point_a[2] - tol || zc > point_b[2] + tol) {
-          continue;
-        }
+      // Grid node position [x,y,z] in entire domain 
+      float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+      float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+      float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
 
-        // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
-        int node_id;
-        node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[1] * maxNodes_coord[2]) +
-                  ((int)((yc - point_a[1] + tol) * g_dx_inv + 0.5f) * maxNodes_coord[2]) +
-                  ((int)((zc - point_a[2] + tol) * g_dx_inv + 0.5f));
-        while (garray.val(_3, node_id) != 0.f) {
-          node_id += 1;
-          if (node_id > g_target_cells) {
-            printf("node_id bigger than g_target_cells!");
-            break;
-          }
-        }
-        __syncthreads(); // Sync threads in block
+      // Exit thread if cell is not inside grid-target +/- tol
+      if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
+      if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
+      if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
+      
 
-        /// Set values in grid-array to specific cell from grid-buffer
-        garray.val(_0, node_id) = xc;
-        garray.val(_1, node_id) = yc;
-        garray.val(_2, node_id) = zc;
-        garray.val(_3, node_id) = sourceblock.val(_0, i, j, k);
-        garray.val(_4, node_id) = sourceblock.val(_1, i, j, k);
-        garray.val(_5, node_id) = sourceblock.val(_2, i, j, k);
-        garray.val(_6, node_id) = sourceblock.val(_3, i, j, k);
+      // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
+      int node_id;
+      node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv) * maxNodes_coord[1] * maxNodes_coord[2]) +
+                ((int)((yc - point_a[1] + tol) * g_dx_inv) * maxNodes_coord[2]) +
+                ((int)((zc - point_a[2] + tol) * g_dx_inv));
+      // while (garray.val(_3, node_id) != 0.f) {
+      //   node_id += 1;
+      //   if (node_id > g_target_cells) {
+      //     printf("node_id bigger than g_target_cells!");
+      //     break;
+      //   }
+      // }
+      //__syncthreads(); // Sync threads in block
 
-        __syncthreads(); // Sync threads in block
+      /// Set values in grid-array to specific cell from grid-buffer
+      garray.val(_0, node_id) = xc;
+      garray.val(_1, node_id) = yc;
+      garray.val(_2, node_id) = zc;
+      garray.val(_3, node_id) = sourceblock.val(_0, i, j, k);
+      garray.val(_4, node_id) = sourceblock.val(_1, i, j, k);
+      garray.val(_5, node_id) = sourceblock.val(_2, i, j, k);
+      garray.val(_6, node_id) = sourceblock.val(_3, i, j, k);
 
-        /// Set values in grid-array to specific cell from grid-buffer
-        float m1  = garray.val(_3, node_id);
-        float m2  = m1;
-        float m = m1;
-        if (m1 > 0.f) {
-          m1 = 1.f / m1; //< Invert mass, avoids division operator
-        }
-        if (m2 > 0.f) {
-          m2 = 1.f / m2; //< Invert mass, avoids division operator
-        }
+      /// Set values in grid-array to specific cell from grid-buffer
+      float m1  = garray.val(_3, node_id);
+      if (m1 <= 0.f) continue;
+      float m2  = m1;
+      float m = m1;
+      m1 = 1.f / m1; //< Invert mass, avoids division operator
+      m2 = 1.f / m2; //< Invert mass, avoids division operator
+      
 
-        float vx1 = garray.val(_4, node_id) * m1 * g_length;
-        float vy1 = garray.val(_5, node_id) * m1 * g_length;
-        float vz1 = garray.val(_6, node_id) * m1 * g_length;
-        float vx2 = 0.f;
-        float vy2 = 0.f;
-        float vz2 = 0.f;
+      float vx1 = garray.val(_4, node_id) * m1 * g_length;
+      float vy1 = garray.val(_5, node_id) * m1 * g_length;
+      float vz1 = garray.val(_6, node_id) * m1 * g_length;
+      float vx2 = 0.f;
+      float vy2 = 0.f;
+      float vz2 = 0.f;
 
-        float fx = m * (vx1 - vx2) / dt;
-        float fy = m * (vy1 - vy2) / dt;
-        float fz = m * (vz1 - vz2) / dt;
+      float fx = m * (vx1 - vx2) / dt;
+      float fy = m * (vy1 - vy2) / dt;
+      float fz = m * (vz1 - vz2) / dt;
+      if (fx <= 0.f) continue;
 
-        garray.val(_7, node_id) = fx;
-        garray.val(_8, node_id) = fy;
-        garray.val(_9, node_id) = fz;
-        __syncthreads(); // Sync threads in block
-        if (fx > 0.f) atomicAdd(forceSum, fx);
-        //atomicAdd(forceSum, fx);
-        __syncthreads(); // Sync threads in block
-      }
+      garray.val(_7, node_id) = fx;
+      garray.val(_8, node_id) = fy;
+      garray.val(_9, node_id) += 1.f; //temp way to track node_id duplicates
+
+      atomicAdd(forceSum, fx);
     }
   }
 }
@@ -4405,62 +4401,52 @@ __global__ void retrieve_wave_gauge(
     float dt, float *waveMax, vec3 point_a, vec3 point_b) {
 
   auto blockno = blockIdx.x;  //< Block number in partition
-  if (1) {
-    //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
-    auto blockid = partition._activeKeys[blockno];
-    if (blockno < blockCount) {
-      // if (blockno == -1)
-      //   return;
-      auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+  //if (blockno == -1) return;
+  auto blockid = partition._activeKeys[blockno];
 
-      // Tolerance layer thickness around wg space
-      float tol = g_dx * 0.0f;
+  // Check if gridblock contains part of the point_a to point_b region
+  // End all threads in block if not
+  if ((4.f*blockid[0] + 3.f)*g_dx < point_a[0] || (4.f*blockid[0])*g_dx > point_b[0]) return;
+  if ((4.f*blockid[1] + 3.f)*g_dx < point_a[1] || (4.f*blockid[1])*g_dx > point_b[1]) return;
+  if ((4.f*blockid[2] + 3.f)*g_dx < point_a[2] || (4.f*blockid[2])*g_dx > point_b[2]) return;
+  
 
-      // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
-      for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+  //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
+  if (blockno < blockCount) {
+    auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
 
-        // Grid node coordinate [i,j,k] in grid-block
-        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-        int j = (cidib >> g_blockbits) & g_blockmask;
-        int k = cidib & g_blockmask;
+    // Tolerance layer thickness around wg space
+    float tol = g_dx * 0.0f;
 
-        // Grid node position [x,y,z] in entire domain 
-        float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
-        float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
-        float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
-        float offset = (8.f * g_dx);
-        // Exit thread if cell is not inside wave-gauge domain +/- tol
-        if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
-        if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
-        if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
-        __syncthreads(); // Sync threads in block
+    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
 
-        /// Set values of cell (mass, momentum) from grid-buffer
-        float mass = sourceblock.val(_0, i, j, k); // Mass [kg]
-        float elev = (yc - offset) * g_length; // Elevation [m]
-        //float vx1  = sourceblock.val(_1, i, j, k); // M x []
-        //float vy1  = sourceblock.val(_2, i, j, k); // M y []
-        //float vz1  = sourceblock.val(_3, i, j, k); // M z []
-        __syncthreads(); // Sync threads in block
+      // Grid node coordinate [i,j,k] in grid-block
+      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+      int j = (cidib >> g_blockbits) & g_blockmask;
+      int k = cidib & g_blockmask;
 
-        // Check for mass (material in cell, i.e wave surface)
-        if (mass > 0.f) atomicMax(waveMax, elev);
-          //mass = 1.f / mass; //< Invert mass, avoids division operator
-          //vx1 = vx1 * mass * g_length; // Vel x [m]
-          //vy1 = vy1 * mass * g_length; // Vel y [m]
-          //vz1 = vz1 * mass * g_length; // Vel z [m]
-          //__syncthreads(); // Sync threads in block
-          
-          // Aggregate elevations of occupied cells
-          // Report max across threads/blocks (i.e. wave surface)
-          //atomicMax(waveMax, elev);
-          //__syncthreads(); // Sync threads in block
-        
-        //else atomicMax(waveMax, 0.f);
-        //__syncthreads(); // Sync threads in block
-      }
+      // Grid node position [x,y,z] in entire domain 
+      float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
+      float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
+      float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+      float offset = (8.f * g_dx);
+
+      // Exit thread if cell is not inside wave-gauge domain +/- tol
+      if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
+      if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
+      if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
+
+      /// Set values of cell (mass, momentum) from grid-buffer
+      float mass = sourceblock.val(_0, i, j, k); // Mass [kg]
+      if (mass <= 0.f) continue;
+      float elev = (yc - offset) * g_length; // Elevation [m]
+
+      // Check for mass (material in cell, i.e wave surface)
+      atomicMax(waveMax, elev);
     }
   }
+
 }
 
 } // namespace mn

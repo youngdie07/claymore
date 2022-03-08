@@ -992,7 +992,7 @@ struct mgsp_benchmark {
       fmt::print(fg(fmt::color::red), "BGEO write finished.\n");
     }
 
-    if (1) {
+    {
       std::string fn = std::string{"force_time_series"} + "_target[0]_dev[" + std::to_string(did) + "].csv";
       std::ofstream forceSumFile;
       forceSumFile.open (fn, std::ios::out | std::ios::app);
@@ -1043,7 +1043,7 @@ struct mgsp_benchmark {
       cuDev.syncStream<streamIdx::Compute>();
       fmt::print(fg(fmt::color::red), "Wave surface in wave-gauge: {} meters\n", waveMax);
 
-      if (1) {
+      {
         std::string fn = "wg[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
         std::ofstream waveMaxFile;
         waveMaxFile.open (fn, std::ios::out | std::ios::app);
@@ -1380,17 +1380,11 @@ struct mgsp_benchmark {
 
   std::vector<std::array<float, 3>> h_waveMaker;   ///< OSU wm info (time, disp, vel) on host (JB)
 
-  vec3 h_point_a;   ///< Point A of target on host (JB)
-  vec3 h_point_b;   ///< Point B of target on host (JB)
-  // vec3 h_wg_point_a;   ///< Point A of wave-gauge on host (JB)
-  // vec3 h_wg_point_b;   ///< Point B of wave-gauge on host (JB)
-  // std::vector<vec3> h_wg_point_a;
-  // std::vector<vec3> h_wg_point_b;
   float h_target_freq;
   float h_wg_freq;
   int freq_step; ///< Frequency step for target output (JB)
   int wg_freq_step; ///< Frequency step for wave-gauge output (JB)
-  std::ofstream forceFile;
+
 
   Instance<signed_distance_field_> _hostData;
 
