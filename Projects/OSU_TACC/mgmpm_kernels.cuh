@@ -521,7 +521,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // OSU Flume (Slip)
         // Acts on individual grid-cell velocities
         float wmn = -2.0f; // Wave-maker neutral
-        float flumex = 87.4268f / g_length - g_dx; // Length
+        float flumex = (87.4268f - wmn )/ g_length - g_dx; // Length
         //float flumex = 29.f / g_length - g_dx;
         float flumey = 4.572f / g_length - g_dx; //  Depth
         float flumez = 3.6576f / g_length - g_dx; //  Width
@@ -533,69 +533,72 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                           ((zc <= offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));                          
         isInBound |= isInFlume; // Update with regular boundary for efficiency
 
+        // Check if cell is in general area where structural box might be:
+        if (xc > 40.f /g_length + offset && xc < 50.f / g_length + offset) {
 
-        // Add grid-cell boundary for structural block, WASIRF flume
-        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (1.016f) / g_length;
-        struct_dim[1] = (0.615f) / g_length - g_dx;
-        struct_dim[2] = (1.016f) / g_length - g_dx;
-        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[0] = (43.790f - wmn) / g_length + offset;
-        struct_pos[1] = (2.f) / g_length + offset  + (0.5f * g_dx);
-        struct_pos[2] = (1.322) / g_length + offset  + (0.5f * g_dx);
-        float t = 1.0f * g_dx;
+          // Add grid-cell boundary for structural block, WASIRF flume
+          vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
+          struct_dim[0] = (1.016f) / g_length;
+          struct_dim[1] = (0.615f) / g_length - g_dx;
+          struct_dim[2] = (1.016f) / g_length - g_dx;
+          vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
+          //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
+          struct_pos[0] = (43.790f - wmn) / g_length + offset;
+          struct_pos[1] = (2.f) / g_length + offset  + (0.5f * g_dx);
+          struct_pos[2] = (1.322) / g_length + offset  + (0.5f * g_dx);
+          float t = 1.0f * g_dx;
 
-        // Check if grid-cell is within sticky interior of structural box
-        // Subtract slip-layer thickness from structural box dimension for geometry
-        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
-                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
-                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
-        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-        isInBound |= isOutStruct; // Update with regular boundary for efficiency
-        
-        // Check exterior slip-layer of structural block(OSU Flume)
-        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-        int isOnStructFace[6];
-        // Right (z+)
-        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
-        // Left (z-)
-        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
-        // Top (y+)
-        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Bottom (y-)
-        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Back (x+)
-        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Front (x-)
-        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
-        // Reduce results from box faces to single result
-        int isOnStruct = 0; // Collision reduction variable
-        for (int iter=0; iter<6; iter++) {
-          if (isOnStructFace[iter] != 7) {
-            // Check if 111 (7), set 000 (0) otherwise
-            isOnStructFace[iter] = 0;
-          } else {
-            isOnStructFace[iter] = (1 << iter / 2);
+          // Check if grid-cell is within sticky interior of structural box
+          // Subtract slip-layer thickness from structural box dimension for geometry
+          int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
+                            ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
+                              (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
+          if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+          isInBound |= isOutStruct; // Update with regular boundary for efficiency
+          
+          // Check exterior slip-layer of structural block(OSU Flume)
+          // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+          int isOnStructFace[6];
+          // Right (z+)
+          isOnStructFace[0] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
+                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
+                              (zc >= struct_pos[2] + struct_dim[2] - t && vel[2] < 0.f && zc < struct_pos[2] + struct_dim[2]);
+          // Left (z-)
+          isOnStructFace[1] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
+                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
+                              (zc >= struct_pos[2] && vel[2] > 0.f && zc < struct_pos[2] + t);        
+          // Top (y+)
+          isOnStructFace[2] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
+                              ((yc >= struct_pos[1] + struct_dim[1] - t &&  vel[1] < 0.f && yc <= struct_pos[1] + struct_dim[1]) << 1) |
+                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
+          // Bottom (y-)
+          isOnStructFace[3] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
+                              ((yc >= struct_pos[1] && vel[1] > 0.f && yc < struct_pos[1] + t) << 1) |
+                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
+          // Back (x+)
+          isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && vel[0] < 0.f && xc < struct_pos[0] + struct_dim[1]) << 2) | 
+                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
+                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
+          // Front (x-)
+          isOnStructFace[5] = ((xc >= struct_pos[0] && vel[0] > 0.f && xc < struct_pos[0] + t) << 2) | 
+                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
+                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);                             
+          // Reduce results from box faces to single result
+          int isOnStruct = 0; // Collision reduction variable
+          for (int iter=0; iter<6; iter++) {
+            if (isOnStructFace[iter] != 7) {
+              // Check if 111 (7, all flags), set 000 (0, now no flags) otherwise
+              isOnStructFace[iter] = 0;
+            } else {
+              // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
+              isOnStructFace[iter] = (1 << iter / 2);
+            }
+            isOnStruct |= isOnStructFace[iter]; // OR reduces face results into one int
           }
-          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
+          if (isOnStruct == 6 || isOnStruct == 5 || isOnStruct == 7) isOnStruct = 4; // Overlaps on front (XY, XZ, XYZ) -> (X)
+          else if (isOnStruct == 3) isOnStruct = 0; // Overlaps on sides (YZ) -> (None)
+          isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
         }
-        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
-        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
-        isInBound |= isOnStruct; // Update with regular boundary for efficiency
-
 
 #if 1
         ///< Slip contact        
@@ -648,7 +651,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = offset;
+          //xo = offset;
           float yo = bathy[0]/g_length + offset;
           //ys = 1.f/72.f * (xc -xo) + yo;
           ys = yo;
@@ -658,7 +661,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (bathx[1] / g_length) + offset;
+          //xo = (bathx[1] / g_length) + offset;
           float yo = bathy[1]/g_length + offset;
           ys = yo;
 
@@ -685,7 +688,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
-          xo = (bathx[4] / g_length) + offset;
+          //xo = (bathx[4] / g_length) + offset;
           float yo = (bathy[4] / g_length) + offset;
           ys = yo;
 
@@ -717,13 +720,10 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Decay coefficient
         float ySF;
-        if (yc >= ys + g_dx) {
-          ySF = 0.f;
-        } else if (yc < ys){
-          ySF = 1.f;
-        } else {
-          ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx);
-        }
+        if (yc >= ys + g_dx) ySF = 0.f; // Above decay layer
+        else if (yc < ys) ySF = 1.f; // Below surface
+        else ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx); // In decay layer
+        
 
         // fbc = -fint - fext - (1/dt)*p
         // a = (1 / mass) * (fint + fext + ySf*fbc) 
@@ -741,9 +741,10 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         }
         if (1) {
           if (ySF == 1.f) {
+            // Fix below surface
             vel[0] = vel[1] = vel[2] = 0.f;
-          } else if (ySF > 0.f && ySF < 1.f) {
-            // Free above surface, normal adjusted below
+          } else if (ySF > 0.f && ySF < 1.f && vdotns < 0.f) {
+            // Normal adjusted in decay layer, seperable condition
             vel[0] = vel[0] - ySF * (vdotns * ns[0]);
             vel[1] = vel[1] - ySF * (vdotns * ns[1]);
             vel[2] = vel[2] - ySF * (vdotns * ns[2]);
