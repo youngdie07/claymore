@@ -3,8 +3,8 @@
 		"gpuid": 0,
 		"gravity": 0.0,
 		"fps": 1,
-		"frames": 60,
-		"default_dt": 4e-4
+		"frames": 36,
+		"default_dt": 1e-4
 	},
 	"meshes": [
 		{
@@ -47,7 +47,7 @@
 			"constitutive": "jfluid",
 			"ppc": 2.5,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 4e7,
 			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -88,7 +88,7 @@
 			"ppc": 2.5,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 4e7,
 			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -129,7 +129,7 @@
 			"ppc": 2.5,
 			"volume": 1,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 4e7,
 			"gamma": 6,
 			"viscosity": 0.001,
 			"alpha": 0,
@@ -217,11 +217,24 @@
 				3.5,
 				1.1
 			]
+		},
+		{
+			"output_frequency": 128,
+			"point_a": [
+				45.790, 
+				1.75, 
+				1.322
+			],
+			"point_b": [
+				45.790,
+				3.0,
+				2.338
+			]
 		}
 	],
 	"wave": [
 		{
-			"file": "wmdisp_unbroken_20210329_HydroError_25s_1200hz_17022022.csv"
+			"file": "wmdisp_unbroken_20210329_HydroError_25s_1200hz_smooth_17022022.csv"
 		}
 	]
 }

@@ -536,12 +536,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         // Add grid-cell boundary for structural block, WASIRF flume
         vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (1.016f) / g_length - g_dx;
+        struct_dim[0] = (1.016f) / g_length;
         struct_dim[1] = (0.615f) / g_length - g_dx;
         struct_dim[2] = (1.016f) / g_length - g_dx;
         vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
         //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[0] = (43.790f - wmn) / g_length + offset + (0.5f * g_dx);
+        struct_pos[0] = (43.790f - wmn) / g_length + offset;
         struct_pos[1] = (2.f) / g_length + offset  + (0.5f * g_dx);
         struct_pos[2] = (1.322) / g_length + offset  + (0.5f * g_dx);
         float t = 1.0f * g_dx;
@@ -645,12 +645,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Based on bathymetry diagram, February
         if (xc < (bathx[1]/g_length)+offset) {
           // Flat, 0' elev., 0' - 46'10
-          ns[0] = -1.f/72.f;
+          ns[0] = 0.f;
           ns[1] = 1.f;
           ns[2] = 0.f;
           xo = offset;
           float yo = bathy[0]/g_length + offset;
-          ys = 1.f/72.f * (xc -xo) + yo;
+          //ys = 1.f/72.f * (xc -xo) + yo;
+          ys = yo;
 
         } else if (xc >= (bathx[1]/g_length)+offset && xc < (bathx[2]/g_length)+offset){
           // Flat (adjustable), 0' elev., 46'10 - 58'10
@@ -718,7 +719,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float ySF;
         if (yc >= ys + g_dx) {
           ySF = 0.f;
-        } else if (yc <= ys){
+        } else if (yc < ys){
           ySF = 1.f;
         } else {
           ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx);

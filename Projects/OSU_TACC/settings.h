@@ -118,7 +118,7 @@ calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
 constexpr std::size_t g_max_halo_block = 8000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 1500; //2500; //< Max nodes in grid-cell target
+constexpr int g_target_cells = 1000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
 constexpr int g_max_fem_vertice_num = 1260; //3636;  // Max no. of vertice on FEM mesh
