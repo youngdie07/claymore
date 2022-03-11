@@ -4,7 +4,7 @@
 		"gravity": 0.0,
 		"fps": 1,
 		"frames": 36,
-		"default_dt": 2.5e-4
+		"default_dt": 1.5e-4
 	},
 	"meshes": [
 		{
@@ -44,12 +44,12 @@
 			"gpu": 0,
 			"type": "particles",
 			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
-			"constitutive": "JFluid_ASFLIP",
-			"ppc": 1,
+			"constitutive": "jfluid",
+			"ppc": 2.5,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 5e6,
 			"gamma": 6,
-			"viscosity": 0.001,
+			"viscosity": 0.01,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
@@ -84,13 +84,12 @@
 			"gpu": 1,
 			"type": "particles",
 			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
-			"constitutive": "JFluid_ASFLIP",
-			"ppc": 1,
-			"volume": 1,
+			"constitutive": "jfluid",
+			"ppc": 2.5,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 5e6,
 			"gamma": 6,
-			"viscosity": 0.001,
+			"viscosity": 0.01,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
@@ -125,13 +124,12 @@
 			"gpu": 2,
 			"type": "particles",
 			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
-			"constitutive": "JFluid_ASFLIP",
-			"ppc": 1,
-			"volume": 1,
+			"constitutive": "jfluid",
+			"ppc": 2.5,
 			"rho": 1e3,
-			"bulk_modulus": 2e6,
+			"bulk_modulus": 5e6,
 			"gamma": 6,
-			"viscosity": 0.001,
+			"viscosity": 0.01,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
@@ -196,12 +194,12 @@
 			"output_frequency": 120,
 			"point_a": [
 				34.269, 
-				1.0, 
+				1.5, 
 				1.0
 			],
 			"point_b": [
 				34.269,
-				3.5,
+				2.6,
 				1.1
 			]
 		},
@@ -209,17 +207,17 @@
 			"output_frequency": 120,
 			"point_a": [
 				38.114, 
-				1.0, 
+				1.5, 
 				1.0
 			],
 			"point_b": [
 				38.114,
-				3.5,
+				2.6,
 				1.1
 			]
 		},
 		{
-			"output_frequency": 128,
+			"output_frequency": 120,
 			"point_a": [
 				45.790, 
 				1.75, 
@@ -227,7 +225,7 @@
 			],
 			"point_b": [
 				45.790,
-				3.0,
+				2.6,
 				2.338
 			]
 		}

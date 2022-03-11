@@ -41,8 +41,8 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
-                      material_e::JFluid_ASFLIP, material_e::JFluid_ASFLIP, 
+                      material_e::JFluid, material_e::JFluid, 
+                      material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
 constexpr std::array<fem_e, 5> g_fem_element_list = {
@@ -110,15 +110,15 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 13000000; // 8000000
-constexpr int g_max_active_block = 320000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 25000000; // 8000000
+constexpr int g_max_active_block = 280000; //5000; /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
 constexpr std::size_t g_max_halo_block = 60000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 2500; //2500; //< Max nodes in grid-cell target
+constexpr int g_target_cells = 4000; //2500; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
 constexpr int g_max_fem_vertice_num = 1260; //3636;  // Max no. of vertice on FEM mesh
