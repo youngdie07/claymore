@@ -482,7 +482,7 @@ struct mgsp_benchmark {
           timer.tick();
           checkCudaErrors(cudaMemsetAsync(d_maxVel, 0, sizeof(float),
                                           cuDev.stream_compute()));
-          setWaveMaker(did, h_waveMaker, curTime); //< Update d_waveMaker for time
+          //setWaveMaker(did, h_waveMaker, curTime); //< Update d_waveMaker for time
           if (collisionObjs[did])
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
@@ -497,8 +497,7 @@ struct mgsp_benchmark {
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime,
-                d_waveMaker);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime);
           checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
                                           sizeof(float), cudaMemcpyDefault,
                                           cuDev.stream_compute()));
@@ -513,7 +512,8 @@ struct mgsp_benchmark {
           if (maxVels[did] > maxVel)
             maxVel = maxVels[did];
         maxVel = std::sqrt(maxVel);
-        nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
+        //nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
+        nextDt = dtDefault;
         fmt::print(fmt::emphasis::bold,
                    "{} [s] --{}--> {} [s], defaultDt: {} [s], maxVel: {} [m/s]\n", curTime,
                    nextDt, nextTime, dtDefault, (maxVel*g_length));
@@ -576,7 +576,12 @@ struct mgsp_benchmark {
                       d_vertices[did]);
               });
               cuDev.syncStream<streamIdx::Compute>();
-
+          }
+          timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2g", did,
+                                 curFrame, curStep));
+                                 
+          if (g_fem_gpu[did]){
+              timer.tick();
               match(particleBins[rollid][did])([&](const auto &pb) {
                 cuDev.compute_launch(
                     {pbcnt[did], 128, (512 * 6 * 4) + (512 * 7 * 4)}, g2p2g, dt,
@@ -588,11 +593,10 @@ struct mgsp_benchmark {
                     d_vertices[did]);
               });
               cuDev.syncStream<streamIdx::Compute>();
-
+            
+              timer.tock(fmt::format("GPU[{}] frame {} step {} non-halo_g2p2g", did,
+                                    curFrame, curStep));
           }
-          timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2g", did,
-                                 curFrame, curStep));
-
 
           timer.tick();
           // v2fem2v - Halo
@@ -606,8 +610,8 @@ struct mgsp_benchmark {
                     // partitions[rollid ^ 1][did], partitions[rollid][did],
                     // gridBlocks[0][did], gridBlocks[1][did],
                     d_vertices[did], d_elements[did], eb);
-              cuDev.syncStream<streamIdx::Compute>();
             });
+            cuDev.syncStream<streamIdx::Compute>();
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} v2fem2v", did,
                                  curFrame, curStep));
@@ -704,6 +708,7 @@ struct mgsp_benchmark {
                   gridBlocks[0][did], gridBlocks[1][did],
                   d_vertices[did]);
             });
+            cuDev.syncStream<streamIdx::Compute>();
           }
           timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_fem2p2g", did,
                                  curFrame, curStep));
@@ -845,20 +850,6 @@ struct mgsp_benchmark {
         rollid ^= 1;
         dt = nextDt;
 
-
-
-        // Output wave-gauge
-        {
-          // Set appropiate output frequency rate
-          int maxFreqStep = (int)(1.f / dtDefault / fps / h_wg_freq);
-          if (curStep % maxFreqStep == 0){
-            wg_freq_step += 1; // Iterate freq_step           
-            issue([this](int did) {
-              output_wave_gauge(did); // Output wave-gauge csv
-            });
-            sync();
-          }
-        }
 
         // Output gridTarget
         {
@@ -1104,7 +1095,7 @@ struct mgsp_benchmark {
                               fem_precompute, d_vertices[did], d_elements[did],
                               eb);
         });
-        //cuDev.syncStream<streamIdx::Compute>();
+        cuDev.syncStream<streamIdx::Compute>();
       }
       // grid block
       cuDev.compute_launch({(pbcnt[did] + 127) / 128, 128},

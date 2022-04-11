@@ -1,0 +1,141 @@
+{
+	"simulation": {
+		"gpuid": 0,
+		"gravity": -10.0,
+		"fps": 10,
+		"frames": 30,
+		"default_dt": 1e-4
+	},
+	"meshes": [
+		{
+			"gpu": 1,
+			"type": "mesh",
+			"file": "Debris/HSI_Box_0.4m_res8cm.mesh",
+			"file_elements": "Debris/HSI_Box_0.4m_res8cm_Elements.csv",
+			"file_vertices": "Debris/HSI_Box_0.4m_res8cm_Vertices.csv",
+			"constitutive": "Meshed",
+			"ppc": 1.86,
+			"volume": 1,
+			"rho": 1e3,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.4,
+			"alpha": 0.0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				1.4, 
+				3.2, 
+				0.0
+			],
+			"span": [
+				0.4,
+				0.4,
+				0.4
+			],
+			"velocity": [
+				0.0,
+				0.0,
+				0.0
+			]
+		}
+	],
+	"models": [
+		{
+			"gpu": 0,
+			"type": "particles",
+			"file": "Water/HSI_x3.2_y3.2_z1_dx0.1_pad1.sdf",
+			"constitutive": "JFluid_ASFLIP",
+			"ppc": 8,
+			"rho": 1e3,
+			"bulk_modulus": 2.2e8,
+			"gamma": 7.1,
+			"viscosity": 0.01,
+			"alpha": 0.0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0.0, 
+				0.0, 
+				0.0
+			],
+			"span": [
+				3.4,
+				3.4,
+				1.2
+			],
+			"velocity": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"partition": 1,
+			"point_a": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"point_b": [
+				3.2,
+				3.2,
+				0.4
+			]
+		}
+	],
+	"targets": [
+		{
+			"direction": 2,
+			"output_frequency": 12,
+			"point_a": [
+				3.2, 
+				-0.1, 
+				-0.1
+			],
+			"point_b": [
+				3.2,
+				3.8,
+				0.4
+			]
+		}
+	],
+	"wave-gauges": [
+		{
+			"output_frequency": 12,
+			"point_a": [
+				0.0, 
+				2.8, 
+				0.0
+			],
+			"point_b": [
+				0.0,
+				3.6,
+				0.4
+			]
+		},
+		{
+			"output_frequency": 12,
+			"point_a": [
+				1.6, 
+				2.8, 
+				0.0
+			],
+			"point_b": [
+				1.6,
+				3.6,
+				0.4
+			]
+		},
+		{
+			"output_frequency": 12,
+			"point_a": [
+				3.2, 
+				2.8, 
+				0.0
+			],
+			"point_b": [
+				3.2,
+				3.6,
+				0.4
+			]
+		}
+	]
+}

@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::Meshed, material_e::JFluid, 
+                      material_e::JFluid_ASFLIP, material_e::Meshed, 
                       material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -50,7 +50,7 @@ constexpr std::array<fem_e, 5> g_fem_element_list = {
                       fem_e::Tetrahedron, fem_e::Tetrahedron, 
                       fem_e::Tetrahedron};
 
-constexpr std::array<int, 5> g_fem_gpu = {1, 0, 0, 0, 0};
+constexpr std::array<int, 5> g_fem_gpu = {0, 1, 0, 0, 0};
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 12
+#define DOMAIN_BITS 6
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -81,11 +81,11 @@ constexpr int g_grid_bits = (DOMAIN_BITS - BLOCK_BITS);
 constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
-#define DOMAIN_VOLUME 2097152.f //884736.f //< g_length^3, IMPORTANT, scales mass-volume
-constexpr float g_length   = 128.f;//96.f; //< Domain full length (m)
-constexpr float g_length_x = 128.f;//96.f; //< Domain x length (m)
-constexpr float g_length_y = 6.f;   //< Domain y length (m)
-constexpr float g_length_z = 6.f;   //< Domain z length (m)
+#define DOMAIN_VOLUME 262.144f //< g_length^3, IMPORTANT, scales mass-volume
+constexpr float g_length   = 6.4f;//96.f; //< Domain full length (m)
+constexpr float g_length_x = 6.4f;//96.f; //< Domain x length (m)
+constexpr float g_length_y = 6.4f;   //< Domain y length (m)
+constexpr float g_length_z = 2.4f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -96,34 +96,34 @@ constexpr int g_grid_size_z = g_grid_size * g_grid_ratio_z; //< Domain z grid-bl
 
 
 // Particle
-#define MAX_PPC 16
+#define MAX_PPC 64
 constexpr int g_max_ppc = MAX_PPC;
 constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
 #define DENSITY 10       // kg/m3
-#define YOUNGS_MODULUS 1e6 // Pascals
+#define YOUNGS_MODULUS 1e4 // Pascals
 #define POISSON_RATIO 0.3f // rad
 
 // Ambient parameters
-constexpr float g_gravity = 0.f; // m/s2
+constexpr float g_gravity = -10.f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 2500000; // 8000000
-constexpr int g_max_active_block = 28000; //5000; /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 100000; // Particle upperbound
+constexpr int g_max_active_block = 2500;  /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 6000; //140000; //< Max halo blocks (#)
-constexpr int g_target_cells = 4000; //2500; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 0;  //< Max halo blocks (#)
+constexpr int g_target_cells = 2000; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 1260; //3636;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 3200; //12500; // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 3200; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 216; //3636;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 625; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 625; //12500; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 

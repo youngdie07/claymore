@@ -2,29 +2,29 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": 0.0,
-		"fps": 1,
+		"fps": 10,
 		"frames": 36,
-		"default_dt": 1.5e-4
+		"default_dt": 3.5e-4
 	},
 	"meshes": [
 		{
-			"gpu": 3,
+			"gpu": 0,
 			"type": "mesh",
 			"file": "Debris/OSU_L4_s0.05_res2.5cm.mesh",
 			"file_elements": "Debris/OSU_L4_s0.05_res2.5cm_Elements.csv",
 			"file_vertices": "Debris/OSU_L4_s0.05_res2.5cm_Vertices.csv",
 			"constitutive": "Meshed",
-			"ppc": 15.625,
+			"ppc": 1,
 			"volume": 1,
 			"rho": 1e3,
-			"youngs_modulus": 5e6,
-			"poisson_ratio": 0.4,
+			"youngs_modulus": 2e6,
+			"poisson_ratio": 0.3,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
-				42.0, 
-				2.0, 
+				45.0, 
+				2.2, 
 				1.5538
 			],
 			"span": [
@@ -33,7 +33,7 @@
 				0.1
 			],
 			"velocity": [
-				0,
+				1.0,
 				0,
 				0
 			]
@@ -41,7 +41,7 @@
 	],
 	"models": [
 		{
-			"gpu": 0,
+			"gpu": 3,
 			"type": "particles",
 			"file": "Water/OSU_Water_88.106x_2.25y_4z_06032022_dx0.2_pad1.sdf",
 			"constitutive": "jfluid",

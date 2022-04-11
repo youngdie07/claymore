@@ -197,7 +197,7 @@ template <typename VerticeArray, typename ElementArray>
 __global__ void fem_precompute(VerticeArray vertice_array,
                                ElementArray element_array,
                                ElementBuffer<fem_e::Tetrahedron> elementBins) {
-
+    if (blockIdx.x >= g_max_fem_element_num) return;
     auto element = elementBins.ch(_0, blockIdx.x);
     int IDs[4];
     vec3 p[4];
@@ -461,8 +461,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, float curTime,
-                                               vec3 waveMaker) {
+                                               float *maxVel, float curTime) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -515,13 +514,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                     (((blockid[1] < bc && vel[1] < 0.f) || (blockid[1] >= g_grid_size_y - bc && vel[1] > 0.f)) << 1) |
                    ((blockid[2] < bc && vel[2] < 0.f) || (blockid[2] >= g_grid_size_z - bc  && vel[2] > 0.f));
 
-        // OSU Flume (Slip)
+        // Tank Dimensions (Slip), 3.2m width x 6.4m height in 2D
+        // See < Wen-Chia Yang > Dissertation Page 82 Figure 5.1
         // Acts on individual grid-cell velocities
-        float wmn = -2.0f; // Wave-maker neutral
-        float flumex = (87.4268f - wmn )/ g_length - g_dx; // Length
-        //float flumex = 29.f / g_length - g_dx;
-        float flumey = 4.572f / g_length - g_dx; //  Depth
-        float flumez = 3.6576f / g_length - g_dx; //  Width
+        float flumex = 3.2f / g_length; // Length
+        float flumey = 6.4f / g_length; // Depth
+        float flumez = 0.4f / g_length; // Width
         // int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
         //                  ((yc <= offset || yc >= flumey + offset) << 1) |
         //                   (zc <= offset || zc >= flumez + offset);
@@ -529,73 +527,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                          (((yc <= offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
                           ((zc <= offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));                          
         isInBound |= isInFlume; // Update with regular boundary for efficiency
-
-        // Check if cell is in general area where structural box might be:
-        if (xc > 40.f /g_length + offset && xc < 50.f / g_length + offset) {
-
-          // Add grid-cell boundary for structural block, WASIRF flume
-          vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-          struct_dim[0] = (1.016f) / g_length;
-          struct_dim[1] = (0.615f) / g_length - g_dx;
-          struct_dim[2] = (1.016f) / g_length - g_dx;
-          vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-          //struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-          struct_pos[0] = (43.790f - wmn) / g_length + offset;
-          struct_pos[1] = (2.f) / g_length + offset  + (0.5f * g_dx);
-          struct_pos[2] = (1.322) / g_length + offset  + (0.5f * g_dx);
-          float t = 1.0f * g_dx;
-
-          // Check if grid-cell is within sticky interior of structural box
-          // Subtract slip-layer thickness from structural box dimension for geometry
-          int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
-                            ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
-                              (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
-          if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-          isInBound |= isOutStruct; // Update with regular boundary for efficiency
-          
-          // Check exterior slip-layer of structural block(OSU Flume)
-          // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-          int isOnStructFace[6];
-          // Right (z+)
-          isOnStructFace[0] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
-                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
-                              (zc >= struct_pos[2] + struct_dim[2] - t && vel[2] < 0.f && zc < struct_pos[2] + struct_dim[2]);
-          // Left (z-)
-          isOnStructFace[1] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
-                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
-                              (zc >= struct_pos[2] && vel[2] > 0.f && zc < struct_pos[2] + t);        
-          // Top (y+)
-          isOnStructFace[2] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
-                              ((yc >= struct_pos[1] + struct_dim[1] - t &&  vel[1] < 0.f && yc <= struct_pos[1] + struct_dim[1]) << 1) |
-                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
-          // Bottom (y-)
-          isOnStructFace[3] = ((xc >= struct_pos[0] && xc <= struct_pos[0] + struct_dim[0]) << 2) | 
-                              ((yc >= struct_pos[1] && vel[1] > 0.f && yc < struct_pos[1] + t) << 1) |
-                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
-          // Back (x+)
-          isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && vel[0] < 0.f && xc < struct_pos[0] + struct_dim[1]) << 2) | 
-                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
-                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);
-          // Front (x-)
-          isOnStructFace[5] = ((xc >= struct_pos[0] && vel[0] > 0.f && xc < struct_pos[0] + t) << 2) | 
-                              ((yc >= struct_pos[1] && yc <= struct_pos[1] + struct_dim[1]) << 1) |
-                              (zc >= struct_pos[2] && zc <= struct_pos[2] + struct_dim[2]);                             
-          // Reduce results from box faces to single result
-          int isOnStruct = 0; // Collision reduction variable
-          for (int iter=0; iter<6; iter++) {
-            if (isOnStructFace[iter] != 7) {
-              // Check if 111 (7, all flags), set 000 (0, now no flags) otherwise
-              isOnStructFace[iter] = 0;
-            } else {
-              // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
-              isOnStructFace[iter] = (1 << iter / 2);
-            }
-            isOnStruct |= isOnStructFace[iter]; // OR reduces face results into one int
-          }
-          if (isOnStruct == 6 || isOnStruct == 5 || isOnStruct == 7) isOnStruct = 4; // Overlaps on front (XY, XZ, XYZ) -> (X)
-          else if (isOnStruct == 3) isOnStruct = 0; // Overlaps on sides (YZ) -> (None)
-          isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
-        }
 
 #if 1
         ///< Slip contact        
@@ -615,147 +546,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (isInBound) ///< sticky
           vel.set(0.f);
 #endif
-
-        vec3 ns; //< Ramp boundary surface normal
-        float ys;
-        float xo;
-
-
-        float bathx[7];
-        float bathy[7];
-
-
-        bathx[0] = 0.f - wmn; //
-        bathx[1] = 14.275f + bathx[0];
-        bathx[2] = 3.658f + bathx[1];
-        bathx[3] = 10.973f + bathx[2];
-        bathx[4] = 14.63f + bathx[3];
-        bathx[5] = 36.57f + bathx[4];
-        bathx[6] = 7.354f + bathx[5];
-
-
-        bathy[0] = 0.0f;
-        bathy[1] = (0.15 + 0.076) + bathy[0]; // Bathymetry slap raised ~0.15m, 0.076m thick
-        bathy[2] = 0.0f + bathy[1];
-        bathy[3] = (10.973f / 12.f) + bathy[2];
-        bathy[4] = 1.75f; //(14.63f / 24.f) + bathy[3];
-        bathy[5] = 0.f + bathy[4];
-        bathy[6] = (7.354f / 12.f) + bathy[5]; 
-        // Start ramp segment definition for OSU flume
-        // Based on bathymetry diagram, February
-        if (xc < (bathx[1]/g_length)+offset) {
-          // Flat, 0' elev., 0' - 46'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          //xo = offset;
-          float yo = bathy[0]/g_length + offset;
-          //ys = 1.f/72.f * (xc -xo) + yo;
-          ys = yo;
-
-        } else if (xc >= (bathx[1]/g_length)+offset && xc < (bathx[2]/g_length)+offset){
-          // Flat (adjustable), 0' elev., 46'10 - 58'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          //xo = (bathx[1] / g_length) + offset;
-          float yo = bathy[1]/g_length + offset;
-          ys = yo;
-
-        } else if (xc >= (bathx[2]/g_length)+offset && xc < (bathx[3]/g_length)+offset) {
-          // 1:12, 0' elev., 58'10 - 94'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (bathx[2] / g_length) + offset;
-          float yo = bathy[2] / g_length + offset;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else if (xc >= (bathx[3]/g_length)+offset && xc < (bathx[4]/g_length)+offset) {
-          // 1:24, 3' elev., 94'10 - 142'10
-          ns[0] = -1.f/24.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (bathx[3] / g_length) + offset;
-          float yo = (bathy[3] / g_length) + offset;
-          ys = 1.f/24.f * (xc - xo) + yo;
-
-        } else if (xc >= (bathx[4]/g_length)+offset && xc < (bathx[5]/g_length)+offset) {
-          // Flat, 5' elev., 142'10 - 262'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          //xo = (bathx[4] / g_length) + offset;
-          float yo = (bathy[4] / g_length) + offset;
-          ys = yo;
-
-        } else if (xc >= (bathx[5]/g_length)+offset && xc < (bathx[6]/g_length)+offset) {
-          // 1:12, 5' elev., 262'10 - 286'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (bathx[5] / g_length) + offset;
-          float yo = (bathy[5] / g_length) + offset;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else {
-          // Flat, 7' elev., 286'10 onward
-          ns[0]=0.f;
-          ns[1]=1.f;
-          ns[2]=0.f;
-          float yo = (bathy[6] / g_length) + offset;
-          ys = yo;        
-        }
-
-        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns = ns / ns_mag;
-        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
-
-        // Boundary thickness and cell distance
-        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-
-        // Decay coefficient
-        float ySF;
-        if (yc >= ys + g_dx) ySF = 0.f; // Above decay layer
-        else if (yc < ys) ySF = 1.f; // Below surface
-        else ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx); // In decay layer
-        
-
-        // fbc = -fint - fext - (1/dt)*p
-        // a = (1 / mass) * (fint + fext + ySf*fbc) 
-
-        // Adjust velocity relative to surface
-        if (0) {
-          // Normal adjustment in decay layer, fix below
-          if (ySF == 1.f) {
-            vel[0] = vel[1] = vel[2] = 0.f;
-          } else if (ySF > 0.f && ySF < 1.f) {
-            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
-            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
-            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
-          }
-        }
-        if (1) {
-          if (ySF == 1.f) {
-            // Fix below surface
-            vel[0] = vel[1] = vel[2] = 0.f;
-          } else if (ySF > 0.f && ySF < 1.f && vdotns < 0.f) {
-            // Normal adjusted in decay layer, seperable condition
-            vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-            vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-            vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-          }
-        }
-
-
-        if (1) {
-          // OSU Wave-Maker - CSV Control
-          if (xc <= (waveMaker[1] / g_length + offset)) {
-             //vel[0] = fmax(waveMaker[2] / g_length, abs(vel[0]));
-             if (vel[0] < waveMaker[2] / g_length) vel[0] = waveMaker[2] / g_length;
-          }
-        }
 
         grid_block.val_1d(_1, cidib) = vel[0];
         velSqr += vel[0] * vel[0];
@@ -841,79 +631,16 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel[2] = grid_block.val_1d(_3, cidib); //< mvz
 
 
-        // WASIRF Harris Flume (Slip)
+        // Tank Dimensions
+        // See Wen-Chia Yang Dissertation, Page 82 Figure 5.1
         // Acts on individual grid-cell velocities
-        // https://teamer-us.org/product/university-of-washington-harris-hydraulics-wasirf/
-        float flumex = 104.f / g_length; // Actually 12m, added run-in/out
-        float flumey = 4.6f / g_length; // 1.22m Depth
-        float flumez = 3.67f / g_length; // 0.91m Width
+        float flumex = 3.2f / g_length; // Actually 12m, added run-in/out
+        float flumey = 6.4f / g_length; // 1.22m Depth
+        float flumez = 0.4f / g_length; // 0.91m Width
         int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
                          ((yc < offset || yc >= flumey + offset) << 1) |
                           (zc < offset || zc >= flumez + offset);
         isInBound |= isInFlume; // Update with regular boundary for efficiency
-
-
-        // Add grid-cell boundary for structural block, WASIRF flume
-        vec3 struct_dim; //< Dimensions of structure in [1,1,1] pseudo-dimension
-        struct_dim[0] = (0.7871f) / g_length;
-        struct_dim[1] = (0.3935f) / g_length;
-        struct_dim[2] = (0.7871f) / g_length;
-        vec3 struct_pos; //< Position of structures in [1,1,1] pseudo-dimension
-        struct_pos[0] = ((46 + 12 + 36 + 48 + (10.f/12.f))*0.3048f) / g_length + offset;
-        struct_pos[1] = ((69.f/12.f)*0.3048f) / g_length + offset;
-        struct_pos[2] = (flumez - struct_dim[2]) / 2.f + offset;
-        float t = 0.0f * g_dx;
-
-        // Check if grid-cell is within sticky interior of structural box
-        // Subtract slip-layer thickness from structural box dimension for geometry
-        int isOutStruct  = ((xc >= struct_pos[0] + t && xc < struct_pos[0] + struct_dim[0] - t) << 2) | 
-                           ((yc >= struct_pos[1] + t && yc < struct_pos[1] + struct_dim[1] - t) << 1) |
-                            (zc >= struct_pos[2] + t && zc < struct_pos[2] + struct_dim[2] - t);
-        if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-        isInBound |= isOutStruct; // Update with regular boundary for efficiency
-        
-        // Check exterior slip-layer of structural block(OSU Flume)
-        // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-        int isOnStructFace[6];
-        // Right (z+)
-        isOnStructFace[0] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] + struct_dim[2] - t && zc < struct_pos[2] + struct_dim[2]);
-        // Left (z-)
-        isOnStructFace[1] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + t);        
-        // Top (y+)
-        isOnStructFace[2] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] + struct_dim[1] - t && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Bottom (y-)
-        isOnStructFace[3] = ((xc >= struct_pos[0] && xc < struct_pos[0] + struct_dim[0]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + t) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Back (x+)
-        isOnStructFace[4] = ((xc >= struct_pos[0] + struct_dim[0] - t && xc < struct_pos[0] + struct_dim[1]) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);
-        // Front (x-)
-        isOnStructFace[5] = ((xc >= struct_pos[0] && xc < struct_pos[0] + t) << 2) | 
-                            ((yc >= struct_pos[1] && yc < struct_pos[1] + struct_dim[1]) << 1) |
-                             (zc >= struct_pos[2] && zc < struct_pos[2] + struct_dim[2]);                             
-        // Reduce results from box faces to single result
-        int isOnStruct = 0; // Collision reduction variable
-        for (int iter=0; iter<6; iter++) {
-          if (isOnStructFace[iter] != 7) {
-            // Check if 111 (7), set 000 (0) otherwise
-            isOnStructFace[iter] = 0;
-          } else {
-            isOnStructFace[iter] = (1 << iter / 2);
-          }
-          isOnStruct |= isOnStructFace[iter]; // OR operator to reduce results
-        }
-        if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front
-        else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on sides
-        isInBound |= isOnStruct; // Update with regular boundary for efficiency
-
 
 #if 1
         ///< Slip contact        
@@ -929,120 +656,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (isInBound) ///< sticky
           vel.set(0.f);
 #endif
-
-
-        vec3 ns; //< Ramp boundary surface normal
-        float ys;
-        float xs;
-        float xo;
-
-        // Start ramp segment definition for OSU flume
-        // Based on bathymetry diagram, February
-        if (xc < (14.2748/g_length)+offset) {
-          // Flat, 0' elev., 0' - 46'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (14.2748/g_length)+offset && xc < (17.9324/g_length)+offset){
-          // Flat (adjustable), 0' elev., 46'10 - 58'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (14.2748 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (17.9324/g_length)+offset && xc < (28.905/g_length)+offset) {
-          // 1:12, 0' elev., 58'10 - 94'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (17.9324 / g_length) + offset;
-          float yo = offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else if (xc > (28.905/g_length)+offset && xc < (43.5356/g_length)+offset) {
-          // 1:24, 3' elev., 94'10 - 142'10
-          ns[0] = -1.f/24.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (28.905 / g_length) + offset;
-          float yo = (0.9144 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/24.f * (xc - xo) + yo;
-
-        } else if (xc > (43.5356/g_length)+offset && xc < (80.1116/g_length)+offset) {
-          // Flat, 5' elev., 142'10 - 262'10
-          ns[0] = 0.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (43.5356 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = yo;
-
-        } else if (xc > (80.1116/g_length)+offset && xc < (87.4268/g_length)+offset) {
-          // 1:12, 5' elev., 262'10 - 286'10
-          ns[0] = -1.f/12.f;
-          ns[1] = 1.f;
-          ns[2] = 0.f;
-          xo = (80.1116 / g_length) + offset;
-          float yo = (1.524 / g_length) + offset;
-          xs = xc;
-          ys = 1.f/12.f * (xc - xo) + yo;
-
-        } else {
-          // Flat, 7' elev., 286'10 onward
-          ns[0]=0.f;
-          ns[1]=1.f;
-          ns[2]=0.f;
-          float yo = (2.1336 / g_length) + offset;
-          ys = yo;        
-        }
-
-        float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-        ns = ns / ns_mag;
-        float vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
-
-        // Boundary thickness and cell distance
-        //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-        //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-
-        // Decay coefficient
-        float ySF;
-        if (yc > ys) {
-          ySF = 0.f;
-        } else if (yc <= ys){
-          ySF = 1.f;
-        }
-
-        // fbc = -fint - fext - (1/dt)*p
-        // a = (1 / mass) * (fint + fext + ySf*fbc) 
-
-        // Adjust velocity relative to surface
-        if (0) {
-          // Normal adjustment in decay layer, fix below
-          if (ySF == 1.f) {
-            vel.set(0.f);
-          } else if (ySF > 0.f && ySF < 1.f) {
-            vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
-            vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
-            vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
-          }
-        }
-        if (1) {
-          // Free above surface, normal adjusted below
-          vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-          vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-          vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-        }
 
 
         ivec3 cellid{(cidib & 0x30) >> 4, (cidib & 0xc) >> 2, cidib & 0x3};
@@ -3248,6 +2861,7 @@ __global__ void v2fem2v(float dt, float newDt,
                       ElementArray element_array,
                       ElementBuffer<fem_e::Tetrahedron> elementBins) {
 
+  if (blockIdx.x >= g_max_fem_element_num) return;
   int IDs[4];
   vec3 p[4];
   auto element = elementBins.ch(_0, blockIdx.x);
@@ -3276,7 +2890,7 @@ __global__ void v2fem2v(float dt, float newDt,
     p[v][0] = vertice_array.val(_0, ID) * g_length;
     p[v][1] = vertice_array.val(_1, ID) * g_length;
     p[v][2] = vertice_array.val(_2, ID) * g_length;
-    vertice_array.val(_6, ID) = 0.f;
+    //vertice_array.val(_6, ID) = 0.f;
   }
   __syncthreads();
 
@@ -3356,7 +2970,7 @@ __global__ void v2fem2v(float dt, float newDt,
         }
     }
   }
-
+  __syncthreads();
   {
     int ID = IDs[threadIdx.x] - 1;
     atomicAdd(&vertice_array.val(_3, ID), b[0]); //< bx
@@ -3367,6 +2981,7 @@ __global__ void v2fem2v(float dt, float newDt,
     atomicAdd(&vertice_array.val(_8, ID), f[1]); //< fy
     atomicAdd(&vertice_array.val(_9, ID), f[2]); //< fz
   }
+  __syncthreads();
 }
 
 template <typename VerticeArray, typename ElementArray>
@@ -4016,9 +3631,9 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
@@ -4058,19 +3673,25 @@ retrieve_particle_buffer_attributes(Partition partition,
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
     
-    /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    /// Send positions (x,y,z) [m] to parray (device --> device)
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
-      /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
+      /// Send attributes (J, P, Vel_y) to pattribs (device --> device)
       float J = source_bin.val(_3, _source_pidib);
       float pressure = (pbuffer.bulk / pbuffer.gamma) * 
         (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
       pattrib.val(_0, parid) = J;              //< J (V/Vo)
       pattrib.val(_1, parid) = pressure;       //< Pressure (Pa)
-      pattrib.val(_2, parid) = source_bin.val(_4, _source_pidib); // Vel_x
+      pattrib.val(_2, parid) = source_bin.val(_5, _source_pidib) * g_length; // Vel_y
+    }
+    if (0) {
+      /// Send attributes (Vel_x, Vel_y, Vel_z) to pattribs (device --> device)
+      pattrib.val(_0, parid) = source_bin.val(_4, _source_pidib) * g_length; // Vel_x
+      pattrib.val(_1, parid) = source_bin.val(_5, _source_pidib) * g_length; // Vel_y
+      pattrib.val(_2, parid) = source_bin.val(_6, _source_pidib) * g_length; // Vel_z
     }
   }
 }
@@ -4102,9 +3723,9 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
@@ -4172,15 +3793,15 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes to pattribs (device --> device) 
-      pattrib.val(_0, parid) = source_bin.val(_12, _source_pidib); //< vx
-      pattrib.val(_1, parid) = source_bin.val(_13, _source_pidib); //< vy
-      pattrib.val(_2, parid) = source_bin.val(_14, _source_pidib); //< vz
+      pattrib.val(_0, parid) = source_bin.val(_12, _source_pidib) * g_length; //< vx
+      pattrib.val(_1, parid) = source_bin.val(_13, _source_pidib) * g_length; //< vy
+      pattrib.val(_2, parid) = source_bin.val(_14, _source_pidib) * g_length; //< vz
     }
   }
 }
@@ -4212,9 +3833,9 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes to pattribs (device --> device)
@@ -4252,9 +3873,9 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes to pattribs (device --> device)
@@ -4292,14 +3913,14 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto parid = atomicAdd(_parcnt, 1);
     
     /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
-    parray.val(_0, parid) = source_bin.val(_0, _source_pidib);
-    parray.val(_1, parid) = source_bin.val(_1, _source_pidib);
-    parray.val(_2, parid) = source_bin.val(_2, _source_pidib);
+    parray.val(_0, parid) = source_bin.val(_0, _source_pidib) * g_length;
+    parray.val(_1, parid) = source_bin.val(_1, _source_pidib) * g_length;
+    parray.val(_2, parid) = source_bin.val(_2, _source_pidib) * g_length;
 
     if (1) {
       /// Send attributes to pattribs (device --> device)
       pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
-      pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib); //< vel_x
+      pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib) * g_length; //< vel_x
       pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< J/Tension
     }
   }
@@ -4370,13 +3991,13 @@ __global__ void retrieve_selected_grid_cells(
       //__syncthreads(); // Sync threads in block
 
       /// Set values in grid-array to specific cell from grid-buffer
-      garray.val(_0, node_id) = xc;
-      garray.val(_1, node_id) = yc;
-      garray.val(_2, node_id) = zc;
+      garray.val(_0, node_id) = xc * g_length;
+      garray.val(_1, node_id) = yc * g_length;
+      garray.val(_2, node_id) = zc * g_length;
       garray.val(_3, node_id) = sourceblock.val(_0, i, j, k);
-      garray.val(_4, node_id) = sourceblock.val(_1, i, j, k);
-      garray.val(_5, node_id) = sourceblock.val(_2, i, j, k);
-      garray.val(_6, node_id) = sourceblock.val(_3, i, j, k);
+      garray.val(_4, node_id) = sourceblock.val(_1, i, j, k) * g_length;
+      garray.val(_5, node_id) = sourceblock.val(_2, i, j, k) * g_length;
+      garray.val(_6, node_id) = sourceblock.val(_3, i, j, k) * g_length;
 
       /// Set values in grid-array to specific cell from grid-buffer
       float m1  = garray.val(_3, node_id);
@@ -4387,9 +4008,9 @@ __global__ void retrieve_selected_grid_cells(
       m2 = 1.f / m2; //< Invert mass, avoids division operator
       
 
-      float vx1 = garray.val(_4, node_id) * m1 * g_length;
-      float vy1 = garray.val(_5, node_id) * m1 * g_length;
-      float vz1 = garray.val(_6, node_id) * m1 * g_length;
+      float vx1 = garray.val(_4, node_id) * m1;
+      float vy1 = garray.val(_5, node_id) * m1;
+      float vz1 = garray.val(_6, node_id) * m1;
       float vx2 = 0.f;
       float vy2 = 0.f;
       float vz2 = 0.f;
@@ -4397,13 +4018,28 @@ __global__ void retrieve_selected_grid_cells(
       float fx = m * (vx1 - vx2) / dt;
       float fy = m * (vy1 - vy2) / dt;
       float fz = m * (vz1 - vz2) / dt;
-      if (fx <= 0.f) continue;
+      
+
+      // Set load direction x/y/z
+      // if ( dir_val == 0 || dir_val == 1 || dir_val == 2 ) force = fx;
+      // else if ( dir_val == 3 || dir_val == 4 || dir_val == 5 ) force = fy;
+      // else if ( dir_val == 6 || dir_val == 7 || dir_val == 8 ) force = fz;
+      // else force = 0.f;
+      // // Seperation -+/-/+ condition for load
+      // if ((dir_val % 3) == 1) {
+      //   if (force >= 0.f) continue;
+      // } else if ((dir_val % 3) == 2) {
+      //   if (force <= 0.f) continue;
+      // }
 
       garray.val(_7, node_id) = fx;
       garray.val(_8, node_id) = fy;
-      garray.val(_9, node_id) += 1.f; //temp way to track node_id duplicates
+      garray.val(_9, node_id) = fz; 
 
-      atomicAdd(forceSum, fx);
+      float force;
+      force = fx;
+      if (force <= 0.f) continue;
+      atomicAdd(forceSum, force);
     }
   }
 }
@@ -4442,9 +4078,9 @@ __global__ void retrieve_wave_gauge(
       int k = cidib & g_blockmask;
 
       // Grid node position [x,y,z] in entire domain 
-      float xc = (4*blockid[0]*g_dx) + (i*g_dx); // + (g_dx/2.f);
-      float yc = (4*blockid[1]*g_dx) + (j*g_dx); // + (g_dx/2.f);
-      float zc = (4*blockid[2]*g_dx) + (k*g_dx); // + (g_dx/2.f);
+      float xc = (4*blockid[0]*g_dx) + (i*g_dx);
+      float yc = (4*blockid[1]*g_dx) + (j*g_dx);
+      float zc = (4*blockid[2]*g_dx) + (k*g_dx);
       float offset = (8.f * g_dx);
 
       // Exit thread if cell is not inside wave-gauge domain +/- tol

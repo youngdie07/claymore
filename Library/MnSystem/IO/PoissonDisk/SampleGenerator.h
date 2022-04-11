@@ -226,9 +226,9 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 	int sampleNum = validCellNum * samplesPerCell;
 	float samplesPerLength = 1.f / cbrtf(samplesPerCell);
 	int i_lim, j_lim, k_lim;
-	i_lim = (int)floor(((float)m_ni - 1.f) / samplesPerLength);
-	j_lim = (int)floor(((float)m_nj - 1.f) / samplesPerLength);
-	k_lim = (int)floor(((float)m_nk - 1.f) / samplesPerLength);
+	i_lim = (int)floor(((float)m_ni ) / samplesPerLength);
+	j_lim = (int)floor(((float)m_nj ) / samplesPerLength);
+	k_lim = (int)floor(((float)m_nk ) / samplesPerLength);
 
 	int pad = 1;
 	float fpad = (float)pad;
