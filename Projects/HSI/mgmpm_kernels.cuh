@@ -227,7 +227,7 @@ __global__ void fem_precompute(VerticeArray vertice_array,
     Binv[8] = p[3][2] - p[0][2];
     
     //float invCheck = matrixDeterminant3d(Binv.data());
-    float restVolume = fabs(matrixDeterminant3d(Binv.data())) / 6.f;
+    float restVolume = (matrixDeterminant3d(Binv.data())) / 6.f;
     
     B.set(0.f);
     matrixInverse(Binv.data(), B.data());
@@ -454,6 +454,9 @@ __global__ void array_to_buffer(ParticleArray parray,
     pbin.val(_5, pidib % g_bin_capacity) = vel[1]; //< Vel_y m/s
     pbin.val(_6, pidib % g_bin_capacity) = vel[2]; //< Vel_z m/s
     pbin.val(_7, pidib % g_bin_capacity) = 0.f; //< J
+    pbin.val(_8, pidib % g_bin_capacity)  = 0.f; //< b_x   
+    pbin.val(_9, pidib % g_bin_capacity)  = 0.f; //< b_y
+    pbin.val(_10, pidib % g_bin_capacity) = 0.f; //< b_z
   }
 }
 
@@ -2741,6 +2744,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     vec3 vp_n; //< Particle vel. at n
     float tension;
     //float J;   //< Particle volume ratio at n
+    vec3 b;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
@@ -2751,6 +2755,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
       tension = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
+      b[0] = source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< bx
+      b[1] = source_particle_bin.val(_9, source_pidib % g_bin_capacity); //< by
+      b[2] = source_particle_bin.val(_10, source_pidib % g_bin_capacity); //< bz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -2831,10 +2838,77 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     else if (tension <= -1.f) beta = 0.f;
     else beta = pbuffer.beta_min;
+    
 
-    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
-    vel += pbuffer.alpha * (vp_n - vel_n);
+    // Clean this up - JB
+    float count;
+    count = vertice_array.val(_10,ID); //< count
 
+    // Interior
+    if (count > 6.f) {
+      pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+      vel += pbuffer.alpha * (vp_n - vel_n);
+    }
+    // Exterior
+    // Modified Sim. for Vol. Obj. with Frictional Contact
+    // Mixed with FLIP/PIC style
+    // Collision Particles = Vertices (i.e. q = p)
+    // No grid impulse set for cohesionless contact yet
+    else if (count <= 6.f) {
+      float b_mag;
+      b_mag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
+      float small, tiny;
+      small = 1.f;
+      tiny = 1e-5;
+      if ( fabs(b_mag) < small ) {
+        pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+        vel += pbuffer.alpha * (vp_n - vel_n);
+      } else {
+        vec3 n;
+        n = b / b_mag;
+        vec3 vr;
+        //vr = vel_n - vp_n;
+        vr = (vel - vp_n);
+        float vrdotn;
+        vrdotn = (vr[0]*n[0] + vr[1]*n[1] + vr[2]*n[2]);
+
+        // Contact
+        if (vrdotn >= 0.f) {
+          // Seperate
+          
+          //vel = vp_n;
+          // Consider using a ASFLIP style advection here
+          // Might avoid grid impulses? Or atleast 
+          // breaks positional trap
+          vel += pbuffer.alpha * (vp_n - vel_n);        
+          pos += vel * dt;
+        } else {
+          // Collide
+          vec3 vt;  
+          float I;
+          I = 2 * vrdotn; // Tech. has mass but divides out later
+          vt[0] = vr[0] - vrdotn * vr[0];
+          vt[1] = vr[1] - vrdotn * vr[1];
+          vt[2] = vr[2] - vrdotn * vr[2];
+
+        
+          //float vt_mag;
+          //vt_mag = sqrt(vt[0]*vt[0] + vt[1]*vt[1] + vt[2]*vt[2]);
+          float mu; // Coulumb friction parameter
+          mu = 0.f;
+          //if ( fabs(vt_mag) < tiny) vt_mag = 1.f;
+
+          vel += pbuffer.alpha * I*n;// + fmin(vt_mag, -mu*I) * vt / vt_mag ;
+          pos += dt * vel;
+          
+        }
+
+      }
+    } else {
+      pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+      vel += pbuffer.alpha * (vp_n - vel_n);
+    }
+    
     {
       {
         vertice_array.val(_0, ID) = pos[0];
@@ -2847,6 +2921,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         vertice_array.val(_7, ID) = 0.f; //< fx
         vertice_array.val(_8, ID) = 0.f; //< fy
         vertice_array.val(_9, ID) = 0.f; //< fz
+        vertice_array.val(_10,ID) = 0.f; //< count
       }
     }
   }
@@ -2866,100 +2941,151 @@ __global__ void v2fem2v(float dt, float newDt,
   vec3 p[4];
   auto element = elementBins.ch(_0, blockIdx.x);
 
+
+  /* matrix indexes
+          mat1   |  diag   |  mat2^T
+          0 3 6  |  0      |  0 1 2
+          1 4 7  |    1    |  3 4 5
+          2 5 8  |      2  |  6 7 8
+  */
+
   /// Precomputed
-  vec9 B;
-  B.set(0.f);
+  // Bm is undeformed face normal matrix
+  // relative to a point 0
+  // Bm^T = Dm^-1
+  vec9 BmT;
+  BmT.set(0.f);
   IDs[0] = element.val(_0, 0);
   IDs[1] = element.val(_1, 0);
   IDs[2] = element.val(_2, 0);
   IDs[3] = element.val(_3, 0);
-  B[0] = element.val(_4, 0);
-  B[1] = element.val(_5, 0);
-  B[2] = element.val(_6, 0);
-  B[3] = element.val(_7, 0);
-  B[4] = element.val(_8, 0);
-  B[5] = element.val(_9, 0);
-  B[6] = element.val(_10, 0);
-  B[7] = element.val(_11, 0);
-  B[8] = element.val(_12, 0);
+  BmT[0] = element.val(_4, 0);
+  BmT[1] = element.val(_5, 0);
+  BmT[2] = element.val(_6, 0);
+  BmT[3] = element.val(_7, 0);
+  BmT[4] = element.val(_8, 0);
+  BmT[5] = element.val(_9, 0);
+  BmT[6] = element.val(_10, 0);
+  BmT[7] = element.val(_11, 0);
+  BmT[8] = element.val(_12, 0);
   float restVolume = element.val(_13, 0);
 
-
+  // Set position of vertices
   for (int v = 0; v < 4; v++) {
     int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
     p[v][0] = vertice_array.val(_0, ID) * g_length;
     p[v][1] = vertice_array.val(_1, ID) * g_length;
     p[v][2] = vertice_array.val(_2, ID) * g_length;
-    //vertice_array.val(_6, ID) = 0.f;
   }
   __syncthreads();
 
   /// Run-Time
-  vec9 D;
-  D.set(0.f);
-  D[0] = p[1][0] - p[0][0];
-  D[1] = p[1][1] - p[0][1];
-  D[2] = p[1][2] - p[0][2];
-  D[3] = p[2][0] - p[0][0];
-  D[4] = p[2][1] - p[0][1];
-  D[5] = p[2][2] - p[0][2];
-  D[6] = p[3][0] - p[0][0];
-  D[7] = p[3][1] - p[0][1];
-  D[8] = p[3][2] - p[0][2];
+  // Ds is deformed edge vector matrix
+  // relative to a point 0
+  vec9 Ds;
+  Ds.set(0.f);
+  Ds[0] = p[1][0] - p[0][0];
+  Ds[1] = p[1][1] - p[0][1];
+  Ds[2] = p[1][2] - p[0][2];
+  Ds[3] = p[2][0] - p[0][0];
+  Ds[4] = p[2][1] - p[0][1];
+  Ds[5] = p[2][2] - p[0][2];
+  Ds[6] = p[3][0] - p[0][0];
+  Ds[7] = p[3][1] - p[0][1];
+  Ds[8] = p[3][2] - p[0][2];
 
-  vec9 F;
+  // F is deformation gradient tensor 
+  vec9 F; // Deformation gradient at Gauss point
   F.set(0.f);
-  matrixMatrixMultiplication3d(D.data(), B.data(), F.data());
+  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+  matrixMatrixMultiplication3d(Ds.data(), BmT.data(), F.data());
+
+  // F^-1 = inv(F)
+  vec9 Finv;
+  Finv.set(0.f);
+  matrixInverse(F.data(), Finv.data());
+
+  // J = det | F |,  i.e. volume change ratio undef -> def
   float J;
-  float Jc = 1.0;
   J = matrixDeterminant3d(F.data());
+
   float tension;
+  float Jc = 1.0; // Characteristic J for material
   if (J >= Jc) tension = 1.f;
   else if (J < 0.99f) tension = -1.f;
   else tension = 0.f;
+
+  // P is First Piola-Kirchoff stress at element Gauss point
   vec9 P;
   P.set(0.f);
+  // P = (dPsi/dF){F}
+  // Fixed-Corotated solid model here for energy potential
   compute_stress_FEM_fixedcorotated(restVolume, elementBins.mu, elementBins.lambda, F, P);
 
-  vec9 H;
-  H.set(0.f);
-  matrixMatrixTransposeMultiplication3d(P.data(), B.data(), H.data());
+  // G is deformed internal force contribution matrix
+  // at vertices relative to a vertex 0
+  vec9 G;
+  G.set(0.f);
+  // G = P Bm
+  matrixMatrixTransposeMultiplication3d(P.data(), BmT.data(), G.data());
   
   __syncthreads();
 
+  // Bs is the deformed face normal matrix
+  vec9 BsT; 
+  BsT.set(0.f);
+  // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1
+  // Note: (AB)^T = B^T A^T
+  matrixMatrixMultiplication3d(BmT.data(), Finv.data(), BsT.data());
+
+  // f is the internal force vector at deformed vertex
+  vec3 f; // Internal force vector
+  f.set(0.f);
+
+  // b is the vertex normal deformed vector
   vec3 b; // Vertex normal deformed
   b.set(0.f);
-  b[0] = 1.f;
-  b[1] = 1.f;
-  b[2] = 1.f;
-  // vec9 Bs; 
-  // Bs.set(0.f);
-  // matrixInverse(F.data(), Finv.data());
-  // matrixTransposeMatrixTransposeMultiplication3d(Finv.data(), B.data(), Bs.data());
 
-  vec3 f;
-  f.set(0.f);
+  // Vertices = {0,1,2,3}
+  // Thread 1,..,n handles vertex 1,..,n
   if (threadIdx.x == 1){
-    f[0] = H[0];
-    f[1] = H[1];
-    f[2] = H[2];
+    f[0] = G[0];
+    f[1] = G[1];
+    f[2] = G[2];
+    b[0] = J * BsT[0];
+    b[1] = J * BsT[3];
+    b[2] = J * BsT[6];
   } else if (threadIdx.x == 2) {
-    f[0] = H[3];
-    f[1] = H[4];
-    f[2] = H[5];
+    f[0] = G[3];
+    f[1] = G[4];
+    f[2] = G[5];
+    b[0] = J * BsT[1];
+    b[1] = J * BsT[4];
+    b[2] = J * BsT[7];
   }  else if (threadIdx.x == 3) {
-    f[0] = H[6];
-    f[1] = H[7];
-    f[2] = H[8];
+    f[0] = G[6];
+    f[1] = G[7];
+    f[2] = G[8];
+    b[0] = J * BsT[2];
+    b[1] = J * BsT[5];
+    b[2] = J * BsT[8];
   } else {
-    f[0] = - (H[0] + H[3] + H[6]);
-    f[1] = - (H[1] + H[4] + H[7]);
-    f[2] = - (H[2] + H[5] + H[8]);
+    f[0] = - (G[0] + G[3] + G[6]);
+    f[1] = - (G[1] + G[4] + G[7]);
+    f[2] = - (G[2] + G[5] + G[8]);
+    b[0] = - J * (BsT[0] + BsT[1] + BsT[2]);
+    b[1] = - J * (BsT[3] + BsT[4] + BsT[5]);
+    b[2] = - J * (BsT[6] + BsT[7] + BsT[8]);
   }
+  float b_mag;
+  b_mag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
   float scale = restVolume / g_length;
   f[0] = f[0] * scale;
   f[1] = f[1] * scale; 
   f[2] = f[2] * scale;
+  b[0] = b[0] / b_mag;
+  b[1] = b[1] / b_mag;
+  b[2] = b[2] / b_mag;
 
   if (0) {
     if ((blockIdx.x) == 0){
@@ -2976,10 +3102,11 @@ __global__ void v2fem2v(float dt, float newDt,
     atomicAdd(&vertice_array.val(_3, ID), b[0]); //< bx
     atomicAdd(&vertice_array.val(_4, ID), b[1]); //< by
     atomicAdd(&vertice_array.val(_5, ID), b[2]); //< bz
-    atomicAdd(&vertice_array.val(_6, ID), restVolume / 4.f); //< vol
+    atomicAdd(&vertice_array.val(_6, ID), fabs(restVolume) / 4.f); //< vol
     atomicAdd(&vertice_array.val(_7, ID), f[0]); //< fx
     atomicAdd(&vertice_array.val(_8, ID), f[1]); //< fy
     atomicAdd(&vertice_array.val(_9, ID), f[2]); //< fz
+    atomicAdd(&vertice_array.val(_10, ID), 1.f); //< fz
   }
   __syncthreads();
 }
@@ -3185,6 +3312,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     int ID; // Vertice ID for mesh
     vec3 vp_n; //< Particle vel. at n
     float tension;
+    vec3 b;
     //float J;   //< Particle volume ratio at n
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -3196,6 +3324,9 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
       tension = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< vz
+      b[0] = source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< bx
+      b[1] = source_particle_bin.val(_9, source_pidib % g_bin_capacity); //< by
+      b[2] = source_particle_bin.val(_10, source_pidib % g_bin_capacity); //< bz
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     vec3 local_pos = pos - local_base_index * g_dx;
@@ -3269,18 +3400,23 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         }
     //J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
 
-    vec3 b; //< Vertex normal, area weighted
+    vec3 b_new; //< Vertex normal, area weighted
+    b_new.set(0.f);
     float restVolume;
     vec3 f; //< Internal nodes forces
+    f.set(0.f);
     float restMass;
+    float count;
+    count = 0.f;
     {
-      b[0] = vertice_array.val(_3, ID);
-      b[1] = vertice_array.val(_4, ID);
-      b[2] = vertice_array.val(_5, ID);
+      b_new[0] = vertice_array.val(_3, ID);
+      b_new[1] = vertice_array.val(_4, ID);
+      b_new[2] = vertice_array.val(_5, ID);
       restVolume = vertice_array.val(_6, ID);
       f[0] = vertice_array.val(_7, ID);
       f[1] = vertice_array.val(_8, ID);
       f[2] = vertice_array.val(_9, ID);
+      count = vertice_array.val(_10, ID);
       restMass = restVolume * pbuffer.rho;
       // Zero-out 
       vertice_array.val(_3, ID) = 0.f; // bx
@@ -3290,21 +3426,82 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vertice_array.val(_7, ID) = 0.f; // fx
       vertice_array.val(_8, ID) = 0.f; // fy
       vertice_array.val(_9, ID) = 0.f; // fz
-    }
+      vertice_array.val(_10, ID) = 0.f; // count
 
+    }
     //restMass = pbuffer.mass;
 
     float beta;
     // if (J >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     // else if (J < 1.f) beta = pbuffer.beta_min;
     // else beta = 0.f;
-
     if (tension >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     else if (tension <= -1.f) beta = 0.f;
     else beta = pbuffer.beta_min;
     
-    pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
-    vel += pbuffer.alpha * (vp_n - vel_n);
+
+    // Interior
+    if (count > 6.f){
+      pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+      vel += pbuffer.alpha * (vp_n - vel_n);
+    }
+    // Exterior
+    // Modified Sim. for Vol. Obj. with Frictional Contact
+    // Mixed with FLIP/PIC style
+    // Collision Particles = Vertices (i.e. q = p)
+    // No grid impulse set for cohesionless contact yet
+    else if (count <= 6.f) {
+      float b_mag;
+      b_mag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
+      float small, tiny;
+      small = 1.f;
+      tiny = 1e-5;
+      if ( fabs(b_mag) < small ) {
+        pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+        vel += pbuffer.alpha * (vp_n - vel_n);
+      } else {
+        vec3 n;
+        n = b / b_mag;
+        vec3 vr;
+        //vr = vel_n - vp_n;
+        vr = (vel - vp_n);
+        float vrdotn;
+        vrdotn = (vr[0]*n[0] + vr[1]*n[1] + vr[2]*n[2]);
+
+        // Contact
+        if (vrdotn >= 0.f) {
+          // Seperate
+          
+          //vel = vp_n;
+          // Consider using a ASFLIP style advection here
+          // Might avoid grid impulses? Or atleast 
+          // breaks positional trap
+          vel += pbuffer.alpha * (vp_n - vel_n);        
+          pos += vel * dt;
+        } else {
+          // Collide
+          vec3 vt;  
+          float I;
+          I = 2 * vrdotn; // Tech. has mass but divides out later
+          vt[0] = vr[0] - vrdotn * vr[0];
+          vt[1] = vr[1] - vrdotn * vr[1];
+          vt[2] = vr[2] - vrdotn * vr[2];
+
+        
+          //float vt_mag;
+          //vt_mag = sqrt(vt[0]*vt[0] + vt[1]*vt[1] + vt[2]*vt[2]);
+          float mu; // Coulumb friction parameter
+          mu = 0.f;
+          //if ( fabs(vt_mag) < tiny) vt_mag = 1.f;
+          vel += pbuffer.alpha * I*n ;//+ fmin(vt_mag, -mu*I) * vt / vt_mag ;
+          pos += dt * vel;
+        }
+
+      }
+    } else {
+      pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
+      vel += pbuffer.alpha * (vp_n - vel_n);
+    }
 
     {
       {
@@ -3319,6 +3516,10 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
         // Recheck this
         particle_bin.val(_7, pidib % g_bin_capacity) = restMass; //< tension
+        particle_bin.val(_8, pidib % g_bin_capacity) = b_new[0]; // bx
+        particle_bin.val(_9, pidib % g_bin_capacity) = b_new[1]; // by
+        particle_bin.val(_10, pidib % g_bin_capacity) = b_new[2]; // bz
+
       }
     }
 
@@ -3919,9 +4120,12 @@ retrieve_particle_buffer_attributes(Partition partition,
 
     if (1) {
       /// Send attributes to pattribs (device --> device)
-      pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
-      pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib) * g_length; //< vel_x
-      pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< J/Tension
+      // pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
+      // pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib) * g_length; //< vel_x
+      // pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< mass or J/Tension
+      pattrib.val(_0, parid) = source_bin.val(_8, _source_pidib) * g_length; //< b_x
+      pattrib.val(_1, parid) = source_bin.val(_9, _source_pidib) * g_length; //< b_y
+      pattrib.val(_2, parid) = source_bin.val(_10, _source_pidib) * g_length; //< b_z
     }
   }
 }

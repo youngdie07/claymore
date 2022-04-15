@@ -26,7 +26,8 @@ using particle_bin8_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_>; ///< pos, ID, vel, J
+               f32_, f32_, f32_, f32_, f32_,
+               f32_, f32_, f32_>; ///< pos, ID, vel, vol
 using particle_bin12_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,

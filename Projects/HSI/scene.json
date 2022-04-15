@@ -19,7 +19,7 @@
 			"rho": 1e3,
 			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.4,
-			"alpha": 0.0,
+			"alpha": 0.9,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
@@ -49,7 +49,7 @@
 			"rho": 1e3,
 			"bulk_modulus": 2.2e8,
 			"gamma": 7.1,
-			"viscosity": 0.01,
+			"viscosity": 0.001,
 			"alpha": 0.0,
 			"beta_min": 0,
 			"beta_max": 0,

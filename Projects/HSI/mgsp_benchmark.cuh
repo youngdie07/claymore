@@ -152,7 +152,7 @@ struct mgsp_benchmark {
   }
   
   // Initialize FEM vertices and elements
-  void initFEM(int devid, const std::vector<std::array<float, 10>> &h_vertices,
+  void initFEM(int devid, const std::vector<std::array<float, 11>> &h_vertices,
                 std::vector<std::array<int, 4>> &h_elements) {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
@@ -160,7 +160,7 @@ struct mgsp_benchmark {
     //pcnt[devid] = h_vertices.size();
     fmt::print("init FEM vertices [{}] with {} particles\n", devid, h_vertices.size());
     cudaMemcpyAsync((void *)&d_vertices[devid].val_1d(_0, 0), h_vertices.data(),
-                    sizeof(std::array<float, 10>) * h_vertices.size(),
+                    sizeof(std::array<float, 11>) * h_vertices.size(),
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
     
@@ -1381,7 +1381,7 @@ struct mgsp_benchmark {
   std::vector<std::array<float, 3>> models[config::g_device_cnt];
   std::vector<std::array<float, 3>> attribs[config::g_device_cnt];
   std::vector<std::array<float, 10>> h_gridTarget[config::g_device_cnt];   ///< Grid target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
-  std::vector<std::array<float, 10>> h_vertices[config::g_device_cnt];
+  std::vector<std::array<float, 11>> h_vertices[config::g_device_cnt];
   std::vector<std::array<int, 4>> h_elements[config::g_device_cnt];
   std::vector<std::array<float, 3>> h_waveMaker;   ///< wave-maker (time, disp, vel) on host (JB)
 

@@ -33,7 +33,7 @@ static const char *kTypeNames[] = {"Null",  "False",  "True",  "Object",
 
 
 typedef std::vector<std::array<float, 3>> WaveHolder;
-typedef std::vector<std::array<float, 10>> VerticeHolder;
+typedef std::vector<std::array<float, 11>> VerticeHolder;
 typedef std::vector<std::array<int, 4>> ElementHolder;
 float verbose = 0;
 
@@ -133,7 +133,7 @@ void load_FEM_Vertices(const std::string& filename, char sep,
           std::string field;
           float f = 1.f; // Scale factor
           const int el = 3; // x, y, z - Default
-          std::array<float, 10> arr;
+          std::array<float, 11> arr;
           int col = 0;
           while (getline(sep, field, ',')) {
               if (col >= el) break;
@@ -148,6 +148,7 @@ void load_FEM_Vertices(const std::string& filename, char sep,
           arr[7] = 0.f;
           arr[8] = 0.f;
           arr[9] = 0.f;
+          arr[10]= 0.f;
           fields.push_back(arr);
       }
   }

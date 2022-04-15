@@ -14,7 +14,8 @@ using vertice_array_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                VerticeArrayDomain, attrib_layout::aos, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_>; //< pos (x,y,z), normals (x,y,z), mass, force internal (x,y,z)
+               f32_, f32_, f32_, f32_, f32_, f32_, f32_,
+               f32_>; //< pos (x,y,z), normals (x,y,z), mass, force internal (x,y,z)
 
 /// FEM Elements
 /// Hold vertice IDs and material info for force computation
