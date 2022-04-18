@@ -85,6 +85,8 @@ struct mgsp_benchmark {
     checkedCnts[I][1] = 0;
     curNumActiveBlocks[I] = config::g_max_active_block;
     curNumActiveBins[I] = config::g_max_particle_bin;
+    element_cnt[I] = config::g_max_fem_element_num;
+    vertice_cnt[I] = config::g_max_fem_vertice_num;
     /// tail-recursion optimization
     if constexpr (I + 1 < config::g_device_cnt)
       initParticles<I + 1>();
@@ -157,17 +159,20 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(devid);
     cuDev.setContext();
     
-    //pcnt[devid] = h_vertices.size();
-    fmt::print("init FEM vertices [{}] with {} particles\n", devid, h_vertices.size());
+    vertice_cnt[devid] = h_vertices.size(); // Vertice count
+    element_cnt[devid] = h_elements.size(); // Element count
+
+    // Set FEM vertices in device array
+    fmt::print("init FEM vertices [{}] with {} particles\n", devid, vertice_cnt[devid]);
     cudaMemcpyAsync((void *)&d_vertices[devid].val_1d(_0, 0), h_vertices.data(),
-                    sizeof(std::array<float, 11>) * h_vertices.size(),
+                    sizeof(std::array<float, 11>) * vertice_cnt[devid],
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
     
-    //pcnt[devid] = h_elements.size();
-    fmt::print("init FEM elements [{}] with {} arrays\n", devid, h_elements.size());
+    // Set FEM elements in device array
+    fmt::print("init FEM elements [{}] with {} arrays\n", devid, element_cnt[devid]);
     cudaMemcpyAsync((void *)&d_elements[devid].val_1d(_0, 0), h_elements.data(),
-                    sizeof(std::array<int, 4>) * h_elements.size(),
+                    sizeof(std::array<int, 4>) * element_cnt[devid],
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
   }
@@ -607,11 +612,8 @@ struct mgsp_benchmark {
             match(elementBins[did])([&](const auto &eb) {
               //if (partitions[rollid][did].h_count)
                 cuDev.compute_launch(
-                    {g_max_fem_element_num, 4},
+                    {element_cnt[did], 4},
                     v2fem2v, dt, nextDt,
-                    // (const ivec3 *)partitions[rollid][did]._haloBlocks,
-                    // partitions[rollid ^ 1][did], partitions[rollid][did],
-                    // gridBlocks[0][did], gridBlocks[1][did],
                     d_vertices[did], d_elements[did], eb);
             });
             cuDev.syncStream<streamIdx::Compute>();
@@ -1105,8 +1107,14 @@ struct mgsp_benchmark {
       });
       //FEM Precompute
       if (g_fem_gpu[did]){
+        // Resize elementBins
+        match(elementBins[did])([&](auto &eb) {
+          eb.resize(device_allocator{}, element_cnt[did]);
+        });
+        cuDev.syncStream<streamIdx::Compute>();
+        // Precomputation of element variables (e.g. volume)
         match(elementBins[did])([&](const auto &eb) {
-          cuDev.compute_launch({g_max_fem_element_bin, g_fem_element_bin_capacity},
+          cuDev.compute_launch({element_cnt[did], g_fem_element_bin_capacity},
                               fem_precompute, d_vertices[did], d_elements[did],
                               eb);
         });
@@ -1375,6 +1383,8 @@ struct mgsp_benchmark {
       checkedCnts[config::g_device_cnt][2];
   vec<float, config::g_device_cnt> maxVels;
   vec<int, config::g_device_cnt> pbcnt, nbcnt, ebcnt, bincnt; ///< num blocks
+  vec<int, config::g_device_cnt> element_cnt;
+  vec<int, config::g_device_cnt> vertice_cnt;
   vec<uint32_t, config::g_device_cnt> pcnt;                   ///< num particles
   vec<uint32_t, config::g_device_cnt> target_cnt; ///< Number of target grid nodes (JB)
   std::vector<float> durations[config::g_device_cnt + 1];

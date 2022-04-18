@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 2;
+constexpr int g_device_cnt = 1;
 constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid_ASFLIP, material_e::Meshed, 
+                      material_e::JFluid-ASFLIP, material_e::Meshed, 
                       material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 6
+#define DOMAIN_BITS 7
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -110,20 +110,20 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -10.f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 100000; // Particle upperbound
+constexpr int g_max_particle_num = 500000; // Particle upperbound
 constexpr int g_max_active_block = 2500;  /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);
 }
 constexpr std::size_t g_max_particle_bin = g_max_particle_num / g_bin_capacity;
-constexpr std::size_t g_max_halo_block = 0;  //< Max halo blocks (#)
-constexpr int g_target_cells = 2000; //< Max nodes in grid-cell target
+constexpr std::size_t g_max_halo_block = 500;  //< Max halo blocks (#)
+constexpr int g_target_cells = 5000; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 216; //3636;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 625; //12500; // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 625; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 10000; //3636;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 50000; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 50000; //12500; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 } // namespace config
 

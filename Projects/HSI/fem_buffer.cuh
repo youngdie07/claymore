@@ -151,9 +151,7 @@ struct ElementBuffer<fem_e::Brick> : ElementBufferImpl<fem_e::Brick> {
 using element_buffer_t =
     variant<ElementBuffer<fem_e::Tetrahedron>,
             ElementBuffer<fem_e::Brick>>;
-// using element_bin_t =
-//     variant<ElementBuffer<fem_e::Tetrahedron>,
-//             ElementBuffer<fem_e::Brick>>;
+
 
 struct VerticeArray : Instance<vertice_array_> {
   using base_t = Instance<vertice_array_>;
