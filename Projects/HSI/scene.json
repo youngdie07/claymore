@@ -4,11 +4,11 @@
 		"gravity": -10.0,
 		"fps": 10,
 		"frames": 30,
-		"default_dt": 1e-4
+		"default_dt": 1.5e-5
 	},
 	"meshes": [
 		{
-			"gpu": 0,
+			"gpu": 1,
 			"type": "mesh",
 			"file": "Debris/HSI_Box_0.4m_res4cm.mesh",
 			"file_elements": "Debris/HSI_Box_0.4m_res4cm_Elements.csv",
@@ -19,7 +19,7 @@
 			"rho": 1e3,
 			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.4,
-			"alpha": 0.9,
+			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
@@ -41,7 +41,7 @@
 	],
 	"models": [
 		{
-			"gpu": 1,
+			"gpu": 0,
 			"type": "particles",
 			"file": "Water/HSI_x3.2_y3.2_z1_dx0.1_pad1.sdf",
 			"constitutive": "JFluid_ASFLIP",
@@ -50,9 +50,9 @@
 			"bulk_modulus": 2.2e9,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"alpha": 0.9,
-			"beta_min": 0.05,
-			"beta_max": 0.5,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
 			"offset": [
 				0.0, 
 				0.0, 

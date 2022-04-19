@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 1;
+constexpr int g_device_cnt = 2;
 constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid-ASFLIP, material_e::Meshed, 
+                      material_e::JFluid_ASFLIP, material_e::Meshed, 
                       material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -110,7 +110,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -10.f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 500000; // Particle upperbound
+constexpr int g_max_particle_num = 400000; // Particle upperbound
 constexpr int g_max_active_block = 2500;  /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
