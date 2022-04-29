@@ -33,7 +33,7 @@ enum class fem_e { Tetrahedron = 0,
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// benchmark setup
 namespace config {
-constexpr int g_device_cnt = 1;
+constexpr int g_device_cnt = 2;
 constexpr int g_total_frame_cnt = 30;
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid};
@@ -84,7 +84,7 @@ constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 #define DOMAIN_VOLUME 2097.152f //< g_length^3, IMPORTANT, scales mass-volume
 constexpr float g_length   = 12.8f;//96.f; //< Domain full length (m)
 constexpr float g_length_x = 9.6f;//96.f; //< Domain x length (m)
-constexpr float g_length_y = 6.4f;   //< Domain y length (m)
+constexpr float g_length_y = 9.6f;   //< Domain y length (m)
 constexpr float g_length_z = 2.4f;   //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
@@ -110,8 +110,8 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -10.f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 700000; // Particle upperbound
-constexpr int g_max_active_block = 4000;  /// 62500 bytes for active mask
+constexpr int g_max_particle_num = 1400000; // Particle upperbound
+constexpr int g_max_active_block = 10000;  /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
   return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity);

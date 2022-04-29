@@ -3,7 +3,7 @@
 		"gpuid": 0,
 		"gravity": -10.0,
 		"fps": 10,
-		"frames": 30,
+		"frames": 60,
 		"default_dt": 1.5e-5
 	},
 	"meshes": [
@@ -16,7 +16,7 @@
 			"constitutive": "Meshed",
 			"ppc": 1.86,
 			"volume": 1,
-			"rho": 1e3,
+			"rho": 3e3,
 			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.4,
 			"alpha": 0,
@@ -24,7 +24,7 @@
 			"beta_max": 0,
 			"offset": [
 				3.0, 
-				3.25, 
+				6.45, 
 				0.0
 			],
 			"span": [
@@ -76,7 +76,7 @@
 			],
 			"point_b": [
 				6.4,
-				3.2,
+				6.4,
 				0.4
 			]
 		}
