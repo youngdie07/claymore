@@ -520,7 +520,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Tank Dimensions (Slip), 3.2m width x 6.4m height in 2D
         // See < Wen-Chia Yang > Dissertation Page 82 Figure 5.1
         // Acts on individual grid-cell velocities
-        float flumex = 3.2f / g_length; // Length
+        float flumex = 6.4f / g_length; // Length
         float flumey = 6.4f / g_length; // Depth
         float flumez = 0.4f / g_length; // Width
         // int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
@@ -4126,7 +4126,7 @@ retrieve_particle_buffer_attributes(Partition partition,
       // pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< mass or J/Tension
       pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
       pattrib.val(_1, parid) = source_bin.val(_7, _source_pidib); //< vol
-      pattrib.val(_2, parid) = source_bin.val(_4, _source_pidib) * g_length; //< v_y
+      pattrib.val(_2, parid) = source_bin.val(_5, _source_pidib) * g_length; //< v_y
     }
   }
 }
