@@ -520,8 +520,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Tank Dimensions (Slip), 3.2m width x 6.4m height in 2D
         // See < Wen-Chia Yang > Dissertation Page 82 Figure 5.1
         // Acts on individual grid-cell velocities
-        float flumex = 6.4f / g_length; // Length
-        float flumey = 12.8f / g_length; // Depth
+        float flumex = 3.2f / g_length; // Length
+        float flumey = 6.4f / g_length; // Depth
         float flumez = 0.4f / g_length; // Width
         // int isInFlume =  ((xc < offset || xc >= flumex + offset) << 2) |
         //                  ((yc <= offset || yc >= flumey + offset) << 1) |

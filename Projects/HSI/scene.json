@@ -3,16 +3,16 @@
 		"gpuid": 0,
 		"gravity": -10.0,
 		"fps": 10,
-		"frames": 60,
-		"default_dt": 1.5e-5
+		"frames": 45,
+		"default_dt": 7.5e-6
 	},
 	"meshes": [
 		{
 			"gpu": 1,
 			"type": "mesh",
-			"file": "Debris/HSI_Box_0.4m_res4cm.mesh",
-			"file_elements": "Debris/HSI_Box_0.4m_res4cm_Elements.csv",
-			"file_vertices": "Debris/HSI_Box_0.4m_res4cm_Vertices.csv",
+			"file": "Debris/HSI_Box_0.4m_res2cm.mesh",
+			"file_elements": "Debris/HSI_Box_0.4m_res2cm_Elements.csv",
+			"file_vertices": "Debris/HSI_Box_0.4m_res2cm_Vertices.csv",
 			"constitutive": "Meshed",
 			"ppc": 1.86,
 			"volume": 1,
@@ -23,8 +23,8 @@
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
-				3.0, 
-				6.45, 
+				1.4, 
+				3.225, 
 				0.0
 			],
 			"span": [
@@ -59,9 +59,9 @@
 				0.0
 			],
 			"span": [
-				6.8,
-				6.8,
-				2.4
+				3.4,
+				3.4,
+				1.2
 			],
 			"velocity": [
 				0.0,
@@ -75,8 +75,8 @@
 				0.0
 			],
 			"point_b": [
-				6.4,
-				6.4,
+				3.2,
+				3.2,
 				0.4
 			]
 		}
@@ -86,13 +86,13 @@
 			"direction": 2,
 			"output_frequency": 12,
 			"point_a": [
-				6.4, 
+				3.2, 
 				-0.1, 
 				-0.1
 			],
 			"point_b": [
-				6.4,
-				7.0,
+				3.2,
+				3.5,
 				0.4
 			]
 		}
@@ -102,12 +102,25 @@
 			"output_frequency": 12,
 			"point_a": [
 				0.0, 
-				6.0, 
+				3.0, 
 				0.0
 			],
 			"point_b": [
 				0.0,
-				6.8,
+				3.4,
+				0.4
+			]
+		},
+		{
+			"output_frequency": 12,
+			"point_a": [
+				1.6, 
+				3.0, 
+				0.0
+			],
+			"point_b": [
+				1.6,
+				3.4,
 				0.4
 			]
 		},
@@ -115,25 +128,12 @@
 			"output_frequency": 12,
 			"point_a": [
 				3.2, 
-				6.0, 
+				3.0, 
 				0.0
 			],
 			"point_b": [
 				3.2,
-				6.8,
-				0.4
-			]
-		},
-		{
-			"output_frequency": 12,
-			"point_a": [
-				6.4, 
-				6.0, 
-				0.0
-			],
-			"point_b": [
-				6.4,
-				6.8,
+				3.4,
 				0.4
 			]
 		}
