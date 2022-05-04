@@ -366,14 +366,17 @@ void parse_scene(std::string fn,
             if (p.extension() == ".sdf") {
               if (model["partition"].GetFloat()){
                 mn::vec<float, 3> point_a, point_b;
+                mn::vec<float, 3> inter_a, inter_b;
                 for (int d = 0; d < 3; ++d) {
                   point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
                   point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
+                  inter_a[d] = model["inter_a"].GetArray()[d].GetFloat() / g_length;
+                  inter_b[d] = model["inter_b"].GetArray()[d].GetFloat() / g_length;
                 }
                 auto positions = mn::read_sdf(
                     model["file"].GetString(), model["ppc"].GetFloat(),
                     mn::config::g_dx, mn::config::g_domain_size, offset, span,
-                    point_a, point_b);  
+                    point_a, point_b, inter_a, inter_b);  
                 mn::IO::insert_job([&]() {
                   mn::write_partio<float, 3>(std::string{p.stem()} + ".bgeo",
                                             positions);
