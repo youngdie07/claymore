@@ -254,7 +254,8 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
 // Read SDF file, cartesian/uniform sample position data into an array (JB)
 auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
               vec<float, 3> offset, vec<float, 3> lengths, 
-              vec<float, 3> point_a, vec<float, 3> point_b) {
+              vec<float, 3> point_a, vec<float, 3> point_b,
+              vec<float, 3> inter_a, vec<float, 3> inter_b) {
   std::vector<std::array<float, 3>> data;
   std::string fileName = std::string(AssetDirPath) + "MpmParticles/" + fn;
 
@@ -324,9 +325,12 @@ auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
     if (p[0] >= point_a[0] && p[0] < point_b[0]) {
       if (p[1] >= point_a[1] && p[1] < point_b[1]) {
         if (p[2] >= point_a[2] && p[2] < point_b[2]) {
-          p = p + offset;
-          // Add (x,y,z) to data in order
-          data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
+
+          if (p[0] > inter_b[0] || p[0] < inter_a[0] || p[1] > inter_b[1] || p[1] < inter_a[1] || p[2] > inter_b[2] || p[2] < inter_a[2]) {
+            p = p + offset;
+            // Add (x,y,z) to data in order
+            data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
+          }
         }
       }
     }
