@@ -366,6 +366,11 @@ void parse_scene(std::string fn,
             if (p.extension() == ".sdf") {
               if (model["partition"].GetFloat()){
                 mn::vec<float, 3> point_a, point_b;
+                for (int d = 0; d < 3; ++d) {
+                  point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
+                  point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
+                }
+
                 mn::vec<float, 3> inter_a, inter_b;
                 for (int d=0; d<3; ++d){
                   inter_a[d] = -1.f;
@@ -373,8 +378,6 @@ void parse_scene(std::string fn,
                 }
                 if (model["intersection"].GetFloat()) {
                   for (int d = 0; d < 3; ++d) {
-                    point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
-                    point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
                     inter_a[d] = model["inter_a"].GetArray()[d].GetFloat() / g_length;
                     inter_b[d] = model["inter_b"].GetArray()[d].GetFloat() / g_length;
                   }
