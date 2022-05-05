@@ -41,7 +41,7 @@ constexpr material_e get_material_type(int did) noexcept {
 }
 
 constexpr std::array<material_e, 5> g_material_list = {
-                      material_e::JFluid_ASFLIP, material_e::Meshed, 
+                      material_e::JFluid_ASFLIP, material_e::FixedCorotated_ASFLIP, 
                       material_e::JFluid, material_e::JFluid_ASFLIP, 
                       material_e::FixedCorotated_ASFLIP};
 
@@ -50,7 +50,7 @@ constexpr std::array<fem_e, 5> g_fem_element_list = {
                       fem_e::Tetrahedron, fem_e::Tetrahedron, 
                       fem_e::Tetrahedron};
 
-constexpr std::array<int, 5> g_fem_gpu = {0, 1, 0, 0, 0};
+constexpr std::array<int, 5> g_fem_gpu = {0, 0, 0, 0, 0};
 
 #define GBPCB 16
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;

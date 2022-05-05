@@ -3,12 +3,12 @@
 		"gpuid": 0,
 		"gravity": -10.0,
 		"fps": 10,
-		"frames": 45,
+		"frames": 30,
 		"default_dt": 7.5e-6
 	},
 	"meshes": [
 		{
-			"gpu": 1,
+			"gpu": 2,
 			"type": "mesh",
 			"file": "Debris/HSI_Box_0.4m_res2cm.mesh",
 			"file_elements": "Debris/HSI_Box_0.4m_res2cm_Elements.csv",
@@ -89,6 +89,45 @@
 				1.825,
 				5.425,
 				4.0
+			]
+		},
+		{
+			"gpu": 1,
+			"type": "particles",
+			"file": "Water/HSI_x3.2_y3.2_z1_dx0.1_pad1.sdf",
+			"constitutive": "FixedCorotated_ASFLIP",
+			"ppc": 8,
+			"rho": 1e3,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.4,
+			"alpha": 0.0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0.0, 
+				0.0, 
+				0.0
+			],
+			"span": [
+				6.8,
+				6.8,
+				2.4
+			],
+			"velocity": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"partition": 1,
+			"point_a": [
+				1.4, 
+				5.0, 
+				0.0
+			],
+			"point_b": [
+				1.8,
+				5.4,
+				0.4
 			]
 		}
 	],

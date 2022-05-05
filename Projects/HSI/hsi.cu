@@ -367,11 +367,17 @@ void parse_scene(std::string fn,
               if (model["partition"].GetFloat()){
                 mn::vec<float, 3> point_a, point_b;
                 mn::vec<float, 3> inter_a, inter_b;
-                for (int d = 0; d < 3; ++d) {
-                  point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
-                  point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
-                  inter_a[d] = model["inter_a"].GetArray()[d].GetFloat() / g_length;
-                  inter_b[d] = model["inter_b"].GetArray()[d].GetFloat() / g_length;
+                for (int d=0; d<3; ++d){
+                  inter_a[d] = -1.f;
+                  inter_b[d] = -1.f;
+                }
+                if (model["intersection"].GetFloat()) {
+                  for (int d = 0; d < 3; ++d) {
+                    point_a[d] = model["point_a"].GetArray()[d].GetFloat() / g_length;
+                    point_b[d] = model["point_b"].GetArray()[d].GetFloat() / g_length;
+                    inter_a[d] = model["inter_a"].GetArray()[d].GetFloat() / g_length;
+                    inter_b[d] = model["inter_b"].GetArray()[d].GetFloat() / g_length;
+                  }
                 }
                 auto positions = mn::read_sdf(
                     model["file"].GetString(), model["ppc"].GetFloat(),
