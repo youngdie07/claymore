@@ -520,8 +520,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // Slip boundaries of simulation
         // Acts on individual grid-cell velocities
         float flumex = 0.584f / g_length; // Length
-        float flumey = 0.372f / g_length; // Depth
-        float flumez = 0.008f / g_length; // Width
+        float flumey = 0.369f / g_length; // Depth 0.365 -> 0.372
+        float flumez = 0.003f / g_length; // Width
         int isInFlume =  (((xc <= offset && vel[0] < 0.f) || (xc >= flumex + offset && vel[0] > 0.f)) << 2) |
                          (((yc <= offset && vel[1] < 0.f) || (yc >= flumey + offset && vel[1] > 0.f)) << 1) |
                           ((zc <= offset && vel[2] < 0.f) || (zc >= flumez + offset && vel[2] > 0.f));                          
@@ -549,15 +549,19 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         float o = offset;
         float l = g_length;
         float bt = 0.004f; // Beam-fix, meters
-        if ((xc >= 0.288f / l + o  && yc <= bt / l + o) || (xc <= 0.300f / l + o  && yc <= bt / l + o)){
-          vel[0] = 0.f;
-          vel[1] = 0.f;
-          vel[2] = 0.f;
-        } else if ((xc < 0.288f / l + o && yc <= bt / l + o) && vel[1] < 0.f){
-          vel[1] = 0.f;
-        } else if ((xc > 0.300f / l + o && yc <= bt / l + o) && vel[1] < 0.f){
-          vel[1] = 0.f;
+
+        if (yc <= bt / l + o) {
+          // Seperable across floor
+          if (vel[1] < 0.f) vel[1] = 0.f;
+          // Fixed at flap base
+          if ((xc >= 0.286f / l + o)  && (xc <= 0.298f / l + o)){
+            vel[0] = 0.f;
+            vel[1] = 0.f;
+            vel[2] = 0.f;
+          } 
         }
+        // Shifted seperable z-wall
+        if (zc <= 0.001f / l + o && vel[2] < 0.f) vel[2] = 0.f;
 
 
         grid_block.val_1d(_1, cidib) = vel[0];
