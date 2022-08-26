@@ -96,9 +96,10 @@ struct ElementBuffer<fem_e::Tetrahedron>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  void updateParameters(float density, float vol, float ym, float pr) {
+  void updateParameters(float density, float ppc, float ym, float pr) {
     rho = density;
-    //volume = vol;
+    volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / ppc);
     E = ym;
     nu = pr;
     mass = volume * density;

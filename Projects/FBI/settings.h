@@ -65,7 +65,7 @@ constexpr float cfl = 0.5f;
 
 // background_grid
 #define BLOCK_BITS 2
-#define DOMAIN_BITS 7
+#define DOMAIN_BITS 8
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS;
 constexpr int g_domain_size = (1 << DOMAIN_BITS);
@@ -82,10 +82,10 @@ constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS));
 
 // Domain size
 #define DOMAIN_VOLUME 2097.152f //< g_length^3, IMPORTANT, scales mass-volume
-constexpr float g_length   = 12.8f;//96.f; //< Domain full length (m)
-constexpr float g_length_x = 12.8f;//96.f; //< Domain x length (m)
-constexpr float g_length_y = 12.8f;   //< Domain y length (m)
-constexpr float g_length_z = 3.2f;   //< Domain z length (m)
+constexpr float g_length   = 12.8f; //< Domain full length (m)
+constexpr float g_length_x = 12.8f; //< Domain x length (m)
+constexpr float g_length_y = 12.8f; //< Domain y length (m)
+constexpr float g_length_z = 1.0f;  //< Domain z length (m)
 constexpr float g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr float g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
 constexpr float g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
@@ -102,7 +102,7 @@ constexpr int g_bin_capacity = 32;
 constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 
 // Material parameters
-#define DENSITY 10       // kg/m3
+#define DENSITY 1000       // kg/m3
 #define YOUNGS_MODULUS 1e4 // Pascals
 #define POISSON_RATIO 0.3f // rad
 
@@ -110,7 +110,7 @@ constexpr int g_particle_num_per_block = (MAX_PPC * (1 << (BLOCK_BITS * 3)));
 constexpr float g_gravity = -9.81f; // m/s2
 
 /// only used on host, reserves memory
-constexpr int g_max_particle_num = 200000; // Particle upperbound
+constexpr int g_max_particle_num = 100000; // Particle upperbound
 constexpr int g_max_active_block = 4000;  /// 62500 bytes for active mask
 constexpr std::size_t
 calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
@@ -121,12 +121,12 @@ constexpr std::size_t g_max_halo_block = 500;  //< Max halo blocks (#)
 constexpr int g_target_cells = 1000; //< Max nodes in grid-cell target
 
 /// FEM vertice and element settings (for Lagrangian forces) (JB)
-constexpr int g_max_fem_vertice_num = 100000; //3636;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 100000; //12500; // Max no. of element in FEM mesh
-constexpr int g_max_fem_element_bin = 100000; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 82205; //3636;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 320000; //12500; // Max no. of element in FEM mesh
+constexpr int g_max_fem_element_bin = 320000; //12500; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1;
 
-constexpr int g_track_ID = 6301; //6554;
+constexpr int g_track_ID = 41002; //6553;// 41002;  // 6301;
 
 } // namespace config
 

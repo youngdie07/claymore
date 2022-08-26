@@ -529,7 +529,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
 #if 1
         float grav;
-        float load_time = 6.f; // Sec
+        float load_time = 10.f; // Sec
         if (curTime <= load_time) grav = -g_gravity * ((curTime/load_time - 1.f)*(curTime/load_time - 1.f)-1.f); 
         else grav = g_gravity;
         ///< Slip contact        
@@ -552,7 +552,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         float o = offset;
         float l = g_length;
-        float bt = 5.f; // Beam-top, meters
+        float bt = 10.f; // Beam-top, meters
         if ((xc <= 0.2f / l + o  && yc <= bt / l + o) || (xc >= 10.2f / l + o  && yc <= bt / l + o)){
           vel[0] = 0.f;
           vel[1] = 0.f;
@@ -3432,7 +3432,19 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       f[1] = vertice_array.val(_8, ID);
       f[2] = vertice_array.val(_9, ID);
       count = vertice_array.val(_10, ID);
-      restMass = restVolume * pbuffer.rho;
+      // Find Vertex mass
+      if (0) restMass = restVolume * pbuffer.rho;
+
+      if (count == 20.f) {
+        restMass = pbuffer.mass; // Interior
+      } else if (count == 10.f) {
+        restMass = pbuffer.mass / 2.f; //Face
+      } else if (count < 5.f) {
+        restMass = pbuffer.mass / 8.f; // Corner
+      } else {
+        restMass = pbuffer.mass / 4.f; // Edge
+      }
+
       // Zero-out 
       vertice_array.val(_3, ID) = 0.f; // bx
       vertice_array.val(_4, ID) = 0.f; // by
@@ -3456,7 +3468,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     
     int use_surface = 0;
     // Interior
-    if (use_surface && count > 6.f){
+    if (use_surface && count > 10.f){
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
       vel += pbuffer.alpha * (vp_n - vel_n);
     }
@@ -3465,7 +3477,7 @@ __global__ void fem2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     // Mixed with FLIP/PIC style
     // Collision Particles = Vertices (i.e. q = p)
     // No grid impulse set for cohesionless contact yet
-    else if (use_surface && count <= 6.f) {
+    else if (use_surface && count <= 10.f) {
       float b_mag;
       b_mag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
       float small, tiny;
@@ -4148,7 +4160,7 @@ retrieve_particle_buffer_attributes(Partition partition,
       // pattrib.val(_1, parid) = source_bin.val(_4, _source_pidib) * g_length; //< vel_x
       // pattrib.val(_2, parid) = source_bin.val(_7, _source_pidib); //< mass or J/Tension
       pattrib.val(_0, parid) = source_bin.val(_3, _source_pidib); //< ID
-      pattrib.val(_1, parid) = source_bin.val(_7, _source_pidib); //< vol
+      pattrib.val(_1, parid) = source_bin.val(_7, _source_pidib); //< restMass
       pattrib.val(_2, parid) = source_bin.val(_5, _source_pidib) * g_length; //< v_y
     }
 

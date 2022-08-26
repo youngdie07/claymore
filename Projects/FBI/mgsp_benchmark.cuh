@@ -362,22 +362,22 @@ struct mgsp_benchmark {
                               xi);
         });
   }
-  void updateMeshedParameters(int did, float rho, float vol, float ym, float pr,
+  void updateMeshedParameters(int did, float rho, float ppc, float ym, float pr,
                             float a, float bmin, float bmax) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+          pb.updateParameters(rho, ppc, ym, pr, a, bmin, bmax);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(rho, vol, ym, pr, a, bmin, bmax);
+          pb.updateParameters(rho, ppc, ym, pr, a, bmin, bmax);
         });
     match(elementBins[did])(
         [&](auto &eb) {},
         [&](ElementBuffer<fem_e::Tetrahedron> &eb) {
-          eb.updateParameters(rho, vol, ym, pr);
+          eb.updateParameters(rho, ppc, ym, pr);
         });    
   }
 

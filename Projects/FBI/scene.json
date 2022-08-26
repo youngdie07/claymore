@@ -2,29 +2,29 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": -9.81,
-		"fps": 30,
-		"frames": 210,
-		"default_dt": 1.2e-4
+		"fps": 10,
+		"frames": 200,
+		"default_dt": 3e-5
 	},
 	"meshes": [
 		{
 			"gpu": 0,
 			"type": "mesh",
 			"file": "Debris/HSI_Box_0.4m_res2cm.mesh",
-			"file_elements": "Debris/FBI_x10_y1_z0.1_res5cm_Elements.csv",
-			"file_vertices": "Debris/FBI_x10_y1_z0.1_res5cm_Vertices.csv",
+			"file_elements": "Debris/FBI_x10_y1_z0.1_res2.5cm_Elements.csv",
+			"file_vertices": "Debris/FBI_x10_y1_z0.1_res2.5cm_Vertices.csv",
 			"constitutive": "Meshed",
-			"ppc": 1.00,
+			"ppc": 8.00,
 			"volume": 1,
-			"rho": 2400,
-			"youngs_modulus": 5e7,
+			"rho": 100,
+			"youngs_modulus": 2e7,
 			"poisson_ratio": 0.48,
 			"alpha": 0.0,
 			"beta_min": 0,
 			"beta_max": 0,
 			"offset": [
 				0.2, 
-				4.0, 
+				9.0, 
 				0.0
 			],
 			"span": [
@@ -55,7 +55,7 @@
 			"beta_max": 0,
 			"offset": [
 				0.2, 
-				5.0, 
+				10.0125, 
 				0.0
 			],
 			"span": [
