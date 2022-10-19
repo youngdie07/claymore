@@ -148,7 +148,7 @@ struct mgsp_benchmark {
 
 
     std::string fn = std::string{"model"} + "_dev[" + std::to_string(devid) +
-                     "]_frame[0].bgeo";
+                     "]_frame[-1].bgeo";
     IO::insert_job([fn, model]() { write_partio<float, 3>(fn, model); });
     IO::flush();
   }
@@ -1201,6 +1201,14 @@ struct mgsp_benchmark {
 
     collect_halo_grid_blocks(0);
     reduce_halo_grid_blocks(0);
+
+    // Output frame 0 of models
+    issue([this](int did) {
+      IO::flush();
+      output_model(did);
+    });
+    sync();
+
   }
   void halo_tagging() {
     issue([this](int did) {

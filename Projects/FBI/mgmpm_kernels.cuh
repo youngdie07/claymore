@@ -549,17 +549,17 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         if (isInBound) ///< sticky
           vel.set(0.f);
 #endif
-
+        float t = 0.001f;
         float o = offset;
         float l = g_length;
-        float bt = 10.f; // Beam-top, meters
-        if ((xc <= 0.2f / l + o  && yc <= bt / l + o) || (xc >= 10.2f / l + o  && yc <= bt / l + o)){
+        float bt = 5.f; // Beam-top, meters
+        if ((xc <= (0.2f+t) / l + o  && yc <= bt / l + o) || (xc >= (10.2f-t) / l + o  && yc <= bt / l + o)){
           vel[0] = 0.f;
           vel[1] = 0.f;
           vel[2] = 0.f;
-        } else if ((xc <= 0.2f / l  + o && yc > bt / l + o) && vel[0] < 0.f){
+        } else if ((xc <= (0.2f+t) / l  + o && yc > bt / l + o) && vel[0] < 0.f){
           vel[0] = 0.f;
-        } else if ((xc >= 10.2f / l + o && yc > bt / l + o) && vel[0] > 0.f){
+        } else if ((xc >= (10.2f-t) / l + o && yc > bt / l + o) && vel[0] > 0.f){
           vel[0] = 0.f;
         }
 
@@ -2860,7 +2860,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
     int use_surface = 0;
     // Interior
-    if (use_surface && count > 6.f) {
+    if (use_surface && count > 10.f) {
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
       vel += pbuffer.alpha * (vp_n - vel_n);
     }
@@ -2869,7 +2869,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     // Mixed with FLIP/PIC style
     // Collision Particles = Vertices (i.e. q = p)
     // No grid impulse set for cohesionless contact yet
-    else if (use_surface && count <= 6.f) {
+    else if (use_surface && count <= 10.f) {
       float b_mag;
       b_mag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
       float small, tiny;
