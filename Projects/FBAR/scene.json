@@ -1,0 +1,89 @@
+{
+	"simulation": {
+		"gpuid": 0,
+		"gravity": -9.81,
+		"fps": 60,
+		"frames": 135,
+		"default_dt": 1.3e-4
+	},
+	"meshes": [
+		{
+			"gpu": 1,
+			"type": "mesh",
+			"file": "Debris/OSU_Field_L2_c24_s0.02_v10_res0.01.mesh",
+			"file_elements": "Debris/HSI_Box_0.4m_res2cm_Elements.csv",
+			"file_vertices": "Debris/HSI_Box_0.4m_res2cm_Vertices.csv",
+			"constitutive": "Meshed",
+			"ppc": 8.00,
+			"volume": 1,
+			"rho": 1000,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.0,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0.1, 
+				0.4, 
+				0.0
+			],
+			"span": [
+				0.4,
+				0.4,
+				0.4
+			],
+			"velocity": [
+				2.0,
+				0.0,
+				0.0
+			]
+		}
+	],
+	"models": [
+		{
+			"gpu": 0,
+			"type": "particles",
+			"file": "use.box",
+			"constitutive": "JBarFluid",
+			"ppc": 8,
+			"rho": 1e3,
+			"bulk_modulus": 2.2e7,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"alpha": 0.0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"offset": [
+				0.0, 
+				0.0, 
+				0.0
+			],
+			"span": [
+				4.0,
+				2.0,
+				0.08
+			],
+			"velocity": [
+				0.0,
+				0.0,
+				0.0
+			]
+		}
+	],
+	"targets": [
+		{
+			"direction": 0,
+			"output_frequency": 120,
+			"point_a": [
+				-0.08, 
+				-0.08, 
+				-0.08
+			],
+			"point_b": [
+				0,
+				4.08,
+				0.4
+			]
+		}
+	]
+}
