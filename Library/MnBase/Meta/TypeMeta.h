@@ -127,6 +127,8 @@ using AttribType = typename type_seq<ValueTypes...>::template type<I>;
 
 namespace placeholder {
 using placeholder_type = unsigned;
+// Use these to access attributes in data-structures
+// Up-to 32 attributes defined here for convenience
 constexpr auto _0 = std::integral_constant<placeholder_type, 0>{};
 constexpr auto _1 = std::integral_constant<placeholder_type, 1>{};
 constexpr auto _2 = std::integral_constant<placeholder_type, 2>{};
@@ -160,7 +162,7 @@ constexpr auto _29 = std::integral_constant<placeholder_type, 29>{};
 constexpr auto _30 = std::integral_constant<placeholder_type, 30>{};
 constexpr auto _31 = std::integral_constant<placeholder_type, 31>{};
 } // namespace placeholder
-using place_id = typename placeholder::placeholder_type;
+using place_id = typename placeholder::placeholder_type; //< Unsigned
 
 } // namespace mn
 

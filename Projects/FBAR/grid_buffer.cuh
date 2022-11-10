@@ -15,12 +15,31 @@ using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
 using GridTargetDomain = compact_domain<int, config::g_target_cells>;
 
-using grid_block_ =
+using grid_block_f32_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
                f32_, f32_, f32_, f32_, f32_>; //< mass, vel + dt*fint, 
+                                              //< vel, 
+                                              //< Vol, J
+using grid_f32_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridDomain, attrib_layout::aos, grid_block_f32_>;
+using grid_buffer_f32_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               GridBufferDomain, attrib_layout::aos, grid_block_f32_>;
+
+using grid_block_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               BlockDomain, attrib_layout::soa, fg_, fg_, fg_, fg_,
+               fg_, fg_, fg_, fg_, fg_>; //< mass, vel + dt*fint, 
                                               //< vel, 
                                               //< Vol, J
 using grid_ =
@@ -33,7 +52,6 @@ using grid_buffer_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_>;
-
 // Structure to hold downsampled grid-block values for ouput (device)
 // Dynamic structure
 using grid_array_ =

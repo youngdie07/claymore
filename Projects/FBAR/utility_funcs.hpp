@@ -5,13 +5,14 @@
 namespace mn {
 
 /// assume p is already within kernel range [-1.5, 1.5]
-constexpr vec3 bspline_weight(float p) {
-  vec3 dw{0.f, 0.f, 0.f};
-  float d = p * config::g_dx_inv; ///< normalized offset
-  dw[0] = 0.5f * (1.5 - d) * (1.5 - d);
-  d -= 1.0f;
+template <typename T>
+constexpr vec<T, 3> bspline_weight(T p) {
+  vec<T, 3> dw{0.0, 0.0, 0.0};
+  T d = p * config::g_dx_inv; ///< normalized offset
+  dw[0] = 0.5 * (1.5 - d) * (1.5 - d);
+  d -= 1.0;
   dw[1] = 0.75 - d * d;
-  d = 0.5f + d;
+  d = 0.5 + d;
   dw[2] = 0.5 * d * d;
   return dw;
 }

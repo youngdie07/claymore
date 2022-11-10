@@ -6,6 +6,7 @@
 
 namespace mn {
 
+/// Set-up template for Halo Partitions (manages overlap and halo-tagging between GPU devices)
 template <int> struct HaloPartition {
   template <typename Allocator> HaloPartition(Allocator, int) {}
   template <typename Allocator>
@@ -15,6 +16,7 @@ template <int> struct HaloPartition {
                cudaStream_t stream) {}
 };
 template <> struct HaloPartition<1> {
+  // Initialize with max size of maxBlockCnt using a GPU allocator
   template <typename Allocator>
   HaloPartition(Allocator allocator, int maxBlockCnt) {
     _count = (int *)allocator.allocate(sizeof(char) * maxBlockCnt);
@@ -22,6 +24,7 @@ template <> struct HaloPartition<1> {
     _overlapMarks = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
     _haloBlocks = (ivec3 *)allocator.allocate(sizeof(ivec3) * maxBlockCnt);
   }
+  // Copy halo count, halo-marks, overlap-marks, and Halo-Block IDs to other GPUs
   void copy_to(HaloPartition &other, std::size_t blockCnt,
                cudaStream_t stream) {
     other.h_count = h_count;
@@ -35,6 +38,7 @@ template <> struct HaloPartition<1> {
                                     sizeof(ivec3) * blockCnt, cudaMemcpyDefault,
                                     stream));
   }
+  // Resize Halo Partition for number of active Halo Blocks
   template <typename Allocator>
   void resizePartition(Allocator allocator, std::size_t prevCapacity,
                        std::size_t capacity) {
@@ -56,18 +60,25 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(&h_count, _count, sizeof(int),
                                     cudaMemcpyDefault, stream));
   }
-  int *_count, h_count;
-  char *_haloMarks; ///< halo particle blocks
-  int *_overlapMarks;
-  ivec3 *_haloBlocks;
+  int *_count, h_count; //< 
+  char *_haloMarks; ///< Halo particle blocks
+  int *_overlapMarks; //< 
+  ivec3 *_haloBlocks; //< IDs of Halo Blocks
 };
 
+// Basic data-structure for Partitions
 using block_partition_ =
     structural<structural_type::hash,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                GridDomain, attrib_layout::aos, empty_>; // GridDomain in grid_buffer.cuh
 
+// Template for Partitions (organizes interaction of Particles and Grids)
+// Manages: particles-per-cells, particles-per-blocks
+//          Cell-Buckets (particle IDs within Cell), Block-Buckets (particle IDs within Block),
+//          Particle Bins
+// Uses a ton of memory, can be optimized
+// Inherit from Halo Partition (organizes Multi-GPU interaction)
 template <int Opt = 1>
 struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   using base_t = Instance<block_partition_>;
@@ -102,7 +113,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
                                            config::g_blockvolume *
                                            config::g_max_ppc);
     allocator.deallocate(_blockbuckets,
-                         sizeof(int) * this->_capacity * config::g_blockvolume);
+                         sizeof(int) * this->_capacity * config::g_particle_num_per_block);// config::g_blockvolume * config::g_max_ppc); // Changed (JB)
     allocator.deallocate(_binsts, sizeof(int) * this->_capacity);
     _ppcs = (int *)allocator.allocate(sizeof(int) * capacity *
                                       config::g_blockvolume);
@@ -121,6 +132,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     // checkCudaErrors(cudaFree(_blockbuckets));
     // checkCudaErrors(cudaFree(_binsts));
   }
+  // Reset Partition's Block count and particles-per-each-cell
   void reset() {
     checkCudaErrors(cudaMemset(this->_cnt, 0, sizeof(value_t)));
     checkCudaErrors(
@@ -128,10 +140,12 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     checkCudaErrors(cudaMemset(
         this->_ppcs, 0, sizeof(int) * this->_capacity * config::g_blockvolume));
   }
+  // Reset Partition index-table (maps 1D - 3D Block coordinates)
   void resetTable(cudaStream_t stream) {
     checkCudaErrors(cudaMemsetAsync(this->_indexTable, 0xff,
                                     sizeof(value_t) * domain::extent, stream));
   }
+  // Build Particle Block Buckets 
   template <typename CudaContext>
   void buildParticleBuckets(CudaContext &&cuDev, value_t cnt) {
     checkCudaErrors(cudaMemsetAsync(this->_ppbs, 0, sizeof(int) * (cnt + 1),
@@ -139,6 +153,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     cuDev.compute_launch({cnt, config::g_blockvolume}, cell_bucket_to_block,
                          _ppcs, _cellbuckets, _ppbs, _blockbuckets);
   }
+  // Copy Partition information to next time-step's Partition
   void copy_to(Partition &other, std::size_t blockCnt, cudaStream_t stream) {
     halo_base_t::copy_to(other, blockCnt, stream);
     checkCudaErrors(cudaMemcpyAsync(other._indexTable, this->_indexTable,
@@ -151,28 +166,37 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
                                     sizeof(int) * blockCnt, cudaMemcpyDefault,
                                     stream));
   }
+  // Insert new key for Block in Partition Index-Table
   __forceinline__ __device__ value_t insert(key_t key) noexcept {
-    value_t tag = atomicCAS(&this->index(key), sentinel_v, 0);
-    if (tag == sentinel_v) {
-      value_t idx = atomicAdd(this->_cnt, 1);
-      this->index(key) = idx;
-      this->_activeKeys[idx] = key; ///< created a record
-      return idx;
+    // Set &this->index(key) = 0 if (&this->index(key) == sentinel_v), sentinel_v = -1 basically 
+    // Return old value of this->index(key) as tag
+    value_t tag = atomicCAS(&this->index(key), sentinel_v, 0); 
+    if (tag == sentinel_v) { // If above CAS evaluated true (i.e. valid block insert)
+      value_t idx = atomicAdd(this->_cnt, 1); // +1 to Partition Block count
+      this->index(key) = idx; //< Index of inserted key set by incremented Block count
+      this->_activeKeys[idx] = key; ///< Created record of inserted key in Partition active keys
+      return idx; //< Return new index for inserted key
     }
-    return -1;
+    return -1; //< Return -1 as error flag
   }
+  // Query key for block in Partition Index-Table
   __forceinline__ __device__ value_t query(key_t key) const noexcept {
     return this->index(key);
   }
-
+  // Reinsert key for Block in Partition Index-Table
   __forceinline__ __device__ void reinsert(value_t index) {
     this->index(this->_activeKeys[index]) = index;
   }
+  // Advect particle ID in a Block to a new Cell in Partition
+  // Done because particles move during Grid-to-Particle-to-Grid
   __forceinline__ __device__ void add_advection(key_t cellid, int dirtag,
                                                 int pidib) noexcept {
     using namespace config;
     key_t blockid = cellid / g_blocksize;
     value_t blockno = query(blockid);
+  // Print out error message if trying to advect incorrectly
+  // (e.g. going outside Partition domain, breaking CFL condition)
+  // Might mean particles not placed in valid simulation domain or a time-step issue 
 #if 1
     if (blockno == -1) {
       ivec3 offset{};
@@ -186,9 +210,9 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     value_t cellno = ((cellid[0] & g_blockmask) << (g_blockbits << 1)) |
                      ((cellid[1] & g_blockmask) << g_blockbits) |
                      (cellid[2] & g_blockmask);
-    int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1);
+    int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); // Increment particles-in-cell count
     _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-                 pidic] = (dirtag * g_particle_num_per_block) | pidib;
+                 pidic] = (dirtag * g_particle_num_per_block) | pidib; // Update cell-bucket
   }
 
   int *_ppcs, *_ppbs;

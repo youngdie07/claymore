@@ -15,62 +15,61 @@ using particle_bin4_ =
                          structural_padding_policy::sum_pow2_align>,
                ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
                f32_>; ///< pos, J
-using particle_bin7_ =
+using particle_bin4_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_>; ///< pos, J / ID, vel
-using particle_bin8_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_,
+               f_>; ///< pos, J
+using particle_bin7_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_>; ///< pos, ID, vel, mass
-using particle_bin9_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_,
+               f_, f_, f_, f_>; ///< pos, J / ID, vel
+using particle_bin9_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, 
-               f32_, f32_, f32_, 
-               f32_, f32_>; ///< pos, J, vel, JBar Vol
-using particle_bin10_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_, 
+               f_, f_, f_, 
+               f_, f_>; ///< pos, J, vel, vol JBar
+using particle_bin11_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_>; ///< pos, ID, forces, restVolume, normals
-using particle_bin12_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_,
+               f_, f_, f_, f_, f_,
+               f_, f_, f_>; ///< pos, ID, forces, restVolume, normals
+using particle_bin12_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_>; ///< pos, F
-using particle_bin13_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_>; ///< pos, F
+using particle_bin13_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_,
-               f32_>; ///< pos, F, logJp
-using particle_bin15_ =
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_,
+               f_>; ///< pos, F, logJp
+using particle_bin15_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, 
-               f32_, f32_, f32_>; ///< pos, F, vel
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_>; ///< pos, F, vel
 template <material_e mt> struct particle_bin_;
-template <> struct particle_bin_<material_e::JFluid> : particle_bin4_ {};
-template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_ {};
-template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_ {};
-template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_ {};
-template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_ {};
-template <> struct particle_bin_<material_e::Sand> : particle_bin13_ {};
-template <> struct particle_bin_<material_e::NACC> : particle_bin13_ {};
-template <> struct particle_bin_<material_e::Meshed> : particle_bin10_ {};
+template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {};
+template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {};
+template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_f_ {};
+template <> struct particle_bin_<material_e::Sand> : particle_bin13_f_ {};
+template <> struct particle_bin_<material_e::NACC> : particle_bin13_f_ {};
+template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
 
 
 template <typename ParticleBin>
@@ -83,7 +82,7 @@ using particle_array_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
-               ParticleArrayDomain, attrib_layout::aos, f32_, f32_, f32_>;
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
 
 template <material_e mt>
 struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
@@ -111,21 +110,48 @@ template <>
 struct ParticleBuffer<material_e::JFluid>
     : ParticleBufferImpl<material_e::JFluid> {
   using base_t = ParticleBufferImpl<material_e::JFluid>;
-  float rho = DENSITY; // Density [kg/m3]
-  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY; // Density [kg/m3]
+  PREC volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
-  float mass = (volume * DENSITY); // Mass of particle [kg]
-  float bulk = 5e6; //< Bulk Modulus [Pa]
-  float gamma = 7.1f; //< Derivative Bulk w.r.t. Pressure
-  float visco = 0.001f; //< Dynamic Viscosity, [Pa * s]
-  void updateParameters(float density, float ppc, float b, float g, float v) {
+  PREC mass = (volume * DENSITY); // Mass of particle [kg]
+  PREC bulk = 5e6; //< Bulk Modulus [Pa]
+  PREC gamma = 7.1f; //< Derivative Bulk w.r.t. Pressure
+  PREC visco = 0.001f; //< Dynamic Viscosity, [Pa * s]
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     bulk = b;
     gamma = g;
     visco = v;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"J"})          idx = 3;
+        else if (n == std::string{"Pressure"})   idx = 4;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -135,20 +161,26 @@ template <>
 struct ParticleBuffer<material_e::JFluid_ASFLIP>
     : ParticleBufferImpl<material_e::JFluid_ASFLIP> {
   using base_t = ParticleBufferImpl<material_e::JFluid_ASFLIP>;
-  float rho = DENSITY; // Density [kg/m3]
-  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY; // Density [kg/m3]
+  PREC volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
-  float mass = (volume * DENSITY); // Mass of particle [kg]
-  float bulk = 5e6; //< Bulk Modulus [Pa]
-  float gamma = 7.1f; //< Derivative Bulk w.r.t. Pressure
-  float visco = 0.001f; //< Dynamic Viscosity, [Pa * s]
-  float alpha = 0.f;  //< FLIP/PIC Mixing Factor
-  float beta_min = 0.f; //< ASFLIP Minimum Factor
-  float beta_max = 0.f; //< ASFLIP Maximum Factor
-  void updateParameters(float density, float ppc, float b, float g, float v, 
-                      float a, float bmin, float bmax) {
+  PREC mass = (volume * DENSITY); // Mass of particle [kg]
+  PREC bulk = 2.2e9; //< Bulk Modulus [Pa]
+  PREC gamma = 7.1; //< Derivative Bulk w.r.t. Pressure
+  PREC visco = 0.001; //< Dynamic Viscosity, [Pa * s]
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
+                        PREC a, PREC bmin, PREC bmax, 
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     bulk = b;
@@ -157,6 +189,28 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
     alpha = a;
     beta_min = bmin;
     beta_max = bmax;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"Velocity X"}) idx = 3;
+        else if (n == std::string{"Velocity Y"}) idx = 4;
+        else if (n == std::string{"Velocity Z"}) idx = 5;
+        else if (n == std::string{"J"})          idx = 6;
+        //else if (n == std::string{"JBar"})       idx = 7;
+        else if (n == std::string{"Pressure"})   idx = 7;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -167,21 +221,29 @@ template <>
 struct ParticleBuffer<material_e::JBarFluid>
     : ParticleBufferImpl<material_e::JBarFluid> {
   using base_t = ParticleBufferImpl<material_e::JBarFluid>;
-  float rho = DENSITY; // Density [kg/m3]
-  float volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY; // Density [kg/m3]
+  PREC volume = DOMAIN_VOLUME * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
-  float mass = (volume * DENSITY); // Mass of particle [kg]
-  float bulk = 5e6; //< Bulk Modulus [Pa]
-  float gamma = 7.1f; //< Derivative Bulk w.r.t. Pressure
-  float visco = 0.001f; //< Dynamic Viscosity, [Pa * s]
-  float alpha = 0.f;  //< FLIP/PIC Mixing Factor
-  float beta_min = 0.f; //< ASFLIP Minimum Factor
-  float beta_max = 0.f; //< ASFLIP Maximum Factor
-  void updateParameters(float density, float ppc, float b, float g, float v, 
-                      float a, float bmin, float bmax) {
+  PREC mass = (volume * DENSITY); // Mass of particle [kg]
+  PREC bulk = 2.2e9; //< Bulk Modulus [Pa]
+  PREC gamma = 7.1; //< Derivative Bulk w.r.t. Pressure
+  PREC visco = 0.001; //< Dynamic Viscosity, [Pa * s]
+  
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
+                        PREC a, PREC bmin, PREC bmax,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
+    volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS)) / ppc;
     mass = volume * density;
     bulk = b;
     gamma = g;
@@ -189,6 +251,28 @@ struct ParticleBuffer<material_e::JBarFluid>
     alpha = a;
     beta_min = bmin;
     beta_max = bmax;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }  
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"Velocity X"}) idx = 3;
+        else if (n == std::string{"Velocity Y"}) idx = 4;
+        else if (n == std::string{"Velocity Z"}) idx = 5;
+        else if (n == std::string{"J"})          idx = 6;
+        else if (n == std::string{"JBar"})       idx = 7;
+        else if (n == std::string{"Pressure"})   idx = 8;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -198,22 +282,51 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated>
     : ParticleBufferImpl<material_e::FixedCorotated> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  void updateParameters(float density, float ppc, float E, float nu) {
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"J"})          idx = 3;
+        //else if (n == std::string{"JBar"})       idx = 7;
+        else if (n == std::string{"Pressure"})   idx = 4;
+        else if (n == std::string{"Von Mises Stress"})   idx = 5;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -223,22 +336,28 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
     : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.f;
-  float beta_min = 0.f;
-  float beta_max = 0.f;
-  void updateParameters(float density, float ppc, float E, float nu, 
-                        float a, float bmin, float bmax) {
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
+                        PREC a, PREC bmin, PREC bmax,
+                        PREC ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
@@ -246,6 +365,28 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
     alpha = a;
     beta_min = bmin;
     beta_max = bmax;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"Velocity X"}) idx = 3;
+        else if (n == std::string{"Velocity Y"}) idx = 4;
+        else if (n == std::string{"Velocity Z"}) idx = 5;
+        else if (n == std::string{"J"})          idx = 6;
+        else if (n == std::string{"Pressure"})   idx = 7;
+        else if (n == std::string{"Von Mises Stress"})   idx = 8;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -254,35 +395,63 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
 template <>
 struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   using base_t = ParticleBufferImpl<material_e::Sand>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * 
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * 
       (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
        MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda =
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda =
       YOUNGS_MODULUS * POISSON_RATIO /
       ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  static constexpr float logJp0 = 0.f;
-  static constexpr float frictionAngle = 30.f;
-  static constexpr float cohesion = 0.f;
-  static constexpr float beta = 1.f;
+  static constexpr PREC logJp0 = 0.f;
+  static constexpr PREC frictionAngle = 30.f;
+  static constexpr PREC cohesion = 0.f;
+  static constexpr PREC beta = 1.f;
   // std::sqrt(2.f/3.f) * 2.f * std::sin(30.f/180.f*3.141592741f)
   // 						/ (3.f -
   // std::sin(30.f/180.f*3.141592741f))
-  static constexpr float yieldSurface =
+  static constexpr PREC yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
   static constexpr bool volumeCorrection = true;
-  void updateParameters(float density, float ppc, float E, float nu) {
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"J"})          idx = 3;
+        else if (n == std::string{"Pressure"})   idx = 4;
+        else if (n == std::string{"Von Mises Stress"})   idx = 5;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -291,37 +460,45 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
 template <>
 struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   using base_t = ParticleBufferImpl<material_e::NACC>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  float frictionAngle = 45.f;
-  float bm = 2.f / 3.f * (YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO))) +
+  PREC frictionAngle = 45.f;
+  PREC bm = 2.f / 3.f * (YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO))) +
              (YOUNGS_MODULUS * POISSON_RATIO /
               ((1 + POISSON_RATIO) *
                (1 - 2 * POISSON_RATIO))); ///< bulk modulus, kappa
-  float xi = 0.8f;                        ///< hardening factor
-  static constexpr float logJp0 = -0.01f;
-  float beta = 0.5f;
-  static constexpr float mohrColumbFriction =
+  PREC xi = 0.8f;                        ///< hardening factor
+  static constexpr PREC logJp0 = -0.01f;
+  PREC beta = 0.5f;
+  static constexpr PREC mohrColumbFriction =
       0.503599787772409; //< sqrt((T)2 / (T)3) * (T)2 * sin_phi / ((T)3 -
                          // sin_phi);
-  static constexpr float M =
+  static constexpr PREC M =
       1.850343771924453; ///< mohrColumbFriction * (T)dim / sqrt((T)2 / ((T)6
                          ///< - dim));
-  static constexpr float Msqr = 3.423772074299613;
+  static constexpr PREC Msqr = 3.423772074299613;
   static constexpr bool hardeningOn = true;
-
-  void updateParameters(float density, float ppc, float E, float nu, float be,
-                        float x) {
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
+                        PREC be, PREC x,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
@@ -330,6 +507,25 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
         2.f / 3.f * (E / (2 * (1 + nu))) + (E * nu / ((1 + nu) * (1 - 2 * nu)));
     beta = be;
     xi = x;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"J"})          idx = 3;
+        else if (n == std::string{"Pressure"})   idx = 4;
+        else if (n == std::string{"Von Mises Stress"})   idx = 5;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -339,22 +535,28 @@ template <>
 struct ParticleBuffer<material_e::Meshed>
     : ParticleBufferImpl<material_e::Meshed> {
   using base_t = ParticleBufferImpl<material_e::Meshed>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  float alpha = 0.f;
-  float beta_min = 0.f;
-  float beta_max = 0.f;
-  void updateParameters(float density, float ppc, float ym, float pr, float a,
-                        float bmin, float bmax) {
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr, PREC a,
+                        PREC bmin, PREC bmax,
+                        bool ASFLIP=false, bool FEM=false, bool FBAR = false) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     E = ym;
     nu = pr;
@@ -364,6 +566,29 @@ struct ParticleBuffer<material_e::Meshed>
     alpha = a;
     beta_min = bmin;
     beta_max = bmax;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names){
+        int idx;
+        if      (n == std::string{"Position X"}) idx = 0;
+        else if (n == std::string{"Position Y"}) idx = 1;
+        else if (n == std::string{"Position Z"}) idx = 2;
+        else if (n == std::string{"Velocity X"}) idx = 3;
+        else if (n == std::string{"Velocity Y"}) idx = 4;
+        else if (n == std::string{"Velocity Z"}) idx = 5;
+        else if (n == std::string{"J"})          idx = 6;
+        else if (n == std::string{"JBar"})       idx = 7;
+        else if (n == std::string{"Pressure"})   idx = 8;
+        else if (n == std::string{"Von Mises Stress"})   idx = 9;
+        else idx = -1;
+        output_attribs[i] = idx;
+        i = i+1;
+    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}

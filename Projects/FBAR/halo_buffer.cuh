@@ -19,11 +19,11 @@ using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-              f32_, f32_, f32_, 
-              f32_, f32_>; // mass, m(vel + dt*fint) (MLS), mvel (ASFLIP), Vol, JBar
+               BlockDomain, attrib_layout::soa, fg_, fg_, fg_, fg_,
+              fg_, fg_, fg_, 
+              fg_, fg_>; // mass, m(vel + dt*fint) (MLS), mvel (ASFLIP), Vol, JBar
 
-/// halo grid block
+/// Halo Grid-Block structure
 struct HaloGridBlocks {
   struct HaloBuffer {
     Instance<halo_grid_blocks_> _grid;

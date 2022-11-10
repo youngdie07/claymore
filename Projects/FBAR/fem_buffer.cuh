@@ -9,13 +9,26 @@ namespace mn {
 /// Basically particles, but ordered
 using VerticeArrayDomain = compact_domain<int, config::g_max_fem_vertice_num>;
 
-using vertice_array_ =
+using vertice_array_11_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
-               VerticeArrayDomain, attrib_layout::aos, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_,
-               f32_>; //< pos (x,y,z), normals (x,y,z), mass, force internal (x,y,z)
+               VerticeArrayDomain, attrib_layout::aos, f_, f_, f_,
+               f_, f_, f_, 
+               f_, 
+               f_, f_, f_,
+               f_>; //< pos (x,y,z), normals (x,y,z), mass, f_int (x,y,z), count?
+
+using vertice_array_13_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               VerticeArrayDomain, attrib_layout::aos, f_, f_, f_,
+               f_, f_, f_, 
+               f_, 
+               f_, f_, f_,
+               f_,
+               f_, f_>; //< pos (x,y,z), normals (x,y,z), mass, f_int (x,y,z), count?, vol, vol*Jbar
 
 /// FEM Elements
 /// Hold vertice IDs and material info for force computation
@@ -43,6 +56,22 @@ using element_bin4_10_ =
                i32_, 
                f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, 
                f32_>; ///< ID.a, ID.b, ID.c, ID.d, B[9], restVolume
+using element_bin4_10_f_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ElementBinDomain, attrib_layout::soa, i32_, i32_, i32_,
+               i32_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_>; ///< ID.a, ID.b, ID.c, ID.d, Dinv[9], restVolume
+using element_bin4_12_f_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ElementBinDomain, attrib_layout::soa, i32_, i32_, i32_,
+               i32_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_>; ///< ID.a, ID.b, ID.c, ID.d, Dinv[9], restVolume, J, JBar
 using element_bin4_19_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -53,7 +82,8 @@ using element_bin4_19_ =
                f32_,
                f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_, f32_ >; ///< ID.a, ID.b, ID.c, ID.d, B[9], restVolume
 template <fem_e ft> struct element_bin_;
-template <> struct element_bin_<fem_e::Tetrahedron> : element_bin4_19_ {};
+template <> struct element_bin_<fem_e::Tetrahedron> : element_bin4_10_f_ {};
+template <> struct element_bin_<fem_e::Tetrahedron_FBar> : element_bin4_12_f_ {};
 template <> struct element_bin_<fem_e::Brick> : element_bin8_ {};
 
 template <typename ElementBin>
@@ -94,19 +124,53 @@ template <>
 struct ElementBuffer<fem_e::Tetrahedron>
     : ElementBufferImpl<fem_e::Tetrahedron> {
   using base_t = ElementBufferImpl<fem_e::Tetrahedron>;
-  float rho = DENSITY;
-  float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+  PREC length = DOMAIN_LENGTH;
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
-  float mass = (volume * DENSITY);
-  float E = YOUNGS_MODULUS;
-  float nu = POISSON_RATIO;
-  float lambda = YOUNGS_MODULUS * POISSON_RATIO /
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  float mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  void updateParameters(float density, float ppc, float ym, float pr) {
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) {
+    length = l;
     rho = density;
-    volume = mn::config::g_volume * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / ppc);
+    E = ym;
+    nu = pr;
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+  }
+
+  template <typename Allocator>
+  ElementBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+template <fem_e ft> struct ElementBuffer;
+template <>
+struct ElementBuffer<fem_e::Tetrahedron_FBar>
+    : ElementBufferImpl<fem_e::Tetrahedron_FBar> {
+  using base_t = ElementBufferImpl<fem_e::Tetrahedron_FBar>;
+  PREC length = DOMAIN_LENGTH;
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) {
+    length = l;
+    rho = density;
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     E = ym;
     nu = pr;
@@ -120,10 +184,10 @@ struct ElementBuffer<fem_e::Tetrahedron>
 };
 
 
-
 template <>
 struct ElementBuffer<fem_e::Brick> : ElementBufferImpl<fem_e::Brick> {
   using base_t = ElementBufferImpl<fem_e::Brick>;
+  PREC length = DOMAIN_LENGTH;
   float rho = DENSITY;
   float volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
@@ -159,11 +223,12 @@ struct ElementBuffer<fem_e::Brick> : ElementBufferImpl<fem_e::Brick> {
 /// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
 using element_buffer_t =
     variant<ElementBuffer<fem_e::Tetrahedron>,
+            ElementBuffer<fem_e::Tetrahedron_FBar>,
             ElementBuffer<fem_e::Brick>>;
 
 
-struct VerticeArray : Instance<vertice_array_> {
-  using base_t = Instance<vertice_array_>;
+struct VerticeArray : Instance<vertice_array_13_> {
+  using base_t = Instance<vertice_array_13_>;
   VerticeArray &operator=(base_t &&instance) {
     static_cast<base_t &>(*this) = instance;
     return *this;
