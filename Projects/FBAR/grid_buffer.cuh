@@ -83,7 +83,8 @@ struct GridBuffer : Instance<grid_buffer_> {
     if (capacity > _capacity)
       resize(capacity, capacity);
   }
-  template <typename CudaContext> void reset(int blockCnt, CudaContext &cuDev) {
+  template <typename CudaContext> void reset(int blockCnt, CudaContext &cuDev) 
+  {
     using namespace placeholder;
 #if 0
     checkCudaErrors(cudaMemsetAsync((void *)&this->val_1d(_0, 0), 0,
@@ -91,6 +92,11 @@ struct GridBuffer : Instance<grid_buffer_> {
 #else
     cuDev.compute_launch({blockCnt, config::g_blockvolume}, clear_grid, *this);
 #endif
+  }
+  template <typename CudaContext> void reset_FBar(int blockCnt, CudaContext &cuDev) 
+  {
+    using namespace placeholder;
+    cuDev.compute_launch({blockCnt, config::g_blockvolume}, clear_grid_FBar, *this);
   }
 };
 

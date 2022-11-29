@@ -290,7 +290,111 @@ template <typename T> constexpr void matrixDeviatoric3d(const T *in, T *out) {
   out[6] = in[6];
   out[7] = in[7];
   out[8] = in[8] - trace_in_div_d;
+} 
+
+// Engineering function utils (Justin Bonus)
+
+template <typename T>
+constexpr void compute_RateOfDeformation_from_VelocityGrad(const T *C, T *d) 
+{
+  d[0] = 0.5 * (C[0] + C[0]);
+  d[1] = 0.5 * (C[1] + C[3]);
+  d[2] = 0.5 * (C[2] + C[6]);
+  d[3] = 0.5 * (C[3] + C[1]);
+  d[4] = 0.5 * (C[4] + C[4]);
+  d[5] = 0.5 * (C[5] + C[7]);
+  d[6] = 0.5 * (C[6] + C[2]);
+  d[7] = 0.5 * (C[7] + C[5]);
+  d[8] = 0.5 * (C[8] + C[8]);
 }
+
+template <typename T>
+constexpr void compute_Spin_from_VelocityGrad(const T *C, T *w) 
+{
+  w[0] = 0.5 * (C[0] - C[0]);
+  w[1] = 0.5 * (C[1] - C[3]);
+  w[2] = 0.5 * (C[2] - C[6]);
+  w[3] = 0.5 * (C[3] - C[1]);
+  w[4] = 0.5 * (C[4] - C[4]);
+  w[5] = 0.5 * (C[5] - C[7]);
+  w[6] = 0.5 * (C[6] - C[2]);
+  w[7] = 0.5 * (C[7] - C[5]);
+  w[8] = 0.5 * (C[8] - C[8]);
+}
+
+template <typename T> 
+constexpr T compute_VonMisesStress_from_StressCauchy(const T *x) 
+{
+  return sqrt( (  (x[0]-x[4])*(x[0]-x[4]) + 
+                  (x[4]-x[8])*(x[4]-x[8]) + 
+                  (x[8]-x[0])*(x[8]-x[0]) + 
+                  6*(x[3]*x[3] + x[6]*x[6] + x[7]*x[7]) ) * 0.5);
+}
+
+template <typename T> 
+constexpr T compute_MeanStress_from_StressCauchy(const T *x) 
+{
+  return (x[0] + x[4] + x[8]) / (-3.0);
+}
+
+
+template <typename T> 
+constexpr T compute_Invariant_1_from_3x3_Tensor(const T *x) 
+{
+  return x[0] + x[4] + x[8];
+}
+
+template <typename T> 
+constexpr T compute_Invariant_2_from_3x3_Tensor(const T *x) 
+{
+  return x[0]*x[4] + x[4]*x[8] + 
+         x[0]*x[8] - x[3]*x[3] - 
+         x[6]*x[6] - x[7]*x[7]; //< Invariant 2 = 1/2 * (tr(x)^2 - tr(x^2))
+}
+
+template <typename T> 
+constexpr T compute_Invariant_3_from_3x3_Tensor(const T *x) 
+{
+  return x[0] * (x[4] * x[8] - x[7] * x[5]) +
+         x[3] * (x[7] * x[2] - x[1] * x[8]) +
+         x[6] * (x[1] * x[5] - x[4] * x[2]);
+}
+
+template <typename T>
+constexpr void compute_Invariants_from_3x3_Tensor(const T *x, T *out)
+{
+  out[0] = x[0] + x[4] + x[8]; //< I1
+  out[1] = x[0]*x[4] + x[4]*x[8] + 
+         x[0]*x[8] - x[3]*x[3] - 
+         x[6]*x[6] - x[7]*x[7]; //< I2
+  out[2] = x[0] * (x[4] * x[8] - x[7] * x[5]) +
+           x[3] * (x[7] * x[2] - x[1] * x[8]) +
+           x[6] * (x[1] * x[5] - x[4] * x[2]); //< I3
+}
+
+template <typename T>
+constexpr void compute_J_Invariants_from_I_Invariants_3x3_Tensor(const T *x, T *out)
+{
+  out[0] = 0; //< J1
+  out[1] = (1.0/3.0)*x[0]*x[0] - x[1];  //< J2
+  out[2] = (2.0/27.0)*x[0]*x[0]*x[0] - (1.0/3.0)*x[0]*x[1] + x[2]; //< J3
+}
+
+#define PI_AS_A_DOUBLE 3.14159265358979323846
+
+// www.brown.edu/Departments/Engineering/Courses/En221/Notes/Tensors/Tensors.htm
+template <typename T>
+constexpr void compute_Principals_from_Invariants_3x3_Sym_Tensor(const T *x, T *out)
+{
+  T p = - ((1.0/3.0)*x[0]*x[0] - x[1]);  //< -J2
+  T q = - ((2.0/27.0)*x[0]*x[0]*x[0] - (1.0/3.0)*x[0]*x[1] + x[2]); //< -J3
+  for (int k = 0; k < 3; k++) 
+  {
+    out[k] = (x[0] / 3.0) + 2.0 * sqrt(-p / 3.0) * cos((1.0/3.0) * acos((3*q/(2*p)) * sqrt(-3.0/p) ) - (2.0/3.0) * ((T)k - 1.0) * PI_AS_A_DOUBLE); //< J1
+  }
+}
+//
+
 
 #if 0
 template <typename T>

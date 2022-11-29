@@ -100,6 +100,13 @@ using element_array_ =
                          structural_padding_policy::compact>,
                ElementArrayDomain, attrib_layout::aos, i32_, i32_, i32_,
                i32_>; //< a, b, c, d
+using element_attrib_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ElementArrayDomain, attrib_layout::aos, f_, f_, f_,
+               f_, f_, f_>; //< pos, f1, f2, f3
+
 
 template <fem_e ft>
 struct ElementBufferImpl : Instance<element_buffer_<element_bin_<ft>>> {
@@ -121,8 +128,7 @@ struct ElementBufferImpl : Instance<element_buffer_<element_bin_<ft>>> {
 
 template <fem_e ft> struct ElementBuffer;
 template <>
-struct ElementBuffer<fem_e::Tetrahedron>
-    : ElementBufferImpl<fem_e::Tetrahedron> {
+struct ElementBuffer<fem_e::Tetrahedron> : ElementBufferImpl<fem_e::Tetrahedron> {
   using base_t = ElementBufferImpl<fem_e::Tetrahedron>;
   PREC length = DOMAIN_LENGTH;
   PREC rho = DENSITY;
@@ -135,7 +141,8 @@ struct ElementBuffer<fem_e::Tetrahedron>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) {
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) 
+  {
     length = l;
     rho = density;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
@@ -151,10 +158,8 @@ struct ElementBuffer<fem_e::Tetrahedron>
   ElementBuffer(Allocator allocator) : base_t{allocator} {}
 };
 
-template <fem_e ft> struct ElementBuffer;
 template <>
-struct ElementBuffer<fem_e::Tetrahedron_FBar>
-    : ElementBufferImpl<fem_e::Tetrahedron_FBar> {
+struct ElementBuffer<fem_e::Tetrahedron_FBar> : ElementBufferImpl<fem_e::Tetrahedron_FBar> {
   using base_t = ElementBufferImpl<fem_e::Tetrahedron_FBar>;
   PREC length = DOMAIN_LENGTH;
   PREC rho = DENSITY;
@@ -167,7 +172,8 @@ struct ElementBuffer<fem_e::Tetrahedron_FBar>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) {
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) 
+  {
     length = l;
     rho = density;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
@@ -242,6 +248,15 @@ struct ElementArray : Instance<element_array_> {
     return *this;
   }
 };
+
+struct ElementAttrib : Instance<element_attrib_> {
+  using base_t = Instance<element_attrib_>;
+  ElementAttrib &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+};
+
 
 } // namespace mn
 

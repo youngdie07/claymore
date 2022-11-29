@@ -15,12 +15,12 @@ compute_stress_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
             U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
             V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
   T J = S[0] * S[1] * S[2];
-  T scaled_mu = 2.f * mu;
-  T scaled_lambda = lambda * (J - 1.f);
+  T scaled_mu = 2.0 * mu;
+  T scaled_lambda = lambda * (J - 1.0);
   vec<T, 3> P_hat;
-  P_hat[0] = scaled_mu * (S[0] - 1.f) + scaled_lambda * (S[1] * S[2]);
-  P_hat[1] = scaled_mu * (S[1] - 1.f) + scaled_lambda * (S[0] * S[2]);
-  P_hat[2] = scaled_mu * (S[2] - 1.f) + scaled_lambda * (S[0] * S[1]);
+  P_hat[0] = scaled_mu * (S[0] - 1.0) + scaled_lambda * (S[1] * S[2]);
+  P_hat[1] = scaled_mu * (S[1] - 1.0) + scaled_lambda * (S[0] * S[2]);
+  P_hat[2] = scaled_mu * (S[2] - 1.0) + scaled_lambda * (S[0] * S[1]);
 
   vec<T, 9> P;
   P[0] =
@@ -125,7 +125,7 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
                     sqrtf(s_hat_trial_sqrnorm);
 #pragma unroll 3
       for (int i = 0; i < 3; i++)
-        S[i] = sqrtf(s_hat_trial[i] * B_s_coeff + trace_B_hat_trial_divdim);
+        S[i] = sqrt(s_hat_trial[i] * B_s_coeff + trace_B_hat_trial_divdim);
       T New_F[9];
       matmul_mat_diag_matT_3D(New_F, U, S, V);
 #pragma unroll 9
@@ -137,10 +137,10 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
           p_trial > 1e-4 + p_min) {
         T p_center = ((T)1 - beta) * p0 / 2;
 #if 1 /// solve in 19 Josh Fracture paper
-        T q_trial = sqrtf(3.f / 2.f * s_hat_trial_sqrnorm);
+        T q_trial = sqrt(1.5f * s_hat_trial_sqrnorm);
         T direction[2] = {p_center - p_trial, -q_trial};
         T direction_norm =
-            sqrtf(direction[0] * direction[0] + direction[1] * direction[1]);
+            sqrt(direction[0] * direction[0] + direction[1] * direction[1]);
         direction[0] /= direction_norm;
         direction[1] /= direction_norm;
 
@@ -149,8 +149,8 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
         T A = Msqr * direction[0] * direction[0] +
               (1 + 2 * beta) * direction[1] * direction[1];
 
-        T l1 = (-B + sqrtf(B * B - 4 * A * C)) / (2 * A);
-        T l2 = (-B - sqrtf(B * B - 4 * A * C)) / (2 * A);
+        T l1 = (-B + sqrt(B * B - 4 * A * C)) / (2 * A);
+        T l2 = (-B - sqrt(B * B - 4 * A * C)) / (2 * A);
 
         T p1 = p_center + l1 * direction[0];
         T p2 = p_center + l2 * direction[0];
@@ -196,6 +196,149 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
   PF[8] = (dev_b_coeff * b_dev[8] + i_coeff) * volume;
 }
 
+template <>
+__forceinline__ __device__ void
+compute_stress_nacc(double volume, double mu, double lambda, double bm, double xi, double beta, double Msqr,
+                    bool hardeningOn, double &logJp, vec<double, 9> &F, vec<double, 9> &PF) {
+  using T = double;
+  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // Need to check math::svd for double
+  T p0 = bm * (T(0.00001) + sinh(xi * (-logJp > 0 ? -logJp : 0)));
+  T p_min = -beta * p0;
+
+  T Je_trial = S[0] * S[1] * S[2];
+
+  ///< 0). calculate YS
+  T B_hat_trial[3] = {S[0] * S[0], S[1] * S[1], S[2] * S[2]};
+  T trace_B_hat_trial_divdim =
+      (B_hat_trial[0] + B_hat_trial[1] + B_hat_trial[2]) / 3.0;
+  T J_power_neg_2_d_mulmu =
+      mu * rcbrt(Je_trial*Je_trial); ///< J^(-2/dim) * mu
+  T s_hat_trial[3] = {
+      J_power_neg_2_d_mulmu * (B_hat_trial[0] - trace_B_hat_trial_divdim),
+      J_power_neg_2_d_mulmu * (B_hat_trial[1] - trace_B_hat_trial_divdim),
+      J_power_neg_2_d_mulmu * (B_hat_trial[2] - trace_B_hat_trial_divdim)};
+  T psi_kappa_partial_J = bm * 0.5 * (Je_trial - 1.0 / Je_trial);
+  T p_trial = -psi_kappa_partial_J * Je_trial;
+
+  T y_s_half_coeff = 1.5 * (1 + 2.0 * beta); ///< a
+  T y_p_half = (Msqr * (p_trial - p_min) * (p_trial - p0));
+  T s_hat_trial_sqrnorm = s_hat_trial[0] * s_hat_trial[0] +
+                          s_hat_trial[1] * s_hat_trial[1] +
+                          s_hat_trial[2] * s_hat_trial[2];
+  T y = (y_s_half_coeff * s_hat_trial_sqrnorm) + y_p_half;
+
+  //< 1). update strain and hardening alpha(in logJp)
+
+  ///< case 1, project to max tip of YS
+  if (p_trial > p0) {
+    T Je_new = sqrt(-2.0 * p0 / bm + 1.0);
+    S[0] = S[1] = S[2] = cbrt(Je_new);
+    T New_F[9];
+    matmul_mat_diag_matT_3D(New_F, U, S, V);
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+    if (hardeningOn)
+      logJp += log(Je_trial / Je_new);
+  } ///< case 1 -- end
+
+  /// case 2, project to min tip of YS
+  else if (p_trial < p_min) {
+    T Je_new = sqrt(-2.0 * p_min / bm + 1.0);
+    S[0] = S[1] = S[2] = cbrt(Je_new);
+    T New_F[9];
+    matmul_mat_diag_matT_3D(New_F, U, S, V);
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+    if (hardeningOn)
+      logJp += log(Je_trial / Je_new);
+  } ///< case 2 -- end
+
+  /// case 3, keep or project to YS by hardening
+  else {
+    ///< outside YS
+    if (y >= 1e-4) {
+      ////< yield surface projection
+      T B_s_coeff = cbrt(Je_trial*Je_trial) / mu *
+                    sqrt(-y_p_half / y_s_half_coeff) /
+                    sqrt(s_hat_trial_sqrnorm);
+#pragma unroll 3
+      for (int i = 0; i < 3; i++)
+        S[i] = sqrt(s_hat_trial[i] * B_s_coeff + trace_B_hat_trial_divdim);
+      T New_F[9];
+      matmul_mat_diag_matT_3D(New_F, U, S, V);
+#pragma unroll 9
+      for (int i = 0; i < 9; i++)
+        F[i] = New_F[i];
+
+      ////< hardening
+      if (hardeningOn && p0 > 1e-4 && p_trial < p0 - 1e-4 &&
+          p_trial > 1e-4 + p_min) {
+        T p_center = ((T)1 - beta) * p0 / 2;
+#if 1 /// solve in 19 Josh Fracture paper
+        T q_trial = sqrt(1.5 * s_hat_trial_sqrnorm);
+        T direction[2] = {p_center - p_trial, -q_trial};
+        T direction_norm =
+            sqrt(direction[0] * direction[0] + direction[1] * direction[1]);
+        direction[0] /= direction_norm;
+        direction[1] /= direction_norm;
+
+        T C = Msqr * (p_center - p_min) * (p_center - p0);
+        T B = Msqr * direction[0] * (2 * p_center - p0 - p_min);
+        T A = Msqr * direction[0] * direction[0] +
+              (1 + 2 * beta) * direction[1] * direction[1];
+
+        T l1 = (-B + sqrt(B * B - 4 * A * C)) / (2 * A);
+        T l2 = (-B - sqrt(B * B - 4 * A * C)) / (2 * A);
+
+        T p1 = p_center + l1 * direction[0];
+        T p2 = p_center + l2 * direction[0];
+#else /// solve in ziran - Compare_With_Physbam
+        T aa = Msqr * (p_trial - p_center) * (p_trial - p_center)  /
+               (y_s_half_coeff * s_hat_trial_sqrnorm);
+        T dd = 1 + aa;
+        T ff = aa * beta * p0 - aa * p0 - 2 * p_center;
+        T gg = (p_center * p_center) - aa * beta * (p0 * p0);
+        T zz = sqrt(abs(ff * ff - 4 * dd * gg));
+        T p1 = (-ff + zz) / (2 * dd);
+        T p2 = (-ff - zz) / (2 * dd);
+#endif
+
+        T p_fake = (p_trial - p_center) * (p1 - p_center) > 0 ? p1 : p2;
+        T tmp_Je_sqr = (-2 * p_fake / bm + 1);
+        T Je_new_fake = sqrt(tmp_Je_sqr > 0 ? tmp_Je_sqr : -tmp_Je_sqr);
+        if (Je_new_fake > 1e-4)
+          logJp += log(Je_trial / Je_new_fake);
+      }
+    } ///< outside YS -- end
+  }   ///< case 3 --end
+
+  //< 2). elasticity
+  ///< known: F(renewed), U, V, S(renewed)
+  ///< unknown: J, dev(FF^T)
+  T J = S[0] * S[1] * S[2];
+  T b_dev[9], b[9];
+  matrixMatrixTranposeMultiplication3d(F.data(), b);
+  matrixDeviatoric3d(b, b_dev);
+
+  ///< |f| = P * F^T * Volume
+  T dev_b_coeff = mu * rcbrt(J*J);
+  T i_coeff = bm * 0.5 * (J * J - 1.0);
+  PF[0] = (dev_b_coeff * b_dev[0] + i_coeff) * volume;
+  PF[1] = (dev_b_coeff * b_dev[1]) * volume;
+  PF[2] = (dev_b_coeff * b_dev[2]) * volume;
+  PF[3] = (dev_b_coeff * b_dev[3]) * volume;
+  PF[4] = (dev_b_coeff * b_dev[4] + i_coeff) * volume;
+  PF[5] = (dev_b_coeff * b_dev[5]) * volume;
+  PF[6] = (dev_b_coeff * b_dev[6]) * volume;
+  PF[7] = (dev_b_coeff * b_dev[7]) * volume;
+  PF[8] = (dev_b_coeff * b_dev[8] + i_coeff) * volume;
+}
+
 template <typename T = float>
 __forceinline__ __device__ void
 compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
@@ -214,7 +357,7 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
   for (int i = 0; i < 3; i++) {
     T abs_S = S[i] > 0 ? S[i] : -S[i];
     abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
-    epsilon[i] = logf(abs_S) - cohesion;
+    epsilon[i] = log(abs_S) - cohesion;
   }
   T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
   T trace_epsilon = sum_epsilon + logJp;
@@ -225,12 +368,12 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
     epsilon_hat[i] = epsilon[i] - (trace_epsilon / (T)3);
 
   T epsilon_hat_norm =
-      sqrtf(epsilon_hat[0] * epsilon_hat[0] + epsilon_hat[1] * epsilon_hat[1] +
+      sqrt(epsilon_hat[0] * epsilon_hat[0] + epsilon_hat[1] * epsilon_hat[1] +
             epsilon_hat[2] * epsilon_hat[2]);
 
   /* Calculate Plasticiy */
   if (trace_epsilon >= (T)0) { ///< case II: project to the cone tip
-    New_S[0] = New_S[1] = New_S[2] = expf(cohesion);
+    New_S[0] = New_S[1] = New_S[2] = exp(cohesion);
     matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
                                                  /* Update F */
 #pragma unroll 9
@@ -256,7 +399,7 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
     }
 #pragma unroll 3
     for (int i = 0; i < 3; i++)
-      New_S[i] = expf(H[i]);
+      New_S[i] = exp(H[i]);
     matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
                                                  /* Update F */
 #pragma unroll 9
@@ -265,7 +408,7 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
   }
 
   /* Elasticity -- Calculate Coefficient */
-  T New_S_log[3] = {logf(New_S[0]), logf(New_S[1]), logf(New_S[2])};
+  T New_S_log[3] = {log(New_S[0]), log(New_S[1]), log(New_S[2])};
   T P_hat[3];
 
   // T S_inverse[3] = {1.f/S[0], 1.f/S[1], 1.f/S[2]};  // TO CHECK
@@ -301,12 +444,12 @@ compute_stress_fixedcorotated_PK1(T mu, T lambda, const vec<T, 9> &F,
             U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
             V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
   T J = S[0] * S[1] * S[2];
-  T scaled_mu = 2.f * mu;
-  T scaled_lambda = lambda * (J - 1.f);
+  T scaled_mu = 2.0 * mu;
+  T scaled_lambda = lambda * (J - 1.0);
   vec<T, 3> P_hat;
-  P_hat[0] = scaled_mu * (S[0] - 1.f) + scaled_lambda * (S[1] * S[2]);
-  P_hat[1] = scaled_mu * (S[1] - 1.f) + scaled_lambda * (S[0] * S[2]);
-  P_hat[2] = scaled_mu * (S[2] - 1.f) + scaled_lambda * (S[0] * S[1]);
+  P_hat[0] = scaled_mu * (S[0] - 1.0) + scaled_lambda * (S[1] * S[2]);
+  P_hat[1] = scaled_mu * (S[1] - 1.0) + scaled_lambda * (S[0] * S[2]);
+  P_hat[2] = scaled_mu * (S[2] - 1.0) + scaled_lambda * (S[0] * S[1]);
 
   P[0] =
       P_hat[0] * U[0] * V[0] + P_hat[1] * U[3] * V[3] + P_hat[2] * U[6] * V[6];
@@ -326,6 +469,38 @@ compute_stress_fixedcorotated_PK1(T mu, T lambda, const vec<T, 9> &F,
       P_hat[0] * U[1] * V[2] + P_hat[1] * U[4] * V[5] + P_hat[2] * U[7] * V[8];
   P[8] =
       P_hat[0] * U[2] * V[2] + P_hat[1] * U[5] * V[5] + P_hat[2] * U[8] * V[8];
+}
+
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_SVD_DefGrad(const vec<T, 9> &F,
+                              vec<T, 9> &U, vec<T, 3> &S, vec<T, 9> &V) 
+{
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+}
+
+
+
+template <typename T=float>
+__forceinline__ __device__ void
+compute_DefGradRate_from_DefGrad_and_VelocityGrad(const vec<T, 9> &F,
+                               const vec<T, 9> &C, vec<T, 9> &Fdot) 
+{
+  matrixTransposeMatrixMultiplication3d(F.data(), C.data(), Fdot.data());
+}
+
+template <typename T>
+__forceinline__ __device__ void
+compute_StressCauchy_from_DefGrad_and_StressPK1(const vec<T, 9> &F,
+                               const vec<T, 9> &P, vec<T, 9> &C) 
+{
+  T J = matrixDeterminant3d(F.data());
+  matrixMatrixTransposeMultiplication3d(P.data(), F.data(), C.data());
+#pragma unroll 9
+  for (int i = 0; i < 9; i++) C[i] = C[i] / J;
 }
 
 } // namespace mn

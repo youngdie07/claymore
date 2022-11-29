@@ -2,7 +2,9 @@
 #define __PARTICLE_BUFFER_CUH_
 #include "settings.h"
 #include <MnBase/Meta/Polymorphism.h>
-
+// #include <iostream>
+// #include <string>
+// #include <vector>
 namespace mn {
 
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
@@ -61,14 +63,21 @@ using particle_bin15_f_ =
                ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
                f_, f_, f_, f_, f_, f_, f_, f_, 
                f_, f_, f_>; ///< pos, F, vel
+using particle_bin16_f_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_, f_>; ///< pos, F, logJp, vel
 template <material_e mt> struct particle_bin_;
 template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {};
 template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {};
 template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_f_ {};
-template <> struct particle_bin_<material_e::Sand> : particle_bin13_f_ {};
-template <> struct particle_bin_<material_e::NACC> : particle_bin13_f_ {};
+template <> struct particle_bin_<material_e::Sand> : particle_bin16_f_ {};
+template <> struct particle_bin_<material_e::NACC> : particle_bin16_f_ {};
 template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
 
 
@@ -78,11 +87,28 @@ using particle_buffer_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleBufferDomain, attrib_layout::aos, ParticleBin>;
+
+
 using particle_array_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
+using particle_array_3_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
+using particle_array_6_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_>;
+using particle_array_9_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
 
 template <material_e mt>
 struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
@@ -93,17 +119,69 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   ParticleBufferImpl(Allocator allocator)
       : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
             allocator)} {}
-  // ParticleBufferImpl(Allocator allocator, std::size_t count)
-  //     : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
-  //           allocator, count)},
-  //       _numActiveBlocks{0}, _ppcs{nullptr}, _ppbs{nullptr},
-  //       _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {}
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > this->_capacity)
       this->resize(allocator, capacity);
   }
+
+  vec<int, 3> output_attribs;
+  void updateOutputs(std::vector<std::string> names) {
+    int i = 0;
+    for (auto n : names)
+    {
+      int idx;
+      if      (n == std::string{"ID"}) idx = 0; 
+      else if (n == std::string{"Mass"}) idx = 1;
+      else if (n == std::string{"Volume"}) idx = 2;
+      else if (n == std::string{"Position_X"}) idx = 3; 
+      else if (n == std::string{"Position_Y"}) idx = 4;
+      else if (n == std::string{"Position_Z"}) idx = 5;
+      else if (n == std::string{"Velocity_X"}) idx = 6;
+      else if (n == std::string{"Velocity_Y"}) idx = 7;
+      else if (n == std::string{"Velocity_Z"}) idx = 8;
+      else if (n == std::string{"DefGrad_XX"}) idx = 9;
+      else if (n == std::string{"DefGrad_XY"}) idx = 10;
+      else if (n == std::string{"DefGrad_XZ"}) idx = 11;
+      else if (n == std::string{"DefGrad_YX"}) idx = 12;
+      else if (n == std::string{"DefGrad_YY"}) idx = 13;
+      else if (n == std::string{"DefGrad_YZ"}) idx = 14;
+      else if (n == std::string{"DefGrad_ZX"}) idx = 15;
+      else if (n == std::string{"DefGrad_ZY"}) idx = 16;
+      else if (n == std::string{"DefGrad_ZZ"}) idx = 17;
+      else if (n == std::string{"J"})          idx = 18;
+      else if (n == std::string{"JBar"})       idx = 19;
+      else if (n == std::string{"StressCauchy_XX"}) idx = 20;
+      else if (n == std::string{"StressCauchy_XY"}) idx = 21;
+      else if (n == std::string{"StressCauchy_XZ"}) idx = 22;
+      else if (n == std::string{"StressCauchy_YX"}) idx = 23;
+      else if (n == std::string{"StressCauchy_YY"}) idx = 24;
+      else if (n == std::string{"StressCauchy_YZ"}) idx = 25;
+      else if (n == std::string{"StressCauchy_ZX"}) idx = 26;
+      else if (n == std::string{"StressCauchy_ZY"}) idx = 27;
+      else if (n == std::string{"StressCauchy_ZZ"}) idx = 28;
+      else if (n == std::string{"Pressure"})        idx = 29;
+      else if (n == std::string{"VonMisesStress"})  idx = 30;
+      else if (n == std::string{"DefGrad_Invariant1"}) idx = 31;
+      else if (n == std::string{"DefGrad_Invariant2"}) idx = 32;
+      else if (n == std::string{"DefGrad_Invariant3"}) idx = 33;
+      else if (n == std::string{"DefGrad_1"}) idx = 33;
+      else if (n == std::string{"DefGrad_2"}) idx = 34;
+      else if (n == std::string{"DefGrad_3"}) idx = 35;
+      else if (n == std::string{"StressCauchy_Invariant1"}) idx = 36;
+      else if (n == std::string{"StressCauchy_Invariant2"}) idx = 37;
+      else if (n == std::string{"StressCauchy_Invariant3"}) idx = 38;
+      else if (n == std::string{"StressCauchy_1"}) idx = 39;
+      else if (n == std::string{"StressCauchy_2"}) idx = 40;
+      else if (n == std::string{"StressCauchy_3"}) idx = 41;
+      else idx = -1;
+      output_attribs[i] = idx;
+      i = i+1;
+    }
+  }
+
 };
+
 
 template <material_e mt> struct ParticleBuffer;
 template <>
@@ -137,21 +215,6 @@ struct ParticleBuffer<material_e::JFluid>
     use_ASFLIP = ASFLIP;
     use_FEM = FEM;
     use_FBAR = FBAR;
-  }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"J"})          idx = 3;
-        else if (n == std::string{"Pressure"})   idx = 4;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -192,25 +255,6 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
     use_ASFLIP = ASFLIP;
     use_FEM = FEM;
     use_FBAR = FBAR;
-  }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"Velocity X"}) idx = 3;
-        else if (n == std::string{"Velocity Y"}) idx = 4;
-        else if (n == std::string{"Velocity Z"}) idx = 5;
-        else if (n == std::string{"J"})          idx = 6;
-        //else if (n == std::string{"JBar"})       idx = 7;
-        else if (n == std::string{"Pressure"})   idx = 7;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -255,25 +299,6 @@ struct ParticleBuffer<material_e::JBarFluid>
     use_FEM = FEM;
     use_FBAR = FBAR;
   }  
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"Velocity X"}) idx = 3;
-        else if (n == std::string{"Velocity Y"}) idx = 4;
-        else if (n == std::string{"Velocity Z"}) idx = 5;
-        else if (n == std::string{"J"})          idx = 6;
-        else if (n == std::string{"JBar"})       idx = 7;
-        else if (n == std::string{"Pressure"})   idx = 8;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
-  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -310,23 +335,6 @@ struct ParticleBuffer<material_e::FixedCorotated>
     use_ASFLIP = ASFLIP;
     use_FEM = FEM;
     use_FBAR = FBAR;
-  }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"J"})          idx = 3;
-        //else if (n == std::string{"JBar"})       idx = 7;
-        else if (n == std::string{"Pressure"})   idx = 4;
-        else if (n == std::string{"Von Mises Stress"})   idx = 5;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -369,25 +377,6 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
     use_FEM = FEM;
     use_FBAR = FBAR;
   }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"Velocity X"}) idx = 3;
-        else if (n == std::string{"Velocity Y"}) idx = 4;
-        else if (n == std::string{"Velocity Z"}) idx = 5;
-        else if (n == std::string{"J"})          idx = 6;
-        else if (n == std::string{"Pressure"})   idx = 7;
-        else if (n == std::string{"Von Mises Stress"})   idx = 8;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
-  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -408,16 +397,16 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
       ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  static constexpr PREC logJp0 = 0.f;
-  static constexpr PREC frictionAngle = 30.f;
-  static constexpr PREC cohesion = 0.f;
-  static constexpr PREC beta = 1.f;
+  PREC logJp0 = 0.f;
+  PREC frictionAngle = 30.f;
+  PREC cohesion = 0.f;
+  PREC beta = 1.f;
   // std::sqrt(2.f/3.f) * 2.f * std::sin(30.f/180.f*3.141592741f)
   // 						/ (3.f -
   // std::sin(30.f/180.f*3.141592741f))
-  static constexpr PREC yieldSurface =
+  PREC yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
-  static constexpr bool volumeCorrection = true;
+  bool volumeCorrection = true;
   bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
   PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
   PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
@@ -425,6 +414,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu,
+                        PREC logJ, PREC friction_angle, PREC c, PREC b, bool volCorrection=true, 
                         bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
     length = l;
     rho = density;
@@ -433,25 +423,15 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
+    logJp0 = logJ;
+    frictionAngle = friction_angle;
+    yieldSurface = 0.816496580927726 * 2.0 * std::sin(frictionAngle / 180.0 * 3.141592741) / (3.0 - std::sin(frictionAngle / 180.0 * 3.141592741));
+    cohesion = c;
+    beta = b;
+    volumeCorrection = volCorrection;
     use_ASFLIP = ASFLIP;
     use_FEM = FEM;
     use_FBAR = FBAR;
-  }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"J"})          idx = 3;
-        else if (n == std::string{"Pressure"})   idx = 4;
-        else if (n == std::string{"Von Mises Stress"})   idx = 5;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -511,22 +491,6 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
     use_FEM = FEM;
     use_FBAR = FBAR;
   }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"J"})          idx = 3;
-        else if (n == std::string{"Pressure"})   idx = 4;
-        else if (n == std::string{"Von Mises Stress"})   idx = 5;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
-  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -570,26 +534,6 @@ struct ParticleBuffer<material_e::Meshed>
     use_FEM = FEM;
     use_FBAR = FBAR;
   }
-  vec<int, 3> output_attribs;
-  void updateOutputs(std::vector<std::string> names) {
-    int i = 0;
-    for (auto n : names){
-        int idx;
-        if      (n == std::string{"Position X"}) idx = 0;
-        else if (n == std::string{"Position Y"}) idx = 1;
-        else if (n == std::string{"Position Z"}) idx = 2;
-        else if (n == std::string{"Velocity X"}) idx = 3;
-        else if (n == std::string{"Velocity Y"}) idx = 4;
-        else if (n == std::string{"Velocity Z"}) idx = 5;
-        else if (n == std::string{"J"})          idx = 6;
-        else if (n == std::string{"JBar"})       idx = 7;
-        else if (n == std::string{"Pressure"})   idx = 8;
-        else if (n == std::string{"Von Mises Stress"})   idx = 9;
-        else idx = -1;
-        output_attribs[i] = idx;
-        i = i+1;
-    }
-  }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -609,6 +553,15 @@ using particle_buffer_t =
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;
   ParticleArray &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+};
+
+struct ParticleAttrib: Instance<particle_array_> {
+  //static constexpr int number_outputs = num_outputs;
+  using base_t = Instance<particle_array_>;
+  ParticleAttrib &operator=(base_t &&instance) {
     static_cast<base_t &>(*this) = instance;
     return *this;
   }

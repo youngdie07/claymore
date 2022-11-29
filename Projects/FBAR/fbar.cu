@@ -35,6 +35,7 @@ static const char *kTypeNames[] = {"Null",  "False",  "True",  "Object",
 typedef std::vector<std::array<float, 3>> WaveHolder;
 typedef std::vector<std::array<PREC, 13>> VerticeHolder;
 typedef std::vector<std::array<int, 4>> ElementHolder;
+typedef std::vector<std::array<PREC, 6>> ElementAttribsHolder;
 
 float verbose = 0;
 PREC o = mn::config::g_offset; //< Grid-cell buffer size (see off-by-2, Xinlei Wang)
@@ -263,33 +264,62 @@ void parse_scene(std::string fn,
               fmt::print(fg(fmt::color::green),
                        "ERROR! Mesh model GPU[{}] exceeds global device count (settings.h)! Skipping mesh.\n", 
                        model["gpu"].GetInt());
-              break;
+              continue;
             }
             std::string constitutive{model["constitutive"].GetString()};
             fmt::print(fg(fmt::color::green),
                        "Mesh model using constitutive[{}], file_elements[{}], file_vertices[{}].\n", constitutive,
                        model["file_elements"].GetString(), model["file_vertices"].GetString());
             fs::path p{model["file"].GetString()};
+            
+            std::vector<std::string> output_attribs;
+            for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
+            std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
+                      
+            auto initModel = [&](auto &positions, auto &velocity, auto &vertices, auto &elements, auto &attribs)
+            {
+              if (constitutive == "Meshed") 
+              {
+                // Initialize FEM model on GPU arrays
+                if (model["use_FBAR"].GetBool() == true)
+                {
+                  std::cout << "Initialize FEM FBAR Model." << '\n';
+                  benchmark->initFEM<mn::fem_e::Tetrahedron_FBar>(model["gpu"].GetInt(), vertices, elements, attribs);
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), positions, velocity); //< Initalize particle model
 
-            auto initModel = [&](auto &positions, auto &velocity) {
-              benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 
-                                models[model["gpu"].GetInt()], 
-                                velocity); //< Initalize particle model
-              std::vector<std::string> output_attribs;
-              for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-              std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
-              benchmark->updateMeshedParameters(
-                model["gpu"].GetInt(),
-                model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                output_attribs); //< Update particle material with run-time inputs
+                  std::cout << "Initialize Mesh Parameters." << '\n';
+                  benchmark->updateMeshedFBARParameters(
+                    model["gpu"].GetInt(),
+                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                    output_attribs); //< Update particle material with run-time inputs
+                }
+                else if (model["use_FBAR"].GetBool() == false)
+                {
+                  std::cout << "Initialize FEM Model." << '\n';
+                  benchmark->initFEM<mn::fem_e::Tetrahedron>(model["gpu"].GetInt(), vertices, elements, attribs);
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), positions, velocity); //< Initalize particle model
+
+                  std::cout << "Initialize Mesh Parameters." << '\n';
+                  benchmark->updateMeshedParameters(
+                    model["gpu"].GetInt(),
+                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                    output_attribs); //< Update particle material with run-time inputs
+                }
+                std::cout << "Initialized FEM model." << '\n';
+              }
               fmt::print("FEM mesh material set.\n");
             };
             
             ElementHolder h_FEM_Elements; //< Declare Host elements
             VerticeHolder h_FEM_Vertices; //< Declare Host vertices
+
+
 
             mn::vec<PREC, 3> offset, velocity;
             for (int d = 0; d < 3; ++d) {
@@ -298,18 +328,20 @@ void parse_scene(std::string fn,
             }
             std::cout << "Load FEM Element..." << '\n';
             load_FEM_Elements(model["file_elements"].GetString(), ',', h_FEM_Elements);
+            
+            std::vector<std::array<PREC, 6>> h_FEM_Element_Attribs(mn::config::g_max_fem_element_num, 
+                                                            std::array<PREC, 6>{0., 0., 0., 0., 0., 0.});
+            
             std::cout << "Load FEM Vertices..." << '\n';
             load_FEM_Vertices(model["file_vertices"].GetString(), ',', h_FEM_Vertices,
                               offset);
-            // Initialize FEM model on GPU arrays
-            benchmark->initFEM(model["gpu"].GetInt(), h_FEM_Vertices, h_FEM_Elements);
-            std::cout << "Initialized FEM model." << '\n';
             // Load particles into model using vertice positions
             load_csv_particles(model["file_vertices"].GetString(), ',', 
                                 models[model["gpu"].GetInt()], 
                                 offset);
-            // Initialize particle model
-            initModel(models[model["gpu"].GetInt()], velocity);
+
+            // Initialize particle and finite element model
+            initModel(models[model["gpu"].GetInt()], velocity, h_FEM_Vertices, h_FEM_Elements, h_FEM_Element_Attribs);
           }
         }
       }
@@ -331,14 +363,12 @@ void parse_scene(std::string fn,
                        "Model constitutive[{}], file[{}]\n", constitutive,
                        model["file"].GetString());
             fs::path p{model["file"].GetString()};
+            std::vector<std::string> output_attribs;
 
             auto initModel = [&](auto &positions, auto &velocity) {
 
-              if (constitutive == "jfluid") {
+              if (constitutive == "JFluid") {
                 benchmark->initModel<mn::material_e::JFluid>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateJFluidParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
                     model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
@@ -347,78 +377,53 @@ void parse_scene(std::string fn,
                     output_attribs);
               } else if (constitutive == "JFluid_ASFLIP") {
                 benchmark->initModel<mn::material_e::JFluid_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateJFluidASFLIPParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
-                    model["viscosity"].GetDouble(), 
-                    model["alpha"].GetDouble(), 
-                    model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);
               } else if (constitutive == "JBarFluid") {
                 benchmark->initModel<mn::material_e::JBarFluid>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateJBarFluidParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
-                    model["viscosity"].GetDouble(), 
-                    model["alpha"].GetDouble(), 
-                    model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);
-              } else if (constitutive == "fixed_corotated") {
+              } else if (constitutive == "FixedCorotated") {
                 benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateFRParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(),
-                    model["poisson_ratio"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);
               } else if (constitutive == "FixedCorotated_ASFLIP") {
                 benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateFRASFLIPParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(),
-                    model["poisson_ratio"].GetDouble(), 
-                    model["alpha"].GetDouble(), 
-                    model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);
-              } else if (constitutive == "nacc") {
-                benchmark->initModel<mn::material_e::NACC>(model["gpu"].GetInt(), positions, velocity);
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
-                benchmark->updateNACCParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(),
-                    model["poisson_ratio"].GetDouble(), model["beta"].GetDouble(),
-                    model["xi"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "sand") { 
+              } else if (constitutive == "Sand") { 
                 benchmark->initModel<mn::material_e::Sand>(model["gpu"].GetInt(), positions, velocity); 
-                std::vector<std::string> output_attribs;
-                for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-                std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                 benchmark->updateSandParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(),
-                    model["poisson_ratio"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
+                    model["logJp0"].GetDouble(), model["friction_angle"].GetDouble(),model["cohesion"].GetDouble(),model["beta"].GetDouble(),model["Sand_volCorrection"].GetBool(),
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);              
-              }
+              } else if (constitutive == "NACC") {
+                benchmark->initModel<mn::material_e::NACC>(model["gpu"].GetInt(), positions, velocity);
+                benchmark->updateNACCParameters( model["gpu"].GetInt(),
+                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                    model["beta"].GetDouble(), model["xi"].GetDouble(),
+                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                    output_attribs);
+              } 
               
               //benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
               fmt::print("Particle material model updated.\n");
@@ -435,6 +440,10 @@ void parse_scene(std::string fn,
               inter_a[d]  = model["inter_a"].GetArray()[d].GetDouble() / l;
               inter_b[d]  = model["inter_b"].GetArray()[d].GetDouble() / l;
             }
+            for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
+            std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
+
+
             // Signed-Distance-Field MPM particle input (make with SDFGen or SideFX Houdini)
             if (p.extension() == ".sdf") {
               if (model["partition"].GetInt()){
@@ -494,29 +503,34 @@ void parse_scene(std::string fn,
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
           fmt::print("has {} targets\n", it->value.Size());
+          int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
-            std::vector<std::array<float, mn::config::g_target_attribs>> h_gridTarget(mn::config::g_target_cells, 
-                                                            std::array<float, mn::config::g_target_attribs>{0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f,0.f});
+            std::vector<std::array<PREC_G, mn::config::g_target_attribs>> h_gridTarget(mn::config::g_target_cells, 
+                                                            std::array<PREC_G, mn::config::g_target_attribs>{0.f,0.f,0.f,
+                                                            0.f,0.f,0.f,
+                                                            0.f,0.f,0.f,0.f});
             // Load and scale target domain
-            mn::vec<float, 3> h_point_a, h_point_b;
-            for (int d = 0; d < 3; ++d) {
-              h_point_a[d] = model["point_a"].GetArray()[d].GetFloat() / l + o;
-              h_point_b[d] = model["point_b"].GetArray()[d].GetFloat() / l + o;
+            mn::vec<float, 7> target;
+            target[0] = model["type"].GetFloat();
+            for (int d = 0; d < 3; ++d) 
+            {
+              target[d+1] = model["point_a"].GetArray()[d].GetFloat() / l + o;
+              target[d+4] = model["point_b"].GetArray()[d].GetFloat() / l + o;
             }
 
             // Check for thin target domain, grow 1 grid-cell if so
-            for (int d=0; d < 3; ++d){
-              if (h_point_a[d] == h_point_b[d]) h_point_b[d] = h_point_b[d] + dx;         
-            }
+            for (int d=0; d < 3; ++d)
+              if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
 
             // ----------------
             /// Loop through GPU devices
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-              fmt::print("device {} target\n", did);
-              benchmark->initGridTarget(did, h_gridTarget, h_point_a, h_point_b, 
+              benchmark->initGridTarget(did, h_gridTarget, target, 
                 model["output_frequency"].GetFloat());
+            fmt::print("GPU[{}] Target[{}] Initialized.\n", did, target_ID);
             }
+            target_ID += 1;
           }
         }
       }
@@ -659,7 +673,10 @@ int main(int argc, char *argv[]) {
   // ----------------
   /// Run simulation
   std::cout << "Run simulation..." << '\n';
-  getchar();
+  if (g_log_level > 1){
+    std::cout << "Press ENTER to start simulation. Disable with g_log_level 0 or 1 in 'settings.h'." << '\n';
+    getchar();
+  }
   benchmark->main_loop();
   // ----------------
   /// Clear

@@ -125,7 +125,7 @@ __global__ void register_exterior_blocks(uint32_t blockCount,
       for (char k = -1; k < 2; ++k)
         partition.insert(ivec3{blockid[0] + i, blockid[1] + j, blockid[2] + k});
 }
-template <typename Grid, typename Partition>
+template <typename ParticleArray, typename Grid, typename Partition>
 __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
                           Grid grid, const Partition partition, float dt,
                           PREC mass, PREC volume, pvec3 vel0, PREC length) {
@@ -221,19 +221,22 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
 // %% ============================================================= %%
 
 template <typename VerticeArray, typename ElementArray>
-__global__ void fem_precompute(VerticeArray vertice_array,
-                               ElementArray element_array,
+__global__ void fem_precompute(uint32_t blockCount, const VerticeArray vertice_array,
+                               const ElementArray element_array,
                                ElementBuffer<fem_e::Tetrahedron> elementBins) {
-    if (blockIdx.x >= g_max_fem_element_num) return;
-    auto element = elementBins.ch(_0, blockIdx.x);
+    auto element_number = blockIdx.x * blockDim.x + threadIdx.x;
+    if (element_number >= g_max_fem_element_num) {return; }
+    else if (element_number >= blockCount) {return; }
+    else {
+    auto element = elementBins.ch(_0, element_number );
     int IDs[4];
     pvec3 p[4];
     pvec9 D, Dinv;
     PREC restVolume;
-    IDs[0] = element_array.val(_0, blockIdx.x);
-    IDs[1] = element_array.val(_1, blockIdx.x);
-    IDs[2] = element_array.val(_2, blockIdx.x);
-    IDs[3] = element_array.val(_3, blockIdx.x);
+    IDs[0] = element_array.val(_0, element_number );
+    IDs[1] = element_array.val(_1, element_number );
+    IDs[2] = element_array.val(_2, element_number );
+    IDs[3] = element_array.val(_3, element_number );
 
     for (int v = 0; v < 4; v++) {
       int ID = IDs[v] - 1;
@@ -255,7 +258,7 @@ __global__ void fem_precompute(VerticeArray vertice_array,
     int sV0 = 0;
     restVolume = matrixDeterminant3d(D.data()) / 6.0;
     sV0 = (restVolume > 0.f) - (restVolume < 0.f);
-    if (sV0 < 0.f) printf("Element %d inverted volume! \n", blockIdx.x);
+    if (sV0 < 0.f) printf("Element %d inverted volume! \n", element_number);
 
     Dinv.set(0.0);
     matrixInverse(D.data(), Dinv.data());
@@ -275,23 +278,29 @@ __global__ void fem_precompute(VerticeArray vertice_array,
       element.val(_12, 0) = Dinv[8];
       element.val(_13, 0) = restVolume;
     }
+  }
 }
 
 
+
 template <typename VerticeArray, typename ElementArray>
-__global__ void fem_precompute(VerticeArray vertice_array,
-                               ElementArray element_array,
+__global__ void fem_precompute(uint32_t blockCount, const VerticeArray vertice_array,
+                               const ElementArray element_array,
                                ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) {
-    if (blockIdx.x >= g_max_fem_element_num) return;
-    auto element = elementBins.ch(_0, blockIdx.x);
+    auto element_number = blockIdx.x * blockDim.x + threadIdx.x;
+    if (element_number >= g_max_fem_element_num) {return;}
+    else if (element_number < blockCount)
+    {
+
+    auto element = elementBins.ch(_0, element_number);
     int IDs[4];
     pvec3 p[4];
     pvec9 D, Dinv;
     PREC restVolume;
-    IDs[0] = element_array.val(_0, blockIdx.x);
-    IDs[1] = element_array.val(_1, blockIdx.x);
-    IDs[2] = element_array.val(_2, blockIdx.x);
-    IDs[3] = element_array.val(_3, blockIdx.x);
+    IDs[0] = element_array.val(_0, element_number);
+    IDs[1] = element_array.val(_1, element_number);
+    IDs[2] = element_array.val(_2, element_number);
+    IDs[3] = element_array.val(_3, element_number);
 
     for (int v = 0; v < 4; v++) {
       int ID = IDs[v] - 1;
@@ -313,7 +322,7 @@ __global__ void fem_precompute(VerticeArray vertice_array,
     int sV0 = 0;
     restVolume = matrixDeterminant3d(D.data()) / 6.0;
     sV0 = (restVolume > 0.f) - (restVolume < 0.f);
-    if (sV0 < 0.f) printf("Element %d inverted volume! \n", blockIdx.x);
+    if (sV0 < 0.f) printf("Element %d inverted volume! \n", element_number);
 
     PREC J = 1.0;
     PREC JBar = 1.0;
@@ -334,14 +343,15 @@ __global__ void fem_precompute(VerticeArray vertice_array,
       element.val(_11, 0) = Dinv[7];
       element.val(_12, 0) = Dinv[8];
       element.val(_13, 0) = restVolume;
-      element.val(_14, 0) = 1.0 - J;
-      element.val(_15, 0) = 1.0 - JBar;
+      element.val(_14, 0) = 0.0;
+      element.val(_15, 0) = 0.0;
     }
+  }
 }
 
 template <typename VerticeArray, typename ElementArray>
-__global__ void fem_precompute(VerticeArray vertice_array,
-                               ElementArray element_array,
+__global__ void fem_precompute(uint32_t blockCount, const VerticeArray vertice_array,
+                               const ElementArray element_array,
                                ElementBuffer<fem_e::Brick> elementBins) {
                                  return;
 }
@@ -469,15 +479,15 @@ array_to_buffer(ParticleArray parray,
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
     /// F
-    pbin.val(_3, pidib % g_bin_capacity) = 1.f;
-    pbin.val(_4, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_5, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_6, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_7, pidib % g_bin_capacity) = 1.f;
-    pbin.val(_8, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_9, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_10, pidib % g_bin_capacity) = 0.f;
-    pbin.val(_11, pidib % g_bin_capacity) = 1.f;
+    pbin.val(_3, pidib % g_bin_capacity) = 1.0;
+    pbin.val(_4, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_5, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_6, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_7, pidib % g_bin_capacity) = 1.0;
+    pbin.val(_8, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_9, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_10, pidib % g_bin_capacity) = 0.0;
+    pbin.val(_11, pidib % g_bin_capacity) = 1.0;
     /// vel
     pbin.val(_12, pidib % g_bin_capacity) = vel[0]; //< Vel_x m/s
     pbin.val(_13, pidib % g_bin_capacity) = vel[1]; //< Vel_y m/s
@@ -511,8 +521,7 @@ __global__ void array_to_buffer(ParticleArray parray,
     pbin.val(_10, pidib % g_bin_capacity) = 0.f;
     pbin.val(_11, pidib % g_bin_capacity) = 1.f;
     /// logJp
-    pbin.val(_12, pidib % g_bin_capacity) =
-        ParticleBuffer<material_e::Sand>::logJp0;
+    pbin.val(_12, pidib % g_bin_capacity) = pbuffer.logJp0;
   }
 }
 
@@ -588,7 +597,8 @@ template <typename Grid, typename Partition>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
                                                float *maxVel, float curTime,
-                                               float grav, vec7 walls, vec7 boxes, PREC length) {
+                                               float grav, vec7 walls, vec7 boxes, PREC length) 
+{
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
@@ -596,6 +606,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   //__shared__ float sh_maxvels[g_blockvolume * g_num_grid_blocks_per_cuda_block
   /// 32];
   extern __shared__ float sh_maxvels[];
+  if (threadIdx.x < numWarps) sh_maxvels[threadIdx.x] = 0.0f;
+  __syncthreads();
+
   std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
                         threadIdx.x / 32 / g_num_warps_per_grid_block;
   auto blockid = partition._activeKeys[blockno];
@@ -603,19 +616,18 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                    ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
                     (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
 
-  if (threadIdx.x < numWarps)
-    sh_maxvels[threadIdx.x] = 0.0f;
-  __syncthreads();
-  
   PREC_G o = g_offset; // Domain offset [ ], for Quad. B-Splines (Off-by-2, Wang 2020)
   PREC_G l = length; // Length of domain [m]
 
   /// within-warp computations
-  if (blockno < blockCount) {
+  if (blockno < blockCount) 
+  {
     auto grid_block = grid.ch(_0, blockno);
-    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) 
+    {
       PREC_G mass = grid_block.val_1d(_0, cidib), velSqr = 0.f, vel[3], vel_n[3];
-      if (mass > 0.0) {
+      if (mass > 0.0) 
+      {
         mass = (1.0 / mass);
 
         // Grid node coordinate [i,j,k] in grid-block
@@ -663,6 +675,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                               ((zc <= walls_pos[2] + tol - 1.5*g_dx) || (zc >= walls_pos[2] + walls_dim[2] - tol + 1.5*g_dx));                          
           if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
           isInBound |= isOutFlume; // Update with regular boundary for efficiency
+          
           int isSlipFlume =  (((xc <= walls_pos[0] + tol) || (xc >= walls_pos[0] + walls_dim[0] - tol)) << 2) |
                              (((yc <= walls_pos[1] + tol) || (yc >= walls_pos[1] + walls_dim[1] - tol)) << 1) |
                               ((zc <= walls_pos[2] + tol) || (zc >= walls_pos[2] + walls_dim[2] - tol));                          
@@ -670,10 +683,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         }
         // Seperable
         else if (walls[6] == 2) {
-          int isOutFlume =  (((xc <= walls_pos[0]  + tol - 1.5*g_dx) || (xc >= walls_pos[0] + walls_dim[0] - tol + 1.5*g_dx)) << 2) |
-                             (((yc <= walls_pos[1] + tol - 1.5*g_dx) || (yc >= walls_pos[1] + walls_dim[1] - tol + 1.5*g_dx)) << 1) |
-                              ((zc <= walls_pos[2] + tol - 1.5*g_dx) || (zc >= walls_pos[2] + walls_dim[2] - tol + 1.5*g_dx));                          
+          int isOutFlume =  (((xc <= walls_pos[0] + tol - 1.0*g_dx) || (xc >= walls_pos[0] + walls_dim[0] - tol + 1.0*g_dx)) << 2) |
+                            (((yc <= walls_pos[1] + tol - 1.0*g_dx) || (yc >= walls_pos[1] + walls_dim[1] - tol + 1.0*g_dx)) << 1) |
+                            (((zc <= walls_pos[2] + tol - 1.0*g_dx) || (zc >= walls_pos[2] + walls_dim[2] - tol + 1.0*g_dx)));                          
           if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
+          isInBound |= isOutFlume; // Update with regular boundary for efficiency
+
           int isSepFlume = (((xc <= walls_pos[0] + tol && vel[0] < 0) || (xc >= walls_pos[0] + walls_dim[0] - tol && vel[0] > 0)) << 2) |
                            (((yc <= walls_pos[1] + tol && vel[1] < 0) || (yc >= walls_pos[1] + walls_dim[1] - tol && vel[1] > 0)) << 1) |
                             ((zc <= walls_pos[2] + tol && vel[2] < 0) || (zc >= walls_pos[2] + walls_dim[2] - tol && vel[2] > 0));                          
@@ -761,6 +776,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel[0]  = isInBound & 4 ? 0.f : vel[0] * mass; //< vx = mvx / m
         vel[1]  = isInBound & 2 ? 0.f : vel[1] * mass; //< vy = mvy / m
         vel[1] += isInBound & 2 ? 0.f : (grav / l) * dt;  //< fg = dt * g, Grav. force
+        //vel[1] += (grav / l) * dt;  //< fg = dt * g, Grav. force
+
         vel[2]  = isInBound & 1 ? 0.f : vel[2] * mass; //< vz = mvz / m
         vel_n[0] = isInBound & 4 ? 0.f : vel_n[0] * mass; //< vx = mvx / m
         vel_n[1] = isInBound & 2 ? 0.f : vel_n[1] * mass; //< vy = mvy / m
@@ -768,8 +785,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         // vel_n[0] = vel_n[0] * mass; //< vx = mvx / m
         // vel_n[1] = vel_n[1] * mass; //< vy = mvy / m
         // vel_n[2] = vel_n[2] * mass; //< vz = mvz / m
-        // PREC_G vol = isInBound == 7 ? 1.0 : 0.0;
-        // PREC_G JBar = isInBound == 7 ? 0.0 : 1.0;
+        //PREC_G vol = isInBound == 7 ? 1.0 : 0.0;
+        //PREC_G JBar = isInBound == 7 ? 0.0 : 1.0;
 #endif        
 
 #if 0
@@ -793,10 +810,12 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
       for (int iter = 1; iter % 32; iter <<= 1) {
         float tmp = __shfl_down_sync(activeMask, velSqr, iter, 32);
         if ((threadIdx.x % 32) + iter < 32)
-          velSqr = tmp > velSqr ? tmp : velSqr;
+          velSqr = tmp > velSqr ? (PREC_G) tmp : (PREC_G) velSqr;
+          //__threadfence_block();
       }
       if (velSqr > sh_maxvels[threadIdx.x / 32] && (threadIdx.x % 32) == 0)
-        sh_maxvels[threadIdx.x / 32] = velSqr;
+        sh_maxvels[threadIdx.x / 32] = (PREC_G) velSqr;
+        //__threadfence_block();
     }
   }
   __syncthreads();
@@ -805,6 +824,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
     if (threadIdx.x < interval) {
       if (sh_maxvels[threadIdx.x + interval] > sh_maxvels[threadIdx.x])
         sh_maxvels[threadIdx.x] = sh_maxvels[threadIdx.x + interval];
+        //__threadfence_block();
     }
     __syncthreads();
   }
@@ -827,16 +847,19 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   extern __shared__ float sh_maxvels[];
   std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
                         threadIdx.x / 32 / g_num_warps_per_grid_block;
-  auto blockid = partition._activeKeys[blockno];
-  int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
-                  ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
-                   (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
   if (threadIdx.x < numWarps)
     sh_maxvels[threadIdx.x] = 0.0f;
   __syncthreads();
 
-  /// within-warp computations
-  if (blockno < blockCount) {
+  if (blockno < blockCount) 
+  {
+
+    auto blockid = partition._activeKeys[blockno];
+    int isInBound = ((blockid[0] < bc || blockid[0] >= g_grid_size_x - bc) << 2) |
+                    ((blockid[1] < bc || blockid[1] >= g_grid_size_y - bc) << 1) |
+                     (blockid[2] < bc || blockid[2] >= g_grid_size_z - bc);
+
+    /// within-warp computations
     auto grid_block = grid.ch(_0, blockno);
     for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
       float mass = grid_block.val_1d(_0, cidib), velSqr = 0.f;
@@ -923,12 +946,15 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 template <typename Grid, typename Partition>
 __global__ void update_grid_FBar(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                                float curTime) {
+                                                float curTime) 
+{
   auto grid_block = grid.ch(_0, blockIdx.x);
-  for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) {
+  for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) 
+  {
     // Vol, JBar [Simple FBar]
     PREC_G vol  = grid_block.val_1d(_7, cidib);
-    if (vol > 0){
+    if (vol > 0)
+    {
       PREC_G JBar = grid_block.val_1d(_8, cidib);
       grid_block.val_1d(_7, cidib) = 0.f;
       grid_block.val_1d(_8, cidib) = JBar / vol;
@@ -936,6 +962,98 @@ __global__ void update_grid_FBar(uint32_t blockCount, Grid grid,
   }
 }
 
+
+
+template <typename Grid, typename Partition>
+__global__ void query_grid_kinetic_energy(uint32_t blockCount, const Grid grid,
+                                               const Partition partition, float dt,
+                                               PREC_G *maxVel, float curTime,
+                                               float grav, vec7 walls, vec7 boxes, PREC length) {
+  constexpr int bc = g_bc;
+  constexpr int numWarps =
+      g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
+  constexpr unsigned activeMask = 0xffffffff;
+                                  
+  //__shared__ float sh_maxvels[g_blockvolume * g_num_grid_blocks_per_cuda_block
+  /// 32];
+  extern __shared__ float sh_maxvels[];
+  std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
+                        threadIdx.x / 32 / g_num_warps_per_grid_block;
+  auto blockid = partition._activeKeys[blockno];
+
+  if (threadIdx.x < numWarps) sh_maxvels[threadIdx.x] = 0.0f;
+  __syncthreads();
+  
+  PREC_G o = g_offset; // Domain offset [ ], for Quad. B-Splines (Off-by-2, Wang 2020)
+  PREC_G l = length; // Length of domain [m]
+
+  /// within-warp computations
+  if (blockno < blockCount) 
+  {
+    auto grid_block = grid.ch(_0, blockno);
+    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) 
+    {
+      PREC_G mass = grid_block.val_1d(_0, cidib);
+      PREC_G velSqr = 0.0, energy = 0.0;
+      PREC_G vel[3], vel_n[3];
+      if (mass > 0) 
+      {
+        //mass = (1.0 / mass);
+
+        // Retrieve grid momentums (kg*m/s2)
+        vel[0]   = grid_block.val_1d(_1, cidib) * l; //< mvx
+        vel[1]   = grid_block.val_1d(_2, cidib) * l; //< mvy
+        vel[2]   = grid_block.val_1d(_3, cidib) * l; //< mvz
+        // vel_n[0] = grid_block.val_1d(_4, cidib) * l; //< mvx
+        // vel_n[1] = grid_block.val_1d(_5, cidib) * l; //< mvy
+        // vel_n[2] = grid_block.val_1d(_6, cidib) * l; //< mvz
+
+        ///< Slip contact        
+        // Set grid node velocity
+        // vel[0]   = vel[0] * mass; //< vx = mvx / m
+        // vel[1]   = vel[1] * mass; //< vy = mvy / m
+        // vel[2]   = vel[2] * mass; //< vz = mvz / m
+        // vel_n[0] = vel_n[0] * mass; //< vx = mvx / m
+        // vel_n[1] = vel_n[1] * mass; //< vy = mvy / m
+        // vel_n[2] = vel_n[2] * mass; //< vz = mvz / m
+        // vel_n[0] = vel_n[0] * mass; //< vx = mvx / m
+        // vel_n[1] = vel_n[1] * mass; //< vy = mvy / m
+        // vel_n[2] = vel_n[2] * mass; //< vz = mvz / m
+        //PREC_G vol = isInBound == 7 ? 1.0 : 0.0;
+        //PREC_G JBar = isInBound == 7 ? 0.0 : 1.0;
+
+        //grid_block.val_1d(_1, cidib) = vel[0];
+        velSqr += vel[0] * vel[0];
+        //grid_block.val_1d(_2, cidib) = vel[1];
+        velSqr += vel[1] * vel[1];
+        //grid_block.val_1d(_3, cidib) = vel[2];
+        velSqr += vel[2] * vel[2];
+        energy += (0.5 * mass) * velSqr;
+        // grid_block.val_1d(_4, cidib) = vel_n[0];
+        // grid_block.val_1d(_5, cidib) = vel_n[1];
+        // grid_block.val_1d(_6, cidib) = vel_n[2];
+        // grid_block.val_1d(_7, cidib) = 0;
+        // grid_block.val_1d(_8, cidib) = 0;
+      }
+      for (int iter = 1; iter % 32; iter <<= 1) 
+      {
+        PREC_G tmp = __shfl_down_sync(activeMask, energy, iter, 32);
+        if ((threadIdx.x % 32) + iter < 32) energy += tmp;
+      }
+      if ((threadIdx.x % 32) == 0) sh_maxvels[threadIdx.x / 32] += (PREC_G)energy;
+    }
+  }
+  __syncthreads();
+  /// various assumptions
+  for (int interval = numWarps >> 1; interval > 0; interval >>= 1) 
+  {
+    if (threadIdx.x < interval) 
+        sh_maxvels[threadIdx.x] += sh_maxvels[threadIdx.x + interval];
+    __syncthreads();
+  }
+  if (threadIdx.x == 0)
+    atomicAdd(maxVel, sh_maxvels[0]);
+}
 
 // %% ============================================================= %%
 //     MPM Grid-to-Particle-to-Grid Functions
@@ -2165,10 +2283,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid,
                       VerticeArray vertice_array) {
-  static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
+  static constexpr uint64_t numViPerBlock = g_blockvolume * 6;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
 
-  static constexpr uint64_t numMViPerBlock = g_blockvolume * 4;
+  static constexpr uint64_t numMViPerBlock = g_blockvolume * 7;
   static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
 
   static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
@@ -2176,14 +2294,14 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   extern __shared__ char shmem[];
   using ViArena =
-      float(*)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+      float(*)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   using ViArenaRef =
-      float(&)[3][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+      float(&)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
   using MViArena =
-      float(*)[4][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+      float(*)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   using MViArenaRef =
-      float(&)[4][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
+      float(&)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   MViArenaRef __restrict__ p2gbuffer =
       *reinterpret_cast<MViArena>(shmem + numViInArena * sizeof(float));
 
@@ -2218,8 +2336,14 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       val = grid_block.val_1d(_1, c);
     else if (channelid == 1)
       val = grid_block.val_1d(_2, c);
-    else
+    else if (channelid == 2)
       val = grid_block.val_1d(_3, c);
+    else if (channelid == 3)
+      val = grid_block.val_1d(_4, c);
+    else if (channelid == 4)
+      val = grid_block.val_1d(_5, c);
+    else if (channelid == 5)
+      val = grid_block.val_1d(_6, c);
     g2pbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
              [cy + (local_block_id & 2 ? g_blocksize : 0)]
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
@@ -2249,12 +2373,15 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       source_blockno = prev_partition._binsts[source_blockno] +
                        source_pidib / g_bin_capacity;
     }
-    pvec3 pos;
+    pvec3 pos, vp_n;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);
+      vp_n[0] = source_particle_bin.val(_13, source_pidib % g_bin_capacity);
+      vp_n[1] = source_particle_bin.val(_14, source_pidib % g_bin_capacity);
+      vp_n[2] = source_particle_bin.val(_15, source_pidib % g_bin_capacity);
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     pvec3 local_pos = pos - local_base_index * g_dx;
@@ -2266,15 +2393,16 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       PREC d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.0f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
-    pvec3 vel;
+    pvec3 vel, vel_n;
     vel.set(0.0);
+    vel_n.set(0.0);
     pvec9 C;
     C.set(0.0);
 
@@ -2297,7 +2425,14 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                            [local_base_index[2] + k],
                   g2pbuffer[2][local_base_index[0] + i][local_base_index[1] + j]
                            [local_base_index[2] + k]};
+          pvec3 vi_n{g2pbuffer[3][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k],
+                  g2pbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
+                           [local_base_index[2] + k]};
           vel += vi * W;
+          vel_n += vi_n * W;
           C[0] += W * vi[0] * xixp[0] * scale;
           C[1] += W * vi[1] * xixp[0] * scale;
           C[2] += W * vi[2] * xixp[0] * scale;
@@ -2308,7 +2443,6 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
           C[7] += W * vi[1] * xixp[2] * scale;
           C[8] += W * vi[2] * xixp[2] * scale;
         }
-    pos += vel * dt;
 
 #pragma unroll 9
     for (int d = 0; d < 9; ++d)
@@ -2331,6 +2465,13 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       logJp = source_particle_bin.val(_12, source_pidib % g_bin_capacity);
 
       matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
+      PREC J = matrixDeterminant3d(F.data());
+      PREC beta;
+      if (J >= 1.0) beta = pbuffer.beta_max; //< beta max
+      else beta = pbuffer.beta_min;          //< beta min
+      pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n)); //< pos update
+      vel += pbuffer.alpha * (vp_n - vel_n); //< vel update
+
       compute_stress_sand(pbuffer.volume, pbuffer.mu, pbuffer.lambda,
                           pbuffer.cohesion, pbuffer.beta, pbuffer.yieldSurface,
                           pbuffer.volumeCorrection, logJp, F, contrib);
@@ -2350,6 +2491,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_10, pidib % g_bin_capacity) = F[7];
         particle_bin.val(_11, pidib % g_bin_capacity) = F[8];
         particle_bin.val(_12, pidib % g_bin_capacity) = logJp;
+        particle_bin.val(_13, pidib % g_bin_capacity) = vel[0];
+        particle_bin.val(_14, pidib % g_bin_capacity) = vel[1];
+        particle_bin.val(_15, pidib % g_bin_capacity) = vel[2];
       }
 
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
@@ -2409,6 +2553,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
               wm * vel[2] + (contrib[2] * pos[0] + contrib[5] * pos[1] +
                              contrib[8] * pos[2]) *
                                 W);
+          atomicAdd(
+              &p2gbuffer[4][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[0] + Dp_inv * (C[0] * pos[0] + C[3] * pos[1] +
+                             C[6] * pos[2]))); //< mvi_n x ASFLIP
+          atomicAdd(
+              &p2gbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[1] + Dp_inv * (C[1] * pos[0] + C[4] * pos[1] +
+                             C[7] * pos[2]))); //< mvi_n y ASFLIP
+          atomicAdd(
+              &p2gbuffer[6][local_base_index[0] + i][local_base_index[1] + j]
+                        [local_base_index[2] + k],
+              wm * (vel[2] + Dp_inv * (C[2] * pos[0] + C[5] * pos[1] +
+                             C[8] * pos[2]))); //< mvi_n z ASFLIP
         }
   }
   __syncthreads();
@@ -2420,7 +2579,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
     // auto grid_block = next_grid.template ch<0>(blockno);
-    int channelid = base & (numMViPerBlock - 1);
+    int channelid = base % numMViPerBlock;
     char c = channelid % g_blockvolume;
     char cz = channelid & g_blockmask;
     char cy = (channelid >>= g_blockbits) & g_blockmask;
@@ -2437,8 +2596,14 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_1, c), val);
     else if (channelid == 2)
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_2, c), val);
-    else
+    else if (channelid == 3)
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
+    else if (channelid == 4)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_4, c), val);
+    else if (channelid == 5)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_5, c), val);
+    else if (channelid == 6)
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_6, c), val);
   }
 }
 
@@ -2758,12 +2923,6 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
   using ViArenaRef =
       float(&)[6][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
   ViArenaRef __restrict__ g2pbuffer = *reinterpret_cast<ViArena>(shmem);
-  using MViArena =
-      float(*)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-  using MViArenaRef =
-      float(&)[7][g_blocksize << 1][g_blocksize << 1][g_blocksize << 1];
-  MViArenaRef __restrict__ p2gbuffer =
-      *reinterpret_cast<MViArena>(shmem + shmem_offset * sizeof(float));
 
   ivec3 blockid;
   int src_blockno;
@@ -2810,14 +2969,6 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
   }
   __syncthreads();
-  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-    int loc = base;
-    char z = loc & arenamask;
-    char y = (loc >>= arenabits) & arenamask;
-    char x = (loc >>= arenabits) & arenamask;
-    p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
-  }
-  __syncthreads();
   for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
        pidib += blockDim.x) {
     int source_blockno, source_pidib;
@@ -2836,9 +2987,7 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
     pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
     pvec3 vp_n; //< Particle vel. at n
-    //float tension;
     PREC beta = 0;
-    //float J;   //< Particle volume ratio at n
     pvec3 b;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -2921,12 +3070,9 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
     // if (J >= 1.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
     // else if (J < 1.f) beta = pbuffer.beta_min;
     // else beta = 0.f;
-    // if (tension >= 2.f) beta = pbuffer.beta_max; //< Position correction factor (ASFLIP)
-    // else if (tension <= 0.f) beta = 0.f;
-    // else beta = pbuffer.beta_min;
 
-    PREC count;
-    count = vertice_array.val(_10, ID); //< count
+    //PREC count = 0;
+    int count = (int) vertice_array.val(_10, ID); //< count
 
     int surface_ASFLIP = 0;
     if (surface_ASFLIP && count > 10.f) { 
@@ -2942,21 +3088,18 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
       vel += pbuffer.alpha * (vp_n - vel_n);
     }
 
-    
     {
-      {
-        vertice_array.val(_0, ID) = pos[0];
-        vertice_array.val(_1, ID) = pos[1];
-        vertice_array.val(_2, ID) = pos[2];
-        vertice_array.val(_3, ID) = 0.f; //< bx
-        vertice_array.val(_4, ID) = 0.f; //< by
-        vertice_array.val(_5, ID) = 0.f; //< bz
-        vertice_array.val(_6, ID) = 0.f; //< 
-        vertice_array.val(_7, ID) = 0.f; //< fx
-        vertice_array.val(_8, ID) = 0.f; //< fy
-        vertice_array.val(_9, ID) = 0.f; //< fz
-        vertice_array.val(_10,ID) = 0.f; //< count
-      }
+      vertice_array.val(_0, ID) = pos[0];
+      vertice_array.val(_1, ID) = pos[1];
+      vertice_array.val(_2, ID) = pos[2];
+      vertice_array.val(_3, ID) = 0.f; //< bx
+      vertice_array.val(_4, ID) = 0.f; //< by
+      vertice_array.val(_5, ID) = 0.f; //< bz
+      vertice_array.val(_6, ID) = 0.f; //< 
+      vertice_array.val(_7, ID) = 0.f; //< fx
+      vertice_array.val(_8, ID) = 0.f; //< fy
+      vertice_array.val(_9, ID) = 0.f; //< fz
+      vertice_array.val(_10,ID) = 0.f; //< count
     }
   }
 }
@@ -2964,8 +3107,8 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
 template <typename ParticleBuffer, typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
-                      ParticleBuffer next_pbuffer,
-                      const Partition prev_partition, Partition partition,
+                      const ParticleBuffer next_pbuffer,
+                      const Partition prev_partition, const Partition partition,
                       const Grid grid, Grid next_grid,
                       VerticeArray vertice_array) { }
 
@@ -2974,16 +3117,13 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 template <typename Partition, typename Grid, typename VerticeArray>
 __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Meshed> pbuffer,
-                      ParticleBuffer<material_e::Meshed> next_pbuffer,
-                      const Partition prev_partition, Partition partition,
+                      const ParticleBuffer<material_e::Meshed> next_pbuffer,
+                      const Partition prev_partition, const Partition partition,
                       const Grid grid, Grid next_grid,
                       VerticeArray vertice_array) {
   static constexpr uint64_t numViPerBlock = g_blockvolume * 6;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
   static constexpr uint64_t shmem_offset = (g_blockvolume * 6) << 3;
-
-  static constexpr uint64_t numMViPerBlock = g_blockvolume * 7;
-  static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
 
   static constexpr unsigned arenamask = (g_blocksize << 1) - 1;
   static constexpr unsigned arenabits = g_blockbits + 1;
@@ -3059,9 +3199,7 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
     pvec3 vp_n; //< Particle vel. at n
-    //float tension;
     PREC beta = 0;
-    //float J;   //< Particle volume ratio at n
     pvec3 b;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -3087,10 +3225,10 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
       PREC d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.0f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
@@ -3148,10 +3286,10 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     // else if (tension <= 0.f) beta = 0.f;
     // else beta = pbuffer.beta_min;
 
-    PREC count;
-    count = vertice_array.val(_10, ID); //< count
+    int count = vertice_array.val(_10, ID); //< count
 
     int surface_ASFLIP = 0;
+    beta = 0;
     if (surface_ASFLIP && count > 10.f) { 
       // Interior of Mesh
       pos += dt * vel;
@@ -3183,522 +3321,497 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
   }
 }
 
+template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
+__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+                       VerticeArray vertice_array,
+                       const ElementArray element_array,
+                       ElementBuffer elementBins) { return; }
 
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(float dt, float newDt,
+__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
                       VerticeArray vertice_array,
-                      ElementArray element_array,
+                      const ElementArray element_array,
                       ElementBuffer<fem_e::Tetrahedron> elementBins) {
+    auto element_number = blockIdx.x * blockDim.x + threadIdx.x;
+    if (element_number < blockCount && element_number < g_max_fem_element_num)
+    {
+    auto element = elementBins.ch(_0, element_number);
+    int IDs[4];
+    pvec3 p[4];
 
-  if (blockIdx.x >= g_max_fem_element_num) return;
-  int IDs[4];
-  pvec3 p[4];
-  auto element = elementBins.ch(_0, blockIdx.x);
+    /// Precomputed
+    // Dm is undeformed edge vector matrix relative to a vertex 0
+    // Bm is undeformed face normal matrix relative to a vertex 0
+    // Bm^T = Dm^-1
+    // Restvolume is underformed volume [m^3]
+    pvec9 DmI, Bm;
+    DmI.set(0.0);
+    Bm.set(0.0);
+    IDs[0] = element.val(_0, 0); //< ID of node 0
+    IDs[1] = element.val(_1, 0); //< ID of node 1
+    IDs[2] = element.val(_2, 0); //< ID of node 2 
+    IDs[3] = element.val(_3, 0); //< ID of node 3
+    DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
+    DmI[1] = element.val(_5, 0);
+    DmI[2] = element.val(_6, 0);
+    DmI[3] = element.val(_7, 0);
+    DmI[4] = element.val(_8, 0);
+    DmI[5] = element.val(_9, 0);
+    DmI[6] = element.val(_10, 0);
+    DmI[7] = element.val(_11, 0);
+    DmI[8] = element.val(_12, 0);
+    PREC V0 = element.val(_13, 0); //< Undeformed volume [m^3]
+    PREC sV0 = V0<0.f ? -1.f : 1.f;
 
-  /* matrix indexes
-          mat1   |  diag   |  mat2^T
-          0 3 6  |  0      |  0 1 2
-          1 4 7  |    1    |  3 4 5
-          2 5 8  |      2  |  6 7 8
-  */
+    // Set position of vertices
+    #pragma unroll 4
+    for (int v = 0; v < 4; v++) {
+      int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
+      p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
+      p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
+      p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
+    }
+    //__syncthreads();
 
-  /// Precomputed
-  // Dm is undeformed edge vector matrix relative to a vertex 0
-  // Bm is undeformed face normal matrix relative to a vertex 0
-  // Bm^T = Dm^-1
-  // Restvolume is underformed volume [m^3]
-  pvec9 DmI, Bm;
-  DmI.set(0.0);
-  Bm.set(0.0);
-  IDs[0] = element.val(_0, 0); //< ID of node 0
-  IDs[1] = element.val(_1, 0); //< ID of node 1
-  IDs[2] = element.val(_2, 0); //< ID of node 2 
-  IDs[3] = element.val(_3, 0); //< ID of node 3
+    /// Run-Time
+    // Ds is deformed edge vector matrix relative to node 0
+    pvec9 Ds;
+    Ds.set(0.0);
+    Ds[0] = p[1][0] - p[0][0];
+    Ds[1] = p[1][1] - p[0][1];
+    Ds[2] = p[1][2] - p[0][2];
+    Ds[3] = p[2][0] - p[0][0];
+    Ds[4] = p[2][1] - p[0][1];
+    Ds[5] = p[2][2] - p[0][2];
+    Ds[6] = p[3][0] - p[0][0];
+    Ds[7] = p[3][1] - p[0][1];
+    Ds[8] = p[3][2] - p[0][2];
 
-  PREC V0 = element.val(_13, 0); //< Undeformed volume [m^3]
-  float sV0 = V0<0.f ? -1.f : 1.f;
+    // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
+    pvec9 F; //< Deformation gradient
+    F.set(0.0);
+    // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+    matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
 
-  DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
-  DmI[1] = element.val(_5, 0);
-  DmI[2] = element.val(_6, 0);
-  DmI[3] = element.val(_7, 0);
-  DmI[4] = element.val(_8, 0);
-  DmI[5] = element.val(_9, 0);
-  DmI[6] = element.val(_10, 0);
-  DmI[7] = element.val(_11, 0);
-  DmI[8] = element.val(_12, 0);
+    // J = det | F |,  i.e. volume change ratio undef -> def
+    PREC J = matrixDeterminant3d(F.data());
+    PREC Vn = V0 * J;
+    Bm.set(0.0);
+    Bm[0] = V0 * DmI[0];
+    Bm[1] = V0 * DmI[3];
+    Bm[2] = V0 * DmI[6];
+    Bm[3] = V0 * DmI[1];
+    Bm[4] = V0 * DmI[4];
+    Bm[5] = V0 * DmI[7];
+    Bm[6] = V0 * DmI[2];
+    Bm[7] = V0 * DmI[5];
+    Bm[8] = V0 * DmI[8];
 
-  // Set position of vertices
-  for (int v = 0; v < 4; v++) {
-    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
-    p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
-    p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
-    p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
+    // P is First Piola-Kirchoff stress at element Gauss point
+    // P = (dPsi/dF){F}, Derivative of Free Energy w.r.t. Def. Grad.
+    // Maps undeformed area weighted face normals to deformed traction vectors
+    pvec9 P; //< PK1, First Piola-Kirchoff stress at element Gauss point
+    pvec9 G; //< Deformed internal forces at nodes 1,2,3 relative to node 0
+    pvec9 Bs; //< BsT is the deformed. area-weighted node normal matrix
+    P.set(0.0);
+    G.set(0.0);
+    Bs.set(0.0);
+    // P = (dPsi/dF){F}, Fixed-Corotated model for energy potential
+    compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
+
+    // G = P Bm
+    matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
+    
+    // F^-1 = inv(F)
+    pvec9 Finv; //< Deformation gradient inverse
+    Finv.set(0.0);
+    matrixInverse(F.data(), Finv.data());
+
+    // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
+    matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
+    // Bs = vol_n * Ds^-T 
+    //matrixInverse(Ds.data(), Bs.data());
+
+    Bm.set(0.0); //< Now use for Cauchy stress
+    matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
+    PREC pressure  = compute_MeanStress_from_StressCauchy(Bm.data()) / J;
+    PREC von_mises = compute_VonMisesStress_from_StressCauchy(Bm.data()) / sqrt(J);
+    
+
+
+#pragma unroll 4
+    for (int v=0; v<4; v++)
+    {
+      pvec3 f; // Internal force vector at deformed vertex
+      pvec3 n;
+      if (v == 1) { // Node 1; Face a
+        f[0] = G[0];
+        f[1] = G[1];
+        f[2] = G[2];
+        n[0] = J * Bs[0];
+        n[1] = J * Bs[1];
+        n[2] = J * Bs[2];
+      } else if (v == 2) { // Node 2; Face b
+        f[0] = G[3];
+        f[1] = G[4];
+        f[2] = G[5];
+        n[0] = J * Bs[3];
+        n[1] = J * Bs[4];
+        n[2] = J * Bs[5];
+      }  else if (v == 3) { // Node 3; Face c
+        f[0] = G[6]; 
+        f[1] = G[7];
+        f[2] = G[8];
+        n[0] = J * Bs[6];
+        n[1] = J * Bs[7];
+        n[2] = J * Bs[8];
+      } else { // Node 4; Face d
+        f[0] = - (G[0] + G[3] + G[6]);
+        f[1] = - (G[1] + G[4] + G[7]);
+        f[2] = - (G[2] + G[5] + G[8]);
+        n[0] = - J * (Bs[0] + Bs[3] + Bs[6]) ;
+        n[1] = - J * (Bs[1] + Bs[4] + Bs[7]) ;
+        n[2] = - J * (Bs[2] + Bs[5] + Bs[8]) ;
+      }
+      //__syncthreads();
+      
+#pragma unroll 3
+      for (int d = 0; d < 3; d++) f[d] =  f[d] / elementBins.length;
+
+      //__syncthreads();
+
+      
+      int ID = IDs[v] - 1; // Index from 0
+      atomicAdd(&vertice_array.val(_3, ID), (PREC)(1.0-J)*abs(V0)*0.25); //< bx
+      atomicAdd(&vertice_array.val(_4, ID), (PREC)pressure*abs(V0)*0.25); //< by
+      atomicAdd(&vertice_array.val(_5, ID), (PREC)von_mises*abs(V0)*0.25); //< bz
+      atomicAdd(&vertice_array.val(_6, ID), (PREC)abs(V0)*0.25); //< Node undef. volume [m3]
+      atomicAdd(&vertice_array.val(_7, ID), (PREC)f[0]); //< fx
+      atomicAdd(&vertice_array.val(_8, ID), (PREC)f[1]); //< fy
+      atomicAdd(&vertice_array.val(_9, ID), (PREC)f[2]); //< fz
+      atomicAdd(&vertice_array.val(_10, ID), (PREC)1.f); //< Counter
+      
+    }
   }
-  __syncthreads();
+}
+template <typename VerticeArray, typename ElementArray>
+__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+                      VerticeArray vertice_array,
+                      ElementArray element_array,
+                      ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) { return; }
+template <typename VerticeArray, typename ElementArray>
+__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+                      VerticeArray vertice_array,
+                      ElementArray element_array,
+                      ElementBuffer<fem_e::Brick> elementBins) { return; }
 
-  /// Run-Time
-  // Ds is deformed edge vector matrix relative to node 0
-  pvec9 Ds;
-  Ds.set(0.0);
-  Ds[0] = p[1][0] - p[0][0];
-  Ds[1] = p[1][1] - p[0][1];
-  Ds[2] = p[1][2] - p[0][2];
-  Ds[3] = p[2][0] - p[0][0];
-  Ds[4] = p[2][1] - p[0][1];
-  Ds[5] = p[2][2] - p[0][2];
-  Ds[6] = p[3][0] - p[0][0];
-  Ds[7] = p[3][1] - p[0][1];
-  Ds[8] = p[3][2] - p[0][2];
 
-  // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
-  pvec9 F; //< Deformation gradient
-  F.set(0.0);
-  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
-  matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
+// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
+// Stress/Strain not computed here, displacements sent to FE mesh for force calc
+template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
+__global__ void v2fem_FBar(uint32_t blockCount, float dt, float newDt,
+                           VerticeArray vertice_array,
+                           const ElementArray element_array,
+                           const ElementBuffer elementBins) { return; }
 
-  // J = det | F |,  i.e. volume change ratio undef -> def
-  PREC J = matrixDeterminant3d(F.data());
-  PREC Vn = V0 * J;
-  Bm.set(0.0);
-  Bm[0] = V0 * DmI[0];
-  Bm[1] = V0 * DmI[3];
-  Bm[2] = V0 * DmI[6];
-  Bm[3] = V0 * DmI[1];
-  Bm[4] = V0 * DmI[4];
-  Bm[5] = V0 * DmI[7];
-  Bm[6] = V0 * DmI[2];
-  Bm[7] = V0 * DmI[5];
-  Bm[8] = V0 * DmI[8];
-
-  // P is First Piola-Kirchoff stress at element Gauss point
-  // P = (dPsi/dF){F}, Derivative of Free Energy w.r.t. Def. Grad.
-  // Maps undeformed area weighted face normals to deformed traction vectors
-  pvec9 P; //< PK1, First Piola-Kirchoff stress at element Gauss point
-  pvec9 G; //< Deformed internal forces at nodes 1,2,3 relative to node 0
-  pvec9 Bs; //< BsT is the deformed. area-weighted node normal matrix
-  P.set(0.0);
-  G.set(0.0);
-  Bs.set(0.0);
-  // P = (dPsi/dF){F}, Fixed-Corotated model for energy potential
-  compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
-
-  // G = P Bm
-  matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
-  
-  // F^-1 = inv(F)
-  pvec9 Finv; //< Deformation gradient inverse
-  Finv.set(0.0);
-  matrixInverse(F.data(), Finv.data());
-
-  // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
-  matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
-  // Bs = vol_n * Ds^-T 
-  //matrixInverse(Ds.data(), Bs.data());
-
-  Bm.set(0.0); //< Now use for Cauchy stress
-  matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
-  PREC pressure = - (Bm[0] + Bm[4] + Bm[8]) / (3.0 * J);
-  PREC von_mises = sqrt( (  (Bm[0]-Bm[4])*(Bm[0]-Bm[4]) + 
-                            (Bm[4]-Bm[8])*(Bm[4]-Bm[8]) + 
-                            (Bm[8]-Bm[0])*(Bm[8]-Bm[0]) + 
-                            6*(Bm[3]*Bm[3] + Bm[6]*Bm[6] + Bm[7]*Bm[7]) ) / (2.0 * J));
-  
-
-  pvec3 f; // Internal force vector at deformed vertex
-  pvec3 n;
-  f.set(0.0);
-  n.set(0.0);
-  if (threadIdx.x == 1){ // Node 1; Face a
-    f[0] = G[0];
-    f[1] = G[1];
-    f[2] = G[2];
-    n[0] = J * Bs[0];
-    n[1] = J * Bs[1];
-    n[2] = J * Bs[2];
-  } else if (threadIdx.x == 2) { // Node 2; Face b
-    f[0] = G[3];
-    f[1] = G[4];
-    f[2] = G[5];
-    n[0] = J * Bs[3];
-    n[1] = J * Bs[4];
-    n[2] = J * Bs[5];
-  }  else if (threadIdx.x == 3) { // Node 3; Face c
-    f[0] = G[6]; 
-    f[1] = G[7];
-    f[2] = G[8];
-    n[0] = J * Bs[6];
-    n[1] = J * Bs[7];
-    n[2] = J * Bs[8];
-  } else { // Node 4; Face d
-    f[0] = - (G[0] + G[3] + G[6]);
-    f[1] = - (G[1] + G[4] + G[7]);
-    f[2] = - (G[2] + G[5] + G[8]);
-    n[0] = - J * (Bs[0] + Bs[3] + Bs[6]) ;
-    n[1] = - J * (Bs[1] + Bs[4] + Bs[7]) ;
-    n[2] = - J * (Bs[2] + Bs[5] + Bs[8]) ;
-  }
-  __syncthreads();
-  
-
-  f[0] =  f[0] / elementBins.length;
-  f[1] =  f[1] / elementBins.length; 
-  f[2] =  f[2] / elementBins.length;
-
-  __syncthreads();
-
+template <typename VerticeArray, typename ElementArray>
+__global__ void v2fem_FBar(uint32_t blockCount, float dt, float newDt,
+                      VerticeArray vertice_array,
+                      const ElementArray element_array,
+                      const ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) 
+{
+  auto element_number = blockIdx.x * blockDim.x + threadIdx.x;
+  if (element_number < blockCount && element_number < g_max_fem_element_num)
   {
-    int ID = IDs[threadIdx.x] - 1; // Index from 0
-    // atomicAdd(&vertice_array.val(_0, ID), b[0]); //< x
-    // atomicAdd(&vertice_array.val(_1, ID), b[1]); //< y
-    // atomicAdd(&vertice_array.val(_2, ID), b[2]); //< z
-    atomicAdd(&vertice_array.val(_3, ID), (PREC)(J-1.0)*abs(V0)*0.25); //< bx
-    atomicAdd(&vertice_array.val(_4, ID), (PREC)pressure*abs(V0)*0.25); //< by
-    atomicAdd(&vertice_array.val(_5, ID), (PREC)von_mises*abs(V0)*0.25); //< bz
-    atomicAdd(&vertice_array.val(_6, ID), (PREC)abs(V0)*0.25); //< Node undef. volume [m3]
-    atomicAdd(&vertice_array.val(_7, ID), (PREC)f[0]); //< fx
-    atomicAdd(&vertice_array.val(_8, ID), (PREC)f[1]); //< fy
-    atomicAdd(&vertice_array.val(_9, ID), (PREC)f[2]); //< fz
-    atomicAdd(&vertice_array.val(_10, ID), (PREC)1.f); //< Counter
+    auto element = elementBins.ch(_0, element_number);
+
+    /// Precomputed
+    // Dm is undeformed edge vector matrix relative to a vertex 0
+    // Bm is undeformed face normal matrix relative to a vertex 0
+    // Bm^T = Dm^-1
+    // Restvolume is underformed volume [m^3]
+    int IDs[4];
+    pvec9 DmI, Bm;
+    DmI.set(0.0);
+    Bm.set(0.0);
+    PREC V0, Jn, JBar;
+
+    IDs[0] = element.val(_0, 0); //< ID of node 0
+    IDs[1] = element.val(_1, 0); //< ID of node 1
+    IDs[2] = element.val(_2, 0); //< ID of node 2 
+    IDs[3] = element.val(_3, 0); //< ID of node 3
+    DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
+    DmI[1] = element.val(_5, 0);
+    DmI[2] = element.val(_6, 0);
+    DmI[3] = element.val(_7, 0);
+    DmI[4] = element.val(_8, 0);
+    DmI[5] = element.val(_9, 0);
+    DmI[6] = element.val(_10, 0);
+    DmI[7] = element.val(_11, 0);
+    DmI[8] = element.val(_12, 0);
+    V0     = element.val(_13, 0); //< Undeformed volume [m^3]
+    Jn     = 1.0 - element.val(_14, 0);
+    JBar   = 1.0 - element.val(_15, 0);
+    PREC sV0 = V0<0.f ? -1.f : 1.f;
+
+    // Set position of vertices
+    pvec3 p[4];
+#pragma unroll 4
+    for (int v = 0; v < 4; v++) {
+      int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
+      p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
+      p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
+      p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
+    }
+
+    /// Run-Time
+    // Ds is deformed edge vector matrix relative to node 0
+    pvec9 Ds;
+    Ds.set(0.0);
+    Ds[0] = p[1][0] - p[0][0];
+    Ds[1] = p[1][1] - p[0][1];
+    Ds[2] = p[1][2] - p[0][2];
+    Ds[3] = p[2][0] - p[0][0];
+    Ds[4] = p[2][1] - p[0][1];
+    Ds[5] = p[2][2] - p[0][2];
+    Ds[6] = p[3][0] - p[0][0];
+    Ds[7] = p[3][1] - p[0][1];
+    Ds[8] = p[3][2] - p[0][2];
+
+    // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
+    pvec9 F; //< Deformation gradient
+    F.set(0.0);
+    // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+    matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
+
+    // J = det | F |,  i.e. volume change ratio undef -> def
+    PREC J = matrixDeterminant3d(F.data());
+    PREC Vn = V0 * J;
+    PREC JInc = J / Jn; // J_n+1 = J_Inc * J_n
+    PREC w = 0.25; // Gaussian weight for element nodes
+#pragma unroll 4
+    for (int v = 0; v < 4; v++)
+    {
+      int ID = IDs[v] - 1; // Index from 0
+      atomicAdd(&vertice_array.val(_11, ID), Vn*w); //< Counter
+      atomicAdd(&vertice_array.val(_12, ID), JInc*JBar*Vn*w); //< Counter
+    }
   }
 }
 
-template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) { }
-template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void v2fem2v(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer elementBins) { }
-
-template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void v2fem_FBar(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer elementBins) { }
 
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem_FBar(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) {
-
-  if (blockIdx.x >= g_max_fem_element_num) return;
-  int IDs[4];
-  pvec3 p[4];
-  auto element = elementBins.ch(_0, blockIdx.x);
-
-  /* matrix indexes
-          mat1   |  diag   |  mat2^T
-          0 3 6  |  0      |  0 1 2
-          1 4 7  |    1    |  3 4 5
-          2 5 8  |      2  |  6 7 8
-  */
-
-  /// Precomputed
-  // Dm is undeformed edge vector matrix relative to a vertex 0
-  // Bm is undeformed face normal matrix relative to a vertex 0
-  // Bm^T = Dm^-1
-  // Restvolume is underformed volume [m^3]
-  pvec9 DmI, Bm;
-  DmI.set(0.0);
-  Bm.set(0.0);
-  IDs[0] = element.val(_0, 0); //< ID of node 0
-  IDs[1] = element.val(_1, 0); //< ID of node 1
-  IDs[2] = element.val(_2, 0); //< ID of node 2 
-  IDs[3] = element.val(_3, 0); //< ID of node 3
-
-  PREC V0, Jn, JBar;
-
-  DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
-  DmI[1] = element.val(_5, 0);
-  DmI[2] = element.val(_6, 0);
-  DmI[3] = element.val(_7, 0);
-  DmI[4] = element.val(_8, 0);
-  DmI[5] = element.val(_9, 0);
-  DmI[6] = element.val(_10, 0);
-  DmI[7] = element.val(_11, 0);
-  DmI[8] = element.val(_12, 0);
-  V0 = element.val(_13, 0); //< Undeformed volume [m^3]
-  Jn   = 1.0 - element.val(_14, 0);
-  JBar = 1.0 - element.val(_15, 0);
-  PREC sV0 = V0<0.f ? -1.f : 1.f;
-
-  // Set position of vertices
-  for (int v = 0; v < 4; v++) {
-    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
-    p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
-    p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
-    p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
-  }
-  __syncthreads();
-
-  /// Run-Time
-  // Ds is deformed edge vector matrix relative to node 0
-  pvec9 Ds;
-  Ds.set(0.0);
-  Ds[0] = p[1][0] - p[0][0];
-  Ds[1] = p[1][1] - p[0][1];
-  Ds[2] = p[1][2] - p[0][2];
-  Ds[3] = p[2][0] - p[0][0];
-  Ds[4] = p[2][1] - p[0][1];
-  Ds[5] = p[2][2] - p[0][2];
-  Ds[6] = p[3][0] - p[0][0];
-  Ds[7] = p[3][1] - p[0][1];
-  Ds[8] = p[3][2] - p[0][2];
-
-  // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
-  pvec9 F; //< Deformation gradient
-  F.set(0.0);
-  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
-  matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
-
-  // J = det | F |,  i.e. volume change ratio undef -> def
-  PREC J = matrixDeterminant3d(F.data());
-  PREC Vn = V0 * J;
-  PREC JInc = J / Jn; // J_n+1 = J_Inc * J_n
-  
-  __syncthreads();
-
+__global__ void fem2v_FBar(uint32_t blockCount, float dt, float newDt,
+                           VerticeArray vertice_array,
+                           const ElementArray element_array,
+                           ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) 
+{  
+  auto element_number = blockIdx.x * blockDim.x + threadIdx.x;
+  if (element_number < blockCount && element_number < g_max_fem_element_num)
   {
-    int ID = IDs[threadIdx.x] - 1; // Index from 0
-    atomicAdd(&vertice_array.val(_11, ID), abs(Vn)*0.25); //< Counter
-    atomicAdd(&vertice_array.val(_12, ID), JInc*JBar*abs(Vn)*0.25); //< Counter
+    auto element = elementBins.ch(_0, element_number);
+
+    /// Precomputed
+    // Dm is undeformed edge vector matrix relative to a vertex 0
+    // Bm is undeformed face normal matrix relative to a vertex 0
+    // Bm^T = Dm^-1
+    // Restvolume is underformed volume [m^3]
+    int IDs[4];
+    pvec3 p[4];
+    pvec9 DmI, Bm;
+    DmI.set(0.0);
+    Bm.set(0.0);
+    PREC V0, Jn, JBar_n;
+
+    IDs[0] = element.val(_0, 0); //< ID of node 0
+    IDs[1] = element.val(_1, 0); //< ID of node 1
+    IDs[2] = element.val(_2, 0); //< ID of node 2 
+    IDs[3] = element.val(_3, 0); //< ID of node 3
+    DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
+    DmI[1] = element.val(_5, 0);
+    DmI[2] = element.val(_6, 0);
+    DmI[3] = element.val(_7, 0);
+    DmI[4] = element.val(_8, 0);
+    DmI[5] = element.val(_9, 0);
+    DmI[6] = element.val(_10, 0);
+    DmI[7] = element.val(_11, 0);
+    DmI[8] = element.val(_12, 0);
+    V0     = element.val(_13, 0); //< Undeformed volume [m^3]
+    //Jn   = 1.0 - element.val(_14, 0);
+    //JBar_n = 1.0 - element.val(_15, 0);
+    PREC sV0 = V0<0.f ? -1.f : 1.f;
+    PREC JBar = 0.0;
+    PREC JBar_i = 0.0;
+    PREC Vn_i = 0.0;
+    PREC w = 0.25; // Gaussian weight
+
+    // Set position of vertices
+#pragma unroll 4
+    for (int v = 0; v < 4; v++) {
+      int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
+      p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
+      p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
+      p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
+      Vn_i   = vertice_array.val(_11, ID);
+      JBar_i = vertice_array.val(_12, ID);
+      JBar += w * (JBar_i / Vn_i);
+    }
+
+    PREC signJBar = JBar<0.f ? -1.f : 1.f;
+
+    /// Run-Time
+    // Ds is deformed edge vector matrix relative to node 0
+    pvec9 Ds;
+    Ds.set(0.0);
+    Ds[0] = p[1][0] - p[0][0];
+    Ds[1] = p[1][1] - p[0][1];
+    Ds[2] = p[1][2] - p[0][2];
+    Ds[3] = p[2][0] - p[0][0];
+    Ds[4] = p[2][1] - p[0][1];
+    Ds[5] = p[2][2] - p[0][2];
+    Ds[6] = p[3][0] - p[0][0];
+    Ds[7] = p[3][1] - p[0][1];
+    Ds[8] = p[3][2] - p[0][2];
+    //__syncthreads();
+
+    // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
+    pvec9 F; //< Deformation gradient
+    F.set(0.0);
+    // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+    matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
+
+    Bm.set(0.0);
+    Bm[0] = V0 * DmI[0];
+    Bm[1] = V0 * DmI[3];
+    Bm[2] = V0 * DmI[6];
+    Bm[3] = V0 * DmI[1];
+    Bm[4] = V0 * DmI[4];
+    Bm[5] = V0 * DmI[7];
+    Bm[6] = V0 * DmI[2];
+    Bm[7] = V0 * DmI[5];
+    Bm[8] = V0 * DmI[8];
+
+    // F^-1 = inv(F)
+    pvec9 Finv; //< Deformation gradient inverse
+    Finv.set(0.0);
+    matrixInverse(F.data(), Finv.data());
+    
+    pvec9 Bs; //< BsT is the deformed. area-weighted node normal matrix
+    Bs.set(0.0);
+
+    // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
+    matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
+    // Bs = vol_n * Ds^-T 
+    //matrixInverse(Ds.data(), Bs.data());
+
+
+    // J = det | F |,  i.e. volume change ratio undef -> def
+    PREC J = matrixDeterminant3d(F.data());
+    PREC Vn = V0 * J;
+
+    PREC J_Scale =  cbrt( (JBar / J) );
+#pragma unroll 9
+    for (int d=0; d<9; d++) F[d] = J_Scale * F[d];
+    //J_Scale = matrixDeterminant3d(F.data());
+
+
+    elementBins.ch(_0, element_number).val(_14, 0) = (PREC)(1.0 - J);
+    elementBins.ch(_0, element_number).val(_15, 0) = (PREC)(1.0 - JBar);
+
+
+    // P is First Piola-Kirchoff stress at element Gauss point
+    // P = (dPsi/dF){F}, Derivative of Free Energy w.r.t. Def. Grad.
+    // Maps undeformed area weighted face normals to deformed traction vectors
+    pvec9 P; //< PK1, First Piola-Kirchoff stress at element Gauss point
+    pvec9 G; //< Deformed internal forces at nodes 1,2,3 relative to node 0
+    P.set(0.0);
+    G.set(0.0);
+    // P = (dPsi/dF){F}, Fixed-Corotated model for energy potential
+    compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
+
+    // G = P Bm
+    matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
+
+    
+    Bm.set(0.0); //< Now use for Cauchy stress
+    // C = (1/J) P F^T
+    matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
+// #pragma unroll 9
+//     for (int d=0; d<9; d++) Bm[d] = Bm[d] / J;
+
+    PREC pressure  = compute_MeanStress_from_StressCauchy(Bm.data()) / J;
+    PREC von_mises = compute_VonMisesStress_from_StressCauchy(Bm.data()) / sqrt(J); 
+
+#pragma unroll 9 
+    for (int d=0; d<9; d++)
+    { 
+      G[d] = G[d]/elementBins.length;
+      Bs[d] = J*Bs[d];
+    }
+    
+    //__syncthreads();
+#pragma unroll 4
+    for (int v=0; v<4; v++) {
+      pvec3 f; // Internal force vector at deformed vertex
+      pvec3 n;
+      if (v == 1){ // Node 1; Face a
+        f[0] = G[0];
+        f[1] = G[1];
+        f[2] = G[2];
+        n[0] = Bs[0];
+        n[1] = Bs[1];
+        n[2] = Bs[2];
+      } else if (v == 2) { // Node 2; Face b
+        f[0] = G[3];
+        f[1] = G[4];
+        f[2] = G[5];
+        n[0] = Bs[3];
+        n[1] = Bs[4];
+        n[2] = Bs[5];
+      }  else if (v == 3) { // Node 3; Face c
+        f[0] = G[6]; 
+        f[1] = G[7];
+        f[2] = G[8];
+        n[0] = Bs[6];
+        n[1] = Bs[7];
+        n[2] = Bs[8];
+      } else { // Node 4; Face d
+        f[0] = - (G[0] + G[3] + G[6]);
+        f[1] = - (G[1] + G[4] + G[7]);
+        f[2] = - (G[2] + G[5] + G[8]);
+        n[0] = - (Bs[0] + Bs[3] + Bs[6]) ;
+        n[1] = - (Bs[1] + Bs[4] + Bs[7]) ;
+        n[2] = - (Bs[2] + Bs[5] + Bs[8]) ;
+      }
+      
+      int ID = IDs[v] - 1; // Index from 0
+      // atomicAdd(&vertice_array.val(_3, ID), (PREC)n[0]); //< bx
+      // atomicAdd(&vertice_array.val(_4, ID), (PREC)n[1]); //< by
+      // atomicAdd(&vertice_array.val(_5, ID), (PREC)n[2]); //< bz
+      atomicAdd(&vertice_array.val(_3, ID), (PREC)((1.0 - J) * V0 * w)); //< bz
+      atomicAdd(&vertice_array.val(_4, ID), (PREC)(pressure  * V0 * w)); //< bx
+      atomicAdd(&vertice_array.val(_5, ID), (PREC)(von_mises * V0 * w)); //< by
+      atomicAdd(&vertice_array.val(_6, ID), (PREC)(V0 * w)); //< Node undef. volume [m3]
+      atomicAdd(&vertice_array.val(_7, ID), (PREC)f[0]); //< fx
+      atomicAdd(&vertice_array.val(_8, ID), (PREC)f[1]); //< fy
+      atomicAdd(&vertice_array.val(_9, ID), (PREC)f[2]); //< fz
+      atomicAdd(&vertice_array.val(_10, ID), (PREC)1.f); //< Counter
+      // atomicAdd(&vertice_array.val(_11, ID), Vn*0.25); //< Counter
+      // atomicAdd(&vertice_array.val(_12, ID), (1.0 - JBar)*Vn*0.25); //< Counter
+    
+    }
   }
-  __syncthreads();
 }
 
 template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void fem2v_FBar(float dt, float newDt,
+__global__ void fem2v_FBar(uint32_t blockCount, float dt, float newDt,
                       VerticeArray vertice_array,
-                      ElementArray element_array,
+                      const ElementArray element_array,
                       ElementBuffer elementBins) { }
-
-// Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
-// Stress/Strain not computed here, displacements sent to FE mesh for force calc
-template <typename VerticeArray, typename ElementArray>
-__global__ void fem2v_FBar(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) {
-
-  if (blockIdx.x >= g_max_fem_element_num) return;
-  int IDs[4];
-  pvec3 p[4];
-  auto element = elementBins.ch(_0, blockIdx.x);
-
-  /* matrix indexes
-          mat1   |  diag   |  mat2^T
-          0 3 6  |  0      |  0 1 2
-          1 4 7  |    1    |  3 4 5
-          2 5 8  |      2  |  6 7 8
-  */
-
-  /// Precomputed
-  // Dm is undeformed edge vector matrix relative to a vertex 0
-  // Bm is undeformed face normal matrix relative to a vertex 0
-  // Bm^T = Dm^-1
-  // Restvolume is underformed volume [m^3]
-  pvec9 DmI, Bm;
-  DmI.set(0.0);
-  Bm.set(0.0);
-  IDs[0] = element.val(_0, 0); //< ID of node 0
-  IDs[1] = element.val(_1, 0); //< ID of node 1
-  IDs[2] = element.val(_2, 0); //< ID of node 2 
-  IDs[3] = element.val(_3, 0); //< ID of node 3
-
-  PREC V0, Jn, JBar;
-
-  DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
-  DmI[1] = element.val(_5, 0);
-  DmI[2] = element.val(_6, 0);
-  DmI[3] = element.val(_7, 0);
-  DmI[4] = element.val(_8, 0);
-  DmI[5] = element.val(_9, 0);
-  DmI[6] = element.val(_10, 0);
-  DmI[7] = element.val(_11, 0);
-  DmI[8] = element.val(_12, 0);
-  V0 = element.val(_13, 0); //< Undeformed volume [m^3]
-  Jn   = 1.0 - element.val(_14, 0);
-  //JBar = 1.0 - element.val(_15, 0);
-  PREC sV0 = V0<0.f ? -1.f : 1.f;
-  PREC JBar_i = 0.0;
-  PREC Vn_i = 0.0;
-  __syncthreads();
-
-  // Set position of vertices
-  for (int v = 0; v < 4; v++) {
-    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
-    p[v][0] = vertice_array.val(_0, ID) * elementBins.length; //< x [m]
-    p[v][1] = vertice_array.val(_1, ID) * elementBins.length; //< y [m]
-    p[v][2] = vertice_array.val(_2, ID) * elementBins.length; //< z [m]
-    Vn_i += vertice_array.val(_11, ID);
-    JBar_i += vertice_array.val(_12, ID);
-  }
-  __syncthreads();
-
-  JBar = JBar_i / Vn_i;
-
-  /// Run-Time
-  // Ds is deformed edge vector matrix relative to node 0
-  pvec9 Ds;
-  Ds.set(0.0);
-  Ds[0] = p[1][0] - p[0][0];
-  Ds[1] = p[1][1] - p[0][1];
-  Ds[2] = p[1][2] - p[0][2];
-  Ds[3] = p[2][0] - p[0][0];
-  Ds[4] = p[2][1] - p[0][1];
-  Ds[5] = p[2][2] - p[0][2];
-  Ds[6] = p[3][0] - p[0][0];
-  Ds[7] = p[3][1] - p[0][1];
-  Ds[8] = p[3][2] - p[0][2];
-  __syncthreads();
-
-  // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
-  pvec9 F; //< Deformation gradient
-  F.set(0.0);
-  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
-  matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
-
-  Bm.set(0.0);
-  Bm[0] = V0 * DmI[0];
-  Bm[1] = V0 * DmI[3];
-  Bm[2] = V0 * DmI[6];
-  Bm[3] = V0 * DmI[1];
-  Bm[4] = V0 * DmI[4];
-  Bm[5] = V0 * DmI[7];
-  Bm[6] = V0 * DmI[2];
-  Bm[7] = V0 * DmI[5];
-  Bm[8] = V0 * DmI[8];
-
-  // F^-1 = inv(F)
-  pvec9 Finv; //< Deformation gradient inverse
-  Finv.set(0.0);
-  matrixInverse(F.data(), Finv.data());
-  
-  pvec9 Bs; //< BsT is the deformed. area-weighted node normal matrix
-  Bs.set(0.0);
-
-  // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
-  matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
-  // Bs = vol_n * Ds^-T 
-  //matrixInverse(Ds.data(), Bs.data());
-
-
-  // J = det | F |,  i.e. volume change ratio undef -> def
-  PREC J = matrixDeterminant3d(F.data());
-  PREC Vn = V0 * J;
-  PREC J_Scale =  cbrt((JBar / J));
-  F[0] = J_Scale * F[0];
-  F[1] = J_Scale * F[1];
-  F[2] = J_Scale * F[2];
-  F[3] = J_Scale * F[3];
-  F[4] = J_Scale * F[4];
-  F[5] = J_Scale * F[5];
-  F[6] = J_Scale * F[6];
-  F[7] = J_Scale * F[7];
-  F[8] = J_Scale * F[8];
-
-  // P is First Piola-Kirchoff stress at element Gauss point
-  // P = (dPsi/dF){F}, Derivative of Free Energy w.r.t. Def. Grad.
-  // Maps undeformed area weighted face normals to deformed traction vectors
-  pvec9 P; //< PK1, First Piola-Kirchoff stress at element Gauss point
-  pvec9 G; //< Deformed internal forces at nodes 1,2,3 relative to node 0
-  P.set(0.0);
-  G.set(0.0);
-  // P = (dPsi/dF){F}, Fixed-Corotated model for energy potential
-  compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
-
-  // G = P Bm
-  matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
-
-  Bm.set(0.0); //< Now use for Cauchy stress
-  matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
-  PREC pressure = - (Bm[0] + Bm[4] + Bm[8]) / (3.0 * J);
-  PREC von_mises = sqrt( (  (Bm[0]-Bm[4])*(Bm[0]-Bm[4]) + 
-                            (Bm[4]-Bm[8])*(Bm[4]-Bm[8]) + 
-                            (Bm[8]-Bm[0])*(Bm[8]-Bm[0]) + 
-                            6*(Bm[3]*Bm[3] + Bm[6]*Bm[6] + Bm[7]*Bm[7]) ) / (2.0 * J));
-
-  pvec3 f; // Internal force vector at deformed vertex
-  pvec3 n;
-  f.set(0.0);
-  n.set(0.0);
-  if (threadIdx.x == 1){ // Node 1; Face a
-    f[0] = G[0];
-    f[1] = G[1];
-    f[2] = G[2];
-    n[0] = J * Bs[0];
-    n[1] = J * Bs[1];
-    n[2] = J * Bs[2];
-  } else if (threadIdx.x == 2) { // Node 2; Face b
-    f[0] = G[3];
-    f[1] = G[4];
-    f[2] = G[5];
-    n[0] = J * Bs[3];
-    n[1] = J * Bs[4];
-    n[2] = J * Bs[5];
-  }  else if (threadIdx.x == 3) { // Node 3; Face c
-    f[0] = G[6]; 
-    f[1] = G[7];
-    f[2] = G[8];
-    n[0] = J * Bs[6];
-    n[1] = J * Bs[7];
-    n[2] = J * Bs[8];
-  } else { // Node 4; Face d
-    f[0] = - (G[0] + G[3] + G[6]);
-    f[1] = - (G[1] + G[4] + G[7]);
-    f[2] = - (G[2] + G[5] + G[8]);
-    n[0] = - J * (Bs[0] + Bs[3] + Bs[6]) ;
-    n[1] = - J * (Bs[1] + Bs[4] + Bs[7]) ;
-    n[2] = - J * (Bs[2] + Bs[5] + Bs[8]) ;
-  }
-  __syncthreads();
-   
-  f[0] =  f[0] / elementBins.length;
-  f[1] =  f[1] / elementBins.length; 
-  f[2] =  f[2] / elementBins.length;
-
-  __syncthreads();
-
-  {
-    element.val(_14, 0) = (PREC)(J    - 1.0);
-    element.val(_15, 0) = (PREC)(JBar - 1.0);
-  }
-  __syncthreads();
-
-  {
-    int ID = IDs[threadIdx.x] - 1; // Index from 0
-    // atomicAdd(&vertice_array.val(_3, ID), (PREC)n[0]); //< bx
-    // atomicAdd(&vertice_array.val(_4, ID), (PREC)n[1]); //< by
-    // atomicAdd(&vertice_array.val(_5, ID), (PREC)n[2]); //< bz
-    atomicAdd(&vertice_array.val(_3, ID), (PREC)(1.0 - JBar)*abs(V0)*0.25); //< bz
-    atomicAdd(&vertice_array.val(_4, ID), (PREC)pressure*abs(V0)*0.25); //< bx
-    atomicAdd(&vertice_array.val(_5, ID), (PREC)von_mises*abs(V0)*0.25); //< by
-    atomicAdd(&vertice_array.val(_6, ID), (PREC)abs(V0) * 0.25); //< Node undef. volume [m3]
-    atomicAdd(&vertice_array.val(_7, ID), (PREC)f[0]); //< fx
-    atomicAdd(&vertice_array.val(_8, ID), (PREC)f[1]); //< fy
-    atomicAdd(&vertice_array.val(_9, ID), (PREC)f[2]); //< fz
-    atomicAdd(&vertice_array.val(_10, ID), (PREC)1.f); //< Counter
-    // atomicAdd(&vertice_array.val(_11, ID), Vn*0.25); //< Counter
-    // atomicAdd(&vertice_array.val(_12, ID), (1.0 - JBar)*Vn*0.25); //< Counter
-  }
-}
-
-template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(float dt, float newDt,
-                      VerticeArray vertice_array,
-                      ElementArray element_array,
-                      ElementBuffer<fem_e::Brick> elementBins) {
-                        return;
-}
 
 template <typename ParticleBuffer, typename Partition, typename Grid>
 __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
@@ -3777,7 +3890,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     char z = loc & arenamask;
     char y = (loc >>= arenabits) & arenamask;
     char x = (loc >>= arenabits) & arenamask;
-    p2gbuffer[loc >> arenabits][x][y][z] = 0.0;
+    p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
   for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
@@ -3796,20 +3909,19 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
                        source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
-    PREC J;   //< Particle volume ratio at n
-    //PREC vol; //< Volumem at time n
-    PREC JBar; //< Assumed particle volume ratio at n (Simple FBar)
+    PREC sJ;   //< Particle volume ratio at n
+    PREC sJBar;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
-      J = 1.0 - source_particle_bin.val(_3, source_pidib % g_bin_capacity);       //< Vo/V
+      sJ = source_particle_bin.val(_3, source_pidib % g_bin_capacity);       //< Vo/V
       // vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       // vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       // vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
       //vol  = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< Volume tn
-      JBar = 1.0 - source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< JBar tn
+      sJBar = source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< JBar tn
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     pvec3 local_pos = pos - local_base_index * g_dx;
@@ -3821,10 +3933,10 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       PREC d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5f) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
@@ -3863,9 +3975,9 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
           C[7] += W * vi[1] * xixp[2] * scale;
           C[8] += W * vi[2] * xixp[2] * scale;
         }
-    PREC JInc = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv); // J^n+1 / J^n
-    PREC voln = J * pbuffer.volume; // vol^n+1, Send to grid for Simple FBar 
-    J = JInc * J; // J^n+1
+    PREC JInc = ((C[0] + C[4] + C[8]) * dt * Dp_inv); // J^n+1 / J^n
+    PREC voln = (1.0 - sJ) * pbuffer.volume; // vol^n+1, Send to grid for Simple FBar 
+    //PREC J = JInc * (1.0 - sJ); // J^n+1
     //float voln = J * pbuffer.volume; // vol^n+1, Send to grid for Simple FBar 
     
 #pragma unroll 3
@@ -3885,7 +3997,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
           atomicAdd(
               &p2gbuffer[1][local_base_index[0] + i][local_base_index[1] + j]
                         [local_base_index[2] + k],
-              wv * (1.0 - JBar * JInc));
+              wv * (sJBar + sJBar * JInc - JInc));
         }
   }
   __syncthreads();
@@ -4003,7 +4115,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     char z = loc & arenamask;
     char y = (loc >>= arenabits) & arenamask;
     char x = (loc >>= arenabits) & arenamask;
-    p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
+    p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
@@ -4024,20 +4136,19 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     }
     pvec3 pos;  //< Particle position at n
     pvec3 vp_n; //< Particle vel. at n
-    PREC J;   //< Particle volume ratio at n
-    PREC JBar; //< Assumed particle volume ratio at n (Simple FBar)
+    PREC sJ, sJBar; //< Particle volume ratio at n
     PREC vol;
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
       pos[0] = source_particle_bin.val(_0, source_pidib % g_bin_capacity);  //< x
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
-      J =  1.0 - source_particle_bin.val(_3, source_pidib % g_bin_capacity);       //< Vo/V
+      sJ =  source_particle_bin.val(_3, source_pidib % g_bin_capacity);       //< Vo/V
       vp_n[0] = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< vx
       vp_n[1] = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< vy
       vp_n[2] = source_particle_bin.val(_6, source_pidib % g_bin_capacity); //< vz
       vol  = source_particle_bin.val(_7, source_pidib % g_bin_capacity); //< Volume tn
-      JBar = 1.0 - source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< JBar tn
+      sJBar = source_particle_bin.val(_8, source_pidib % g_bin_capacity); //< JBar tn
     }
     ivec3 local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     pvec3 local_pos = pos - local_base_index * g_dx;
@@ -4049,21 +4160,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       PREC d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5f) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
       local_base_index[dd] = ((local_base_index[dd] - 1) & g_blockmask) + 1;
     }
     pvec3 vel;   //< Stressed, collided grid velocity
     pvec3 vel_n; //< Unstressed, uncollided grid velocity
     pvec9 C;     //< APIC affine matrix, used a few times
-    PREC JBar_new; //< Simple FBar G2P JBar^n+1
+    PREC sJBar_new; //< Simple FBar G2P JBar^n+1
     vel.set(0.0); 
     vel_n.set(0.0);
     C.set(0.0);
-    JBar_new = 0.0;
+    sJBar_new = 0.0;
 
     // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
     PREC Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
@@ -4090,7 +4201,8 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
                             [local_base_index[2] + k],
                     g2pbuffer[5][local_base_index[0] + i][local_base_index[1] + j]
                             [local_base_index[2] + k]};
-          PREC JBar_i = g2pbuffer[7][local_base_index[0] + i][local_base_index[1] + j]
+
+          PREC sJBar_i = g2pbuffer[7][local_base_index[0] + i][local_base_index[1] + j]
                             [local_base_index[2] + k] / g2pbuffer[6][local_base_index[0] + i][local_base_index[1] + j]
                             [local_base_index[2] + k];
           vel   += vi * W;
@@ -4104,17 +4216,16 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
           C[6] += W * vi[0] * xixp[2] * scale;
           C[7] += W * vi[1] * xixp[2] * scale;
           C[8] += W * vi[2] * xixp[2] * scale;
-          JBar_new += JBar_i * W;
+          sJBar_new += sJBar_i * W;
         }
-    JBar_new = 1.0 - JBar_new;
-    J = (1 + (C[0] + C[4] + C[8]) * dt * Dp_inv) * J;
+    //JBar_new = 1.0 - sJBar_new;
+    PREC JInc = ((C[0] + C[4] + C[8]) * dt * Dp_inv);
+    sJ = sJ + (JInc * sJ) - JInc;
     //C = C.cast<float>();
     // FBar_n+1 = (JBar_n+1 / J_n+1)^(1/3) * F_n+1
 
     PREC beta; //< Position correction factor (ASFLIP)
-    if (JBar_new >= 1.f) {
-      //JStress = Jc;       // No vol. expansion, Tamp. 2017
-      //J  = Jc;
+    if ((1.0 - sJBar_new) >= 1.0) {
       beta = pbuffer.beta_max;  // beta max
     } else beta = pbuffer.beta_min; // beta min
     
@@ -4125,8 +4236,8 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     pvec9 contrib;
     contrib.set(0.0);
     {
-      PREC voln = J * pbuffer.volume;
-      PREC pressure = (pbuffer.bulk / pbuffer.gamma) * (pow(JBar_new, -pbuffer.gamma) - 1.f);
+      PREC voln = (1.0 - sJ) * pbuffer.volume;
+      PREC pressure = (pbuffer.bulk / pbuffer.gamma) * (pow((1.0 - sJBar_new), -pbuffer.gamma) - 1.0);
       {
         contrib[0] = ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln ;
         contrib[1] = (C[1] + C[3]) * Dp_inv *  pbuffer.visco * voln ;
@@ -4147,12 +4258,12 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
-        particle_bin.val(_3, pidib % g_bin_capacity) = 1.0 - J;      //< V/Vo
+        particle_bin.val(_3, pidib % g_bin_capacity) = sJ;      //< V/Vo
         particle_bin.val(_4, pidib % g_bin_capacity) = vel[0]; //< vx
         particle_bin.val(_5, pidib % g_bin_capacity) = vel[1]; //< vy
         particle_bin.val(_6, pidib % g_bin_capacity) = vel[2]; //< vz
         particle_bin.val(_7, pidib % g_bin_capacity) = voln;   //< FBar volume [m3]
-        particle_bin.val(_8, pidib % g_bin_capacity) = 1.0 - JBar_new; //< JBar [ ]
+        particle_bin.val(_8, pidib % g_bin_capacity) = sJBar_new; //< JBar [ ]
       }
     }
 
@@ -4167,12 +4278,12 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     for (char dd = 0; dd < 3; ++dd) {
       local_pos[dd] = pos[dd] - local_base_index[dd] * g_dx;
       PREC d =
-          (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5f) - 1) * g_dx) *
+          (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
 
       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
@@ -4464,10 +4575,8 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     pvec3 f; //< Internal force at FEM nodes
     f.set(0.0);
     PREC restVolume;
-    PREC new_tension;
     PREC restMass;
-    PREC count;
-    PREC voln;
+    int count;
     PREC J, pressure, von_mises;
     count = 0.f;
     {
@@ -4481,12 +4590,12 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       f[0] = vertice_array.val(_7, ID);
       f[1] = vertice_array.val(_8, ID);
       f[2] = vertice_array.val(_9, ID);
-      count = vertice_array.val(_10, ID);
+      count = (int) vertice_array.val(_10, ID);
 
       J = J / restVolume;
       pressure = pressure / restVolume;
       von_mises = von_mises / restVolume;
-      restMass =  pbuffer.rho * fabs(restVolume);
+      restMass =  pbuffer.rho * abs(restVolume);
 
       // float bMag;
       //float bMag = count;
@@ -4515,11 +4624,11 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     // else new_beta = pbuffer.beta_min;
 
     int surface_ASFLIP = 0; //< 1 only applies ASFLIP to surface of mesh
-    if (surface_ASFLIP && count > 10.f) {
+    if (surface_ASFLIP && count > 10) {
       // Interior (ASFLIP)
       pos += dt * vel;
       vel += pbuffer.alpha * (vp_n - vel_n);
-    } else if (surface_ASFLIP && count <= 10.f) {
+    } else if (surface_ASFLIP && count <= 10) {
       // Surface (FLIP/PIC)
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
       vel += pbuffer.alpha * (vp_n - vel_n);
@@ -4544,7 +4653,6 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
         particle_bin.val(_8, pidib % g_bin_capacity)  = J; //f[0]; // bx
         particle_bin.val(_9, pidib % g_bin_capacity)  = pressure; //f[1]; // by
         particle_bin.val(_10, pidib % g_bin_capacity) = von_mises; //f[2]; // bz
-
       }
     }
 
@@ -4764,12 +4872,11 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
       source_blockno = prev_partition._binsts[source_blockno] +
                        source_pidib / g_bin_capacity;
     }
-    pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
+    pvec3 pos;  //< Particle position at n
     pvec3 vp_n; //< Particle vel. at n
-    //float tension;
-    PREC beta = 0;
-    pvec3 b;
+    pvec3 b; //< Normal at vertice
+    PREC beta = 0; //< ASFLIP beta factor
     //float J;   //< Particle volume ratio at n
     {
       auto source_particle_bin = pbuffer.ch(_0, source_blockno);
@@ -4850,9 +4957,8 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     pvec3 f; //< Internal force at FEM nodes
     f.set(0.0);
     PREC restVolume;
-    PREC new_tension;
     PREC restMass;
-    PREC count;
+    int count;
     PREC voln, Vn, JBar;
     PREC J, pressure, von_mises;
     count = 0;
@@ -4867,27 +4973,21 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
       f[0] = vertice_array.val(_7, ID);
       f[1] = vertice_array.val(_8, ID);
       f[2] = vertice_array.val(_9, ID);
-      count = vertice_array.val(_10, ID);
+      count = (int) vertice_array.val(_10, ID);
       Vn = vertice_array.val(_11, ID);
       JBar = vertice_array.val(_12, ID);
-      
-      J = (J / restVolume);
-      JBar = (JBar / restVolume);
-      pressure = (pressure / restVolume);
-      von_mises = (von_mises / restVolume);
 
       restMass =  pbuffer.rho * abs(restVolume);
+      
+      J = J / restVolume;
+      JBar = JBar / Vn;
+      pressure = pressure / restVolume;
+      von_mises = von_mises / restVolume;
 
-
-      // float bMag;
-      //float bMag = count;
       // PREC bMag = sqrt(b[0]*b[0] + b[1]*b[1] + b[2]*b[2]);
-      // if (bMag < 0.00001f) b.set(0.0);
-      // else {
-      //   b[0] = b[0]/bMag;
-      //   b[1] = b[1]/bMag; 
-      //   b[2] = b[2]/bMag;  
-      // }
+      // if (bMag < 0.00001) b.set(0.0);
+      // else for (int d = 0; d < 3; d++) b[d] = b[d]/bMag;
+
       // Zero-out FEM mesh nodal values
       vertice_array.val(_3, ID) = 0.0; // bx
       vertice_array.val(_4, ID) = 0.0; // by
@@ -4907,11 +5007,12 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     // else new_beta = pbuffer.beta_min;
 
     int surface_ASFLIP = 0; //< 1 only applies ASFLIP to surface of mesh
-    if (surface_ASFLIP && count > 10.f) {
+    beta = 0;
+    if (surface_ASFLIP && count > 10) {
       // Interior (ASFLIP)
       pos += dt * vel;
       vel += pbuffer.alpha * (vp_n - vel_n);
-    } else if (surface_ASFLIP && count <= 10.f) {
+    } else if (surface_ASFLIP && count <= 10) {
       // Surface (FLIP/PIC)
       pos += dt * (vel + beta * pbuffer.alpha * (vp_n - vel_n));
       vel += pbuffer.alpha * (vp_n - vel_n);
@@ -4953,10 +5054,10 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
       PREC d =
           (local_pos[dd] - ((int)(local_pos[dd] * g_dx_inv + 0.5) - 1) * g_dx) *
           g_dx_inv;
-      dws(dd, 0) = 0.5f * (1.5 - d) * (1.5 - d);
-      d -= 1.0f;
+      dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
+      d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;
-      d = 0.5f + d;
+      d = 0.5 + d;
       dws(dd, 2) = 0.5 * d * d;
 
       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
@@ -5127,7 +5228,7 @@ __global__ void check_table(uint32_t blockCount, Partition partition) {
 template <typename Grid> __global__ void sum_grid_mass(Grid grid, float *sum) {
   atomicAdd(sum, (float)grid.ch(_0, blockIdx.x).val_1d(_0, threadIdx.x));
 }
-// Added for Simple FBar Method - Justin
+// Added for Simple FBar Method
 template <typename Grid> __global__ void sum_grid_volume(Grid grid, float *sum) {
   atomicAdd(sum, (float)grid.ch(_0, blockIdx.x).val_1d(_7, threadIdx.x));
 }
@@ -5209,13 +5310,13 @@ __global__ void retrieve_particle_buffer(Partition partition,
 /// Functions to retrieve particle outputs (JB)
 /// Copies from particle buffer to two particle arrays (device --> device)
 /// Depends on material model, copy/paste/modify function for new material
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::JFluid> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5241,26 +5342,49 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
-
-    if (1) {
-      /// Send attributes (J, P, P - Patm) to pattribs (device --> device)
-      float J = source_bin.val(_3, _source_pidib);
-      float pressure = (pbuffer.bulk / pbuffer.gamma) * 
-        (powf(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
-      pattrib.val(_0, parid) = J;              //< J (V/Vo)
-      pattrib.val(_1, parid) = pressure;       //< Pressure (Pa)
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    
+    // Particle V/Vo and Pressure
+    PREC J    = source_bin.val(_3, _source_pidib);
+    PREC pressure = (pbuffer.bulk / pbuffer.gamma) * 
+      (pow(J, -pbuffer.gamma) - 1.0); //< Tait-Murnaghan Pressure (Pa)
+    
+    mn::vec<int,g_particle_attribs> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < sizeof(output_attribs)/sizeof(int); i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m/s]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m/s]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m/s]
+      else if (idx == 18)
+        val = J;  //< J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else
+        val = -1; // Incorrect output attributes name
+      
+      if (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
     }
   }
 }
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5286,83 +5410,42 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
-    if (1) {
-      /// Send attributes (J, P, Vel_y) to pattribs (device --> device)
-      PREC J = 1.f - source_bin.val(_3, _source_pidib);
-      PREC pressure = (pbuffer.bulk / pbuffer.gamma) * 
-        (pow(J, -pbuffer.gamma) - 1.f);       //< Tait-Murnaghan Pressure (Pa)
-      pattrib.val(_0, parid) = J;       //< V/Vo
-      pattrib.val(_1, parid) = pressure; //< Pressure (Pa)
-      pattrib.val(_2, parid) = source_bin.val(_5, _source_pidib) * l; // Vel_y
-    }
-  }
-}
-
-
-template <typename Partition, typename ParticleArray>
-__global__ void
-retrieve_particle_buffer_attributes(Partition partition,
-                                         Partition prev_partition,
-                                         ParticleBuffer<material_e::JBarFluid> pbuffer,
-                                         ParticleArray parray, 
-                                         ParticleArray pattrib,
-                                         PREC *dispVal, 
-                                         int *_parcnt, PREC length) {
-  int pcnt = partition._ppbs[blockIdx.x];
-  ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
-  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
-    auto advect = advection_bucket[pidib];
-    ivec3 source_blockid;
-    dir_components(advect / g_particle_num_per_block, source_blockid);
-    source_blockid += blockid;
-    auto source_blockno = prev_partition.query(source_blockid);
-    auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
-    auto _source_pidib = source_pidib % g_bin_capacity;
-
-    /// Increase particle ID
-    auto parid = atomicAdd(_parcnt, 1);
-    PREC o = g_offset;
-    PREC l = length;
-    auto output_attribs = pbuffer.output_attribs;
-    /// Send positions (x,y,z) [m] to parray (device --> device)
-    parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
-    parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
-    parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
-
-    PREC J    = 1.0 - source_bin.val(_3, _source_pidib);
-    PREC JBar = 1.0 - source_bin.val(_8, _source_pidib);
+    
+    // Particle V/Vo and Pressure
+    PREC J    = source_bin.val(_3, _source_pidib);
     PREC pressure = (pbuffer.bulk / pbuffer.gamma) * 
-      (pow(JBar, -pbuffer.gamma) - 1.0); //< Tait-Murnaghan Pressure (Pa)
-
-    for (int i = 0; i < 3; i++) {
-      /// Send attributes to pattribs (device --> device)
+      (pow(J, -pbuffer.gamma) - 1.0); //< Tait-Murnaghan Pressure (Pa)
+    
+    mn::vec<int,g_particle_attribs> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < sizeof(output_attribs)/sizeof(int); i++ ) {
       int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
       PREC val;
       if      (idx == 0)
-        val = (source_bin.val(_0, _source_pidib) - o) * l; // Vel_x [m/s]
+        val = parid; // ID 
       else if (idx == 1)
-        val = (source_bin.val(_1, _source_pidib) - o) * l; // Vel_y [m/s]
+        val = pbuffer.mass; // Mass [kg]
       else if (idx == 2)
-        val = (source_bin.val(_2, _source_pidib) - o) * l; // Vel_z [m/s]
+        val = pbuffer.volume; // Volume [m^3]
       else if (idx == 3)
-        val = source_bin.val(_4, _source_pidib) * l; // Vel_x [m/s]
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m/s]
       else if (idx == 4)
-        val = source_bin.val(_5, _source_pidib) * l; // Vel_y [m/s]
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m/s]
       else if (idx == 5)
-        val = source_bin.val(_6, _source_pidib) * l; // Vel_z [m/s]
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m/s]
       else if (idx == 6)
-        val = J;  //< J [], Vo/V, det| F |
+        val = source_bin.val(_4, _source_pidib) * l; // Velocity_X [m/s]
       else if (idx == 7)
-        val = JBar;  //< J_Bar [], Simple F-Bar method
+        val = source_bin.val(_5, _source_pidib) * l; // Velocity_Y [m/s]
       else if (idx == 8)
-        val = pressure; // Pressure [Pa]
+        val = source_bin.val(_6, _source_pidib) * l; // Velocity_Z [m/s]
+      else if (idx == 18)
+        val = J;  //< J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
       else
         val = -1; // Incorrect output attributes name
-      if      (i == 0) pattrib.val(_0, parid) = val;  
+      
+      if (i == 0) pattrib.val(_0, parid) = val; 
       else if (i == 1) pattrib.val(_1, parid) = val; 
       else if (i == 2) pattrib.val(_2, parid) = val; 
     }
@@ -5370,13 +5453,13 @@ retrieve_particle_buffer_attributes(Partition partition,
 }
 
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
-                                         ParticleBuffer<material_e::FixedCorotated> pbuffer,
+                                         ParticleBuffer<material_e::JBarFluid> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5402,7 +5485,139 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
+    PREC sJ    = source_bin.val(_3, _source_pidib);
+    PREC sJBar = source_bin.val(_8, _source_pidib);
+    // PREC J    = 1.0 - sJ;
+    // PREC JBar = 1.0 - sJBar;
+    PREC pressure = (pbuffer.bulk / pbuffer.gamma) * 
+      (pow((1.0 - sJBar), -pbuffer.gamma) - 1.0); //< Tait-Murnaghan Pressure (Pa)
+    
+    mn::vec<int,g_particle_attribs> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < sizeof(output_attribs)/sizeof(int); i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m/s]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m/s]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m/s]
+      else if (idx == 6)
+        val = source_bin.val(_4, _source_pidib) * l; // Velocity_X [m/s]
+      else if (idx == 7)
+        val = source_bin.val(_5, _source_pidib) * l; // Velocity_Y [m/s]
+      else if (idx == 8)
+        val = source_bin.val(_6, _source_pidib) * l; // Velocity_Z [m/s]
+      else if (idx == 18)
+        val = sJ;  //< J, V/Vo, det| F |
+      else if (idx == 19)
+        val = sJBar;  //< JBar, det| FBar |, F-Bar method assumed V/Vo
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else
+        val = -1; // Incorrect output attributes name
+      
+      if (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
+    }
 
+//    pattrib.val(_attrib<(unsigned int)i>, parid) = val;  
+
+      // else if (i == 3) pattrib.val(_3, parid) = val; 
+      // else if (i == 4) pattrib.val(_4, parid) = val; 
+      // else if (i == 5) pattrib.val(_5, parid) = val; 
+      // else if (i == 6) pattrib.val(_6, parid) = val; 
+      // else if (i == 7) pattrib.val(_7, parid) = val; 
+      // else if (i == 8) pattrib.val(_8, parid) = val; 
+      // else if (i == 9) pattrib.val(_9, parid) = val; 
+      // else if (i == 10) pattrib.val(_10, parid) = val; 
+      // else if (i == 11) pattrib.val(_11, parid) = val; 
+      // else if (i == 12) pattrib.val(_12, parid) = val; 
+      // else if (i == 13) pattrib.val(_13, parid) = val; 
+      // else if (i == 14) pattrib.val(_14, parid) = val; 
+      // else if (i == 15) pattrib.val(_15, parid) = val; 
+      
+      //i=i+1;
+    // auto output_names = pbuffer.output_names;
+
+    // int i = 0;    
+    
+    // while (output_names[i] != 0)
+    // {
+    // //for (int i=0; i < sizeof(output_attribs)/sizeof(int); i++ ) {
+    //   /// Send attributes to pattribs (device --> device)
+    //   auto name = output_names[i]; //< Map index for output attribute (particle_buffer.cuh)
+    //   PREC val;
+    //   if      (strcmp(name, "Position_X") == 0)
+    //     val = (source_bin.val(_0, _source_pidib) - o) * l; // Vel_x [m/s]
+    //   else if (strcmp(name, "Position_Y") == 0)
+    //     val = (source_bin.val(_1, _source_pidib) - o) * l; // Vel_y [m/s]
+    //   else if (strcmp(name, "Position_Z") == 0)
+    //     val = (source_bin.val(_2, _source_pidib) - o) * l; // Vel_z [m/s]
+    //   else if (strcmp(name, "Velocity_X") == 0)
+    //     val = source_bin.val(_4, _source_pidib) * l; // Vel_x [m/s]
+    //   else if (strcmp(name, "Velocity_Y") == 0)
+    //     val = source_bin.val(_5, _source_pidib) * l; // Vel_y [m/s]
+    //   else if (strcmp(name, "Velocity_Z") == 0)
+    //     val = source_bin.val(_6, _source_pidib) * l; // Vel_z [m/s]
+    //   else if (strcmp(name, "J") == 0 || strcmp(name, "DefGrad_Invariant3") == 0)
+    //     val = J;  //< J [], Vo/V, det| F |
+    //   else if (strcmp(name, "JBar") == 0 || strcmp(name, "DefGradBar_Invariant3") == 0)
+    //     val = JBar;  //< J_Bar [], Simple F-Bar method
+    //   else if (strcmp(name, "Pressure") == 0 || strcmp(name, "Mean Stress") == 0)
+    //     val = pressure; // Pressure [Pa]
+    //   else
+    //     val = -1; // Incorrect output attributes name
+    //   if      (i == 0) pattrib.val(_0, parid) = val;  
+    //   else if (i == 1) pattrib.val(_1, parid) = val; 
+    //   else if (i == 2) pattrib.val(_2, parid) = val; 
+    //   i = i + 1;
+    // }
+  }
+}
+
+
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
+__global__ void
+retrieve_particle_buffer_attributes(Partition partition,
+                                         Partition prev_partition,
+                                         ParticleBuffer<material_e::FixedCorotated> pbuffer,
+                                         ParticleArray parray, 
+                                         ParticleAttrib pattrib,
+                                         PREC *dispVal, 
+                                         int *_parcnt, PREC length) {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+
+    /// Increase particle ID
+    auto parid = atomicAdd(_parcnt, 1);
+    PREC o = g_offset;
+    PREC l = length;
+    /// Send positions (x,y,z) [m] to parray (device --> device)
+    parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
+    parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
+    parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
+    PREC J = 0;
+    PREC pressure = 0;
     if (1) {
       /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
       vec9 F; //< Deformation Gradient
@@ -5421,7 +5636,7 @@ retrieve_particle_buffer_attributes(Partition partition,
                 V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
       float I1, I2, I3; // Principal Invariants
       I1 = U[0] + U[4] + U[8];    //< I1 = tr(C)
-      float J = F[0]*F[4]*F[8] + F[3]*F[7]*F[2] + 
+       J = F[0]*F[4]*F[8] + F[3]*F[7]*F[2] + 
                 F[6]*F[1]*F[5] - F[6]*F[4]*F[2] - 
                 F[3]*F[1]*F[8]; //< J = V/Vo = ||F||
       I2 = U[0]*U[4] + U[4]*U[8] + 
@@ -5434,21 +5649,49 @@ retrieve_particle_buffer_attributes(Partition partition,
           U[6]*U[1]*U[5] - U[6]*U[4]*U[2] - 
           U[3]*U[1]*U[8]; //< J = V/Vo = ||F||
       // Set pattribs for particle to Principal Strain Invariants
-      pattrib.val(_0, parid) = J;
-      pattrib.val(_1, parid) = I2;
-      pattrib.val(_2, parid) = I3;
+      // pattrib.val(_0, parid) = J;
+      // pattrib.val(_1, parid) = I2;
+      // pattrib.val(_2, parid) = I3;
+    }
+
+    mn::vec<int,g_particle_attribs> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < sizeof(output_attribs)/sizeof(int); i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m/s]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m/s]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m/s]
+      else if (idx == 18)
+        val = J;  //< J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else
+        val = -1; // Incorrect output attributes name
+      
+      if (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
     }
   }
 }
 
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5475,56 +5718,122 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
 
-    if (1) {
-      /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
-      pvec9 F; //< Deformation Gradient
-      F[0] = source_bin.val(_3,  _source_pidib);
-      F[1] = source_bin.val(_4,  _source_pidib);
-      F[2] = source_bin.val(_5,  _source_pidib);
-      F[3] = source_bin.val(_6,  _source_pidib);
-      F[4] = source_bin.val(_7,  _source_pidib);
-      F[5] = source_bin.val(_8,  _source_pidib);
-      F[6] = source_bin.val(_9,  _source_pidib);
-      F[7] = source_bin.val(_10, _source_pidib);
-      F[8] = source_bin.val(_11, _source_pidib);
-      PREC J  = matrixDeterminant3d(F.data());
 
-      // PREC U[9], S[3], V[9]; //< Left, Singulars, and Right Values of Strain
-      // math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
-      //           U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
-      //           V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
-      // PREC I1, I2, I3; // Principal Invariants
-      // I1 = U[0] + U[4] + U[8];    //< I1 = tr(C)
-      // I2 = U[0]*U[4] + U[4]*U[8] + 
-      //      U[0]*U[8] - U[3]*U[3] - 
-      //      U[6]*U[6] - U[7]*U[7]; //< I2 = 1/2((tr(C))^2 - tr(C^2))
-      // I3 = matrixDeterminant3d(F.data());
-      pvec9 C;
-      compute_stress_fixedcorotated((PREC)(1/J), pbuffer.mu, pbuffer.lambda, F, C);
-      PREC pressure = - (C[0] + C[4] + C[8]) / (3.0);
+    /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
+    pvec9 F; //< Deformation Gradient
+    F[0] = source_bin.val(_3,  _source_pidib);
+    F[1] = source_bin.val(_4,  _source_pidib);
+    F[2] = source_bin.val(_5,  _source_pidib);
+    F[3] = source_bin.val(_6,  _source_pidib);
+    F[4] = source_bin.val(_7,  _source_pidib);
+    F[5] = source_bin.val(_8,  _source_pidib);
+    F[6] = source_bin.val(_9,  _source_pidib);
+    F[7] = source_bin.val(_10, _source_pidib);
+    F[8] = source_bin.val(_11, _source_pidib);
+    
+    pvec3 F_Invariants_I; //< Principal Invariants
+    //pvec3 F_Invariants_J; //< Deviatoric Invariants
+    pvec3 C_Principals;   //< Principal Values
+    pvec3 C_Invariants_I; //< Principal Invariants
+    F_Invariants_I.set(0.0);
+    //F_Invariants_J.set(0.0);
+    C_Invariants_I.set(0.0);
+    C_Principals.set(0.0);
+    pvec9 C;
+    compute_stress_fixedcorotated(1.0, pbuffer.mu, pbuffer.lambda, F, C);
+    compute_Invariants_from_3x3_Tensor(F.data(), F_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Invariants_from_3x3_Tensor(C.data(), C_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Principals_from_Invariants_3x3_Sym_Tensor(C_Invariants_I.data(), C_Principals.data());
 
-      // Set pattribs for particle to Principal Strain Invariants
+    PREC J = F_Invariants_I[2];
+    // PREC U[9], V[9]; //< Left and Right Values of Strain
+    // PREC S[3]; //< Singular values
+    // math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+    //           U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+              // V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
+    //compute_SVD_DefGrad(F, U, S, V);
+
+    // PREC I1, I2, I3; // Principal Invariants
+
+
+    // // Set pattribs for particle to Principal Strain Invariants
+    PREC pressure  = compute_MeanStress_from_StressCauchy(C.data());
+    PREC von_mises = compute_VonMisesStress_from_StressCauchy(C.data());
+    vec<int,3> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < 3; i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m]
+      else if (idx == 6)
+        val = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
+      else if (idx == 7)
+        val = (source_bin.val(_13, _source_pidib) ) * l; // Velocity_Y [m/s]
+      else if (idx == 8)
+        val = (source_bin.val(_14, _source_pidib) ) * l; // Velocity_Z [m/s]
+      else if (idx == 9)
+        val = F[0]; // DefGrad_XX
+      else if (idx == 10)
+        val = F[1]; // DefGrad_XY
+      else if (idx == 11)
+        val = F[2]; // DefGrad_XZ
+      else if (idx == 12)
+        val = F[3]; // DefGrad_YX
+      else if (idx == 13)
+        val = F[4]; // DefGrad_YY
+      else if (idx == 14)
+        val = F[5]; // DefGrad_YZ
+      else if (idx == 15)
+        val = F[6]; // DefGrad_ZX
+      else if (idx == 16)
+        val = F[7]; // DefGrad_ZY
+      else if (idx == 17)
+        val = F[8]; // DefGrad_ZZ
+      else if (idx == 18)
+        val = J;  // J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else if (idx == 30)
+        val = von_mises; // Von Mises Stress [Pa]
+      else if (idx == 31)
+        val = F_Invariants_I[0]; // Def. Grad. Invariant 1
+      else if (idx == 32)
+        val = F_Invariants_I[1]; // Def. Grad. Invariant 2
+      else if (idx == 33)
+        val = F_Invariants_I[2]; // Def. Grad. Invariant 3
+      else if (idx == 39)
+        val = C_Principals[0]; // Cauchy Stress Principal 1 [Pa]
+      else if (idx == 40)
+        val = C_Principals[1]; // Cauchy Stress Principal 2 [Pa]
+      else if (idx == 41)
+        val = C_Principals[2]; // Cauchy Stress Principal 3 [Pa]
+      else
+        val = -1; // Incorrect output attributes name
       
-      PREC von_mises = sqrt( (  (C[0]-C[4])*(C[0]-C[4]) + 
-                                (C[4]-C[8])*(C[4]-C[8]) + 
-                                (C[8]-C[0])*(C[8]-C[0]) + 
-                                6*(C[3]*C[3] + C[6]*C[6] + C[7]*C[7]) ) / 2.0);
-      
-      pattrib.val(_0, parid) = J;
-      pattrib.val(_1, parid) = pressure; //< I2
-      pattrib.val(_2, parid) = von_mises; //< vy
-      //pattrib.val(_2, parid) = source_bin.val(_13, _source_pidib) * l; //< vy
+      if      (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
     }
   }
 }
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::NACC> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5551,22 +5860,126 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
 
-    if (1) {
-      /// Send attributes to pattribs (device --> device)
-      pattrib.val(_0, parid) = 0.f; 
-      pattrib.val(_1, parid) = 0.f; 
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+
+    /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
+    pvec9 F; //< Deformation Gradient
+    F[0] = source_bin.val(_3,  _source_pidib);
+    F[1] = source_bin.val(_4,  _source_pidib);
+    F[2] = source_bin.val(_5,  _source_pidib);
+    F[3] = source_bin.val(_6,  _source_pidib);
+    F[4] = source_bin.val(_7,  _source_pidib);
+    F[5] = source_bin.val(_8,  _source_pidib);
+    F[6] = source_bin.val(_9,  _source_pidib);
+    F[7] = source_bin.val(_10, _source_pidib);
+    F[8] = source_bin.val(_11, _source_pidib);
+    
+    pvec3 F_Invariants_I; //< Principal Invariants
+    //pvec3 F_Invariants_J; //< Deviatoric Invariants
+    pvec3 C_Principals;   //< Principal Values
+    pvec3 C_Invariants_I; //< Principal Invariants
+    F_Invariants_I.set(0.0);
+    //F_Invariants_J.set(0.0);
+    C_Invariants_I.set(0.0);
+    C_Principals.set(0.0);
+    pvec9 C;
+    PREC logJp = source_bin.val(_12, _source_pidib); // Velocity_X [m/s]
+
+    compute_stress_nacc(1.0, pbuffer.mu, pbuffer.lambda,
+                        pbuffer.bm, pbuffer.xi, pbuffer.beta, pbuffer.Msqr,
+                        pbuffer.hardeningOn, logJp, F, C);
+    compute_Invariants_from_3x3_Tensor(F.data(), F_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Invariants_from_3x3_Tensor(C.data(), C_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Principals_from_Invariants_3x3_Sym_Tensor(C_Invariants_I.data(), C_Principals.data());
+
+    PREC J = F_Invariants_I[2];
+    // PREC U[9], V[9]; //< Left and Right Values of Strain
+    // PREC S[3]; //< Singular values
+    // math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+    //           U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+              // V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
+    //compute_SVD_DefGrad(F, U, S, V);
+
+    // PREC I1, I2, I3; // Principal Invariants
+
+
+    // // Set pattribs for particle to Principal Strain Invariants
+    PREC pressure  = compute_MeanStress_from_StressCauchy(C.data());
+    PREC von_mises = compute_VonMisesStress_from_StressCauchy(C.data());
+    vec<int,3> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < 3; i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m]
+      // else if (idx == 6)
+      //   val = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
+      // else if (idx == 7)
+      //   val = (source_bin.val(_13, _source_pidib) ) * l; // Velocity_Y [m/s]
+      // else if (idx == 8)
+      //   val = (source_bin.val(_14, _source_pidib) ) * l; // Velocity_Z [m/s]
+      else if (idx == 9)
+        val = F[0]; // DefGrad_XX
+      else if (idx == 10)
+        val = F[1]; // DefGrad_XY
+      else if (idx == 11)
+        val = F[2]; // DefGrad_XZ
+      else if (idx == 12)
+        val = F[3]; // DefGrad_YX
+      else if (idx == 13)
+        val = F[4]; // DefGrad_YY
+      else if (idx == 14)
+        val = F[5]; // DefGrad_YZ
+      else if (idx == 15)
+        val = F[6]; // DefGrad_ZX
+      else if (idx == 16)
+        val = F[7]; // DefGrad_ZY
+      else if (idx == 17)
+        val = F[8]; // DefGrad_ZZ
+      else if (idx == 18)
+        val = J;  // J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else if (idx == 30)
+        val = von_mises; // Von Mises Stress [Pa]
+      else if (idx == 31)
+        val = F_Invariants_I[0]; // Def. Grad. Invariant 1
+      else if (idx == 32)
+        val = F_Invariants_I[1]; // Def. Grad. Invariant 2
+      else if (idx == 33)
+        val = F_Invariants_I[2]; // Def. Grad. Invariant 3
+      else if (idx == 39)
+        val = C_Principals[0]; // Cauchy Stress Principal 1 [Pa]
+      else if (idx == 40)
+        val = C_Principals[1]; // Cauchy Stress Principal 2 [Pa]
+      else if (idx == 41)
+        val = C_Principals[2]; // Cauchy Stress Principal 3 [Pa]
+      else
+        val = -1; // Incorrect output attributes name
+      
+      if      (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
     }
   }
 }
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::Sand> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *dispVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5593,22 +6006,124 @@ retrieve_particle_buffer_attributes(Partition partition,
     parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
     parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
 
-    if (1) {
-      /// Send attributes to pattribs (device --> device)
-      pattrib.val(_0, parid) = 0.f;    
-      pattrib.val(_1, parid) = 0.f; 
-      pattrib.val(_2, parid) = (float)pcnt;    //< Particle count for block (#)
+    /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
+    pvec9 F; //< Deformation Gradient
+    F[0] = source_bin.val(_3,  _source_pidib);
+    F[1] = source_bin.val(_4,  _source_pidib);
+    F[2] = source_bin.val(_5,  _source_pidib);
+    F[3] = source_bin.val(_6,  _source_pidib);
+    F[4] = source_bin.val(_7,  _source_pidib);
+    F[5] = source_bin.val(_8,  _source_pidib);
+    F[6] = source_bin.val(_9,  _source_pidib);
+    F[7] = source_bin.val(_10, _source_pidib);
+    F[8] = source_bin.val(_11, _source_pidib);
+    
+    pvec3 F_Invariants_I; //< Principal Invariants
+    //pvec3 F_Invariants_J; //< Deviatoric Invariants
+    pvec3 C_Principals;   //< Principal Values
+    pvec3 C_Invariants_I; //< Principal Invariants
+    F_Invariants_I.set(0.0);
+    //F_Invariants_J.set(0.0);
+    C_Invariants_I.set(0.0);
+    C_Principals.set(0.0);
+    pvec9 C;
+    PREC logJp = source_bin.val(_12, _source_pidib); // Velocity_X [m/s]
+    compute_stress_sand(1.0, pbuffer.mu, pbuffer.lambda,
+                        pbuffer.cohesion, pbuffer.beta, pbuffer.yieldSurface,
+                        pbuffer.volumeCorrection, logJp, F, C);
+    compute_Invariants_from_3x3_Tensor(F.data(), F_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Invariants_from_3x3_Tensor(C.data(), C_Invariants_I.data()); // Principal Invariants I1, I2, I3
+    compute_Principals_from_Invariants_3x3_Sym_Tensor(C_Invariants_I.data(), C_Principals.data());
+
+    PREC J = F_Invariants_I[2];
+    // PREC U[9], V[9]; //< Left and Right Values of Strain
+    // PREC S[3]; //< Singular values
+    // math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+    //           U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+              // V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // SVD Operation
+    //compute_SVD_DefGrad(F, U, S, V);
+
+    // PREC I1, I2, I3; // Principal Invariants
+
+
+    // // Set pattribs for particle to Principal Strain Invariants
+    PREC pressure  = compute_MeanStress_from_StressCauchy(C.data());
+    PREC von_mises = compute_VonMisesStress_from_StressCauchy(C.data());
+    vec<int,3> output_attribs = pbuffer.output_attribs;
+    for (int i=0; i < 3; i++ ) {
+      int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+      PREC val;
+      if      (idx == 0)
+        val = parid; // ID 
+      else if (idx == 1)
+        val = pbuffer.mass; // Mass [kg]
+      else if (idx == 2)
+        val = pbuffer.volume; // Volume [m^3]
+      else if (idx == 3)
+        val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m]
+      else if (idx == 4)
+        val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m]
+      else if (idx == 5)
+        val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m]
+      else if (idx == 6)
+        val = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
+      else if (idx == 7)
+        val = (source_bin.val(_13, _source_pidib) ) * l; // Velocity_Y [m/s]
+      else if (idx == 8)
+        val = (source_bin.val(_14, _source_pidib) ) * l; // Velocity_Z [m/s]
+      else if (idx == 9)
+        val = F[0]; // DefGrad_XX
+      else if (idx == 10)
+        val = F[1]; // DefGrad_XY
+      else if (idx == 11)
+        val = F[2]; // DefGrad_XZ
+      else if (idx == 12)
+        val = F[3]; // DefGrad_YX
+      else if (idx == 13)
+        val = F[4]; // DefGrad_YY
+      else if (idx == 14)
+        val = F[5]; // DefGrad_YZ
+      else if (idx == 15)
+        val = F[6]; // DefGrad_ZX
+      else if (idx == 16)
+        val = F[7]; // DefGrad_ZY
+      else if (idx == 17)
+        val = F[8]; // DefGrad_ZZ
+      else if (idx == 18)
+        val = J;  // J, V/Vo, det| F |
+      else if (idx == 29)
+        val = pressure; // Pressure [Pa], Mean Stress
+      else if (idx == 30)
+        val = von_mises; // Von Mises Stress [Pa]
+      else if (idx == 31)
+        val = F_Invariants_I[0]; // Def. Grad. Invariant 1
+      else if (idx == 32)
+        val = F_Invariants_I[1]; // Def. Grad. Invariant 2
+      else if (idx == 33)
+        val = F_Invariants_I[2]; // Def. Grad. Invariant 3
+      else if (idx == 39)
+        val = C_Principals[0]; // Cauchy Stress Principal 1 [Pa]
+      else if (idx == 40)
+        val = C_Principals[1]; // Cauchy Stress Principal 2 [Pa]
+      else if (idx == 41)
+        val = C_Principals[2]; // Cauchy Stress Principal 3 [Pa]
+      else
+        val = -1; // Incorrect output attributes name
+      
+      if      (i == 0) pattrib.val(_0, parid) = val; 
+      else if (i == 1) pattrib.val(_1, parid) = val; 
+      else if (i == 2) pattrib.val(_2, parid) = val; 
     }
   }
 }
 
-template <typename Partition, typename ParticleArray>
+template <typename Partition, typename ParticleArray, typename ParticleAttrib>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::Meshed> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleArray pattrib,
+                                         ParticleAttrib pattrib,
                                          PREC *trackVal, 
                                          int *_parcnt, PREC length) {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -5658,111 +6173,473 @@ retrieve_particle_buffer_attributes(Partition partition,
   }
 }
 
+
+template <typename VerticeArray, typename ElementBuffer, typename ElementArray, typename ElementAttrib>
+__global__ void
+retrieve_element_buffer_attributes( uint32_t blockCount,
+                                         const VerticeArray vertice_array,
+                                         const ElementBuffer elementBins,
+                                         const ElementArray element_array,
+                                         ElementAttrib element_attribs,
+                                         PREC *trackVal, 
+                                         int *_elcnt) { }
+
+
+template <typename VerticeArray, typename ElementArray, typename ElementAttrib>
+__global__ void
+retrieve_element_buffer_attributes( uint32_t blockCount,
+                                         const VerticeArray vertice_array,
+                                         const ElementBuffer<fem_e::Brick> elementBins,
+                                         const ElementArray element_array,
+                                         ElementAttrib element_attribs,
+                                         PREC *trackVal, 
+                                         int *_elcnt) { }
+
+template <typename VerticeArray, typename ElementArray, typename ElementAttrib>
+__global__ void
+retrieve_element_buffer_attributes( uint32_t blockCount,
+                                         const VerticeArray vertice_array,
+                                         const ElementBuffer<fem_e::Tetrahedron> elementBins,
+                                         const ElementArray element_array,
+                                         ElementAttrib element_attribs,
+                                         PREC *trackVal, 
+                                         int *_elcnt) {
+  auto element_number =  blockIdx.x * blockDim.x + threadIdx.x;
+  if (element_number < blockCount && element_number < g_max_fem_element_num) 
+  {
+  auto element = elementBins.ch(_0, element_number);
+
+  //auto element_ID = element_number; //= atomicAdd(_parcnt, 1);
+  PREC o = g_offset; // Off-by-two buffer, 8 dx, on sim. domain
+  PREC l = elementBins.length;
+
+  int IDs[4];
+  pvec3 p[4];
+
+  pvec9 DmI, Bm;
+  DmI.set(0.0);
+  Bm.set(0.0);
+  IDs[0] = element.val(_0, 0); //< ID of node 0
+  IDs[1] = element.val(_1, 0); //< ID of node 1
+  IDs[2] = element.val(_2, 0); //< ID of node 2 
+  IDs[3] = element.val(_3, 0); //< ID of node 3retrieve_element
+  DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
+  DmI[1] = element.val(_5, 0);
+  DmI[2] = element.val(_6, 0);
+  DmI[3] = element.val(_7, 0);
+  DmI[4] = element.val(_8, 0);
+  DmI[5] = element.val(_9, 0);
+  DmI[6] = element.val(_10, 0);
+  DmI[7] = element.val(_11, 0);
+  DmI[8] = element.val(_12, 0);
+  PREC V0 = element.val(_13, 0); //< Undeformed volume [m^3]
+  int sV0 = V0<0.f ? -1.f : 1.f;
+
+  // Set position of vertices
+#pragma unroll 4
+  for (int v = 0; v < 4; v++) {
+    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
+    p[v][0] = vertice_array.val(_0, ID) * l; //< x [m]
+    p[v][1] = vertice_array.val(_1, ID) * l; //< y [m]
+    p[v][2] = vertice_array.val(_2, ID) * l; //< z [m]
+  }
+
+  pvec3 centroid;
+  centroid.set(0.0);
+
+#pragma unroll 3
+  for (int d = 0; d < 3; d++)
+    centroid[d] = (p[0][d] + p[1][d] + p[2][d] + p[3][d]) / 4.0;
+
+
+  // __syncthreads();
+
+  /// Run-Time
+  // Ds is deformed edge vector matrix relative to node 0
+  pvec9 Ds;
+  Ds.set(0.0);
+  Ds[0] = p[1][0] - p[0][0];
+  Ds[1] = p[1][1] - p[0][1];
+  Ds[2] = p[1][2] - p[0][2];
+  Ds[3] = p[2][0] - p[0][0];
+  Ds[4] = p[2][1] - p[0][1];
+  Ds[5] = p[2][2] - p[0][2];
+  Ds[6] = p[3][0] - p[0][0];
+  Ds[7] = p[3][1] - p[0][1];
+  Ds[8] = p[3][2] - p[0][2];
+
+  // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
+  pvec9 F; //< Deformation gradient
+  F.set(0.0);
+  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+  matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
+
+  // J = det | F |,  i.e. volume change ratio undef -> def
+  PREC J = matrixDeterminant3d(F.data());
+  PREC Vn = V0 * J;
+  Bm.set(0.0);
+  Bm[0] = V0 * DmI[0];
+  Bm[1] = V0 * DmI[3];
+  Bm[2] = V0 * DmI[6];
+  Bm[3] = V0 * DmI[1];
+  Bm[4] = V0 * DmI[4];
+  Bm[5] = V0 * DmI[7];
+  Bm[6] = V0 * DmI[2];
+  Bm[7] = V0 * DmI[5];
+  Bm[8] = V0 * DmI[8];
+
+  pvec9 P, G, Bs;
+  P.set(0.0);
+  G.set(0.0);
+  Bs.set(0.0);
+  compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
+
+  // G = P Bm
+  matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
+  
+  // F^-1 = inv(F)
+  pvec9 Finv; //< Deformation gradient inverse
+  Finv.set(0.0);
+  matrixInverse(F.data(), Finv.data());
+
+  // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
+  matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
+
+  Bm.set(0.0); //< Now use for Cauchy stress
+  matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
+  PREC pressure  = compute_MeanStress_from_StressCauchy(Bm.data()) / J;
+  PREC von_mises = compute_VonMisesStress_from_StressCauchy(Bm.data()) / sqrt(J);
+
+  atomicAdd(_elcnt, 1);
+    /// Increase particle ID
+  /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+  element_attribs.val(_0, element_number) = (PREC)(centroid[0] - (o * l));
+  element_attribs.val(_1, element_number) = (PREC)(centroid[1] - (o * l));
+  element_attribs.val(_2, element_number) = (PREC)(centroid[2] - (o * l));
+
+
+  /// Send attributes to element_attribs (device --> device)
+  element_attribs.val(_3, element_number) = (PREC)(1.0-J);
+  element_attribs.val(_4, element_number) = (PREC)pressure; //< I2
+  element_attribs.val(_5, element_number) = (PREC)von_mises; //< vy
+
+    // if (1) {
+    //   /// Set desired value of tracked particle
+    //   auto ID = source_bin.val(_3, _source_pidib);
+    //   for (int i = 0; i < sizeof(g_track_IDs)/4; i++) {
+    //     if (ID == g_track_ID) {
+    //       PREC v = (source_bin.val(_1, _source_pidib) - o) * l;
+    //       atomicAdd(trackVal, v);
+    //     }
+    //   }
+    // }
+  }
+}
+
+template <typename VerticeArray, typename ElementArray,  typename ElementAttrib>
+__global__ void
+retrieve_element_buffer_attributes(   uint32_t blockCount,
+                                         const VerticeArray vertice_array,
+                                         const ElementBuffer<fem_e::Tetrahedron_FBar> elementBins,
+                                         const ElementArray element_array,
+                                         ElementAttrib element_attribs,
+                                         PREC *trackVal, 
+                                         int *_elcnt) {
+  auto element_number =  blockIdx.x * blockDim.x + threadIdx.x;
+  if (element_number < blockCount && element_number < g_max_fem_element_num) 
+  {
+  auto element = elementBins.ch(_0, element_number);
+
+  //auto element_ID = element_number; //= atomicAdd(_parcnt, 1);
+  PREC o = g_offset; // Off-by-two buffer, 8 dx, on sim. domain
+  PREC l = elementBins.length;
+
+  int IDs[4];
+  pvec3 p[4];
+
+  pvec9 DmI, Bm;
+  DmI.set(0.0);
+  Bm.set(0.0);
+
+  // IDs[0] = (int)element_array.val(_0, element_number);
+  // IDs[1] = (int)element_array.val(_1, element_number);
+  // IDs[2] = (int)element_array.val(_2, element_number);
+  // IDs[3] = (int)element_array.val(_3, element_number);
+  IDs[0] = (int)element.val(_0, 0); //< ID of node 0
+  IDs[1] = (int)element.val(_1, 0); //< ID of node 1
+  IDs[2] = (int)element.val(_2, 0); //< ID of node 2 
+  IDs[3] = (int)element.val(_3, 0); //< ID of node 3
+  DmI[0] = element.val(_4, 0); //< Bm^T, undef. area weighted face normals^T
+  DmI[1] = element.val(_5, 0);
+  DmI[2] = element.val(_6, 0);
+  DmI[3] = element.val(_7, 0);
+  DmI[4] = element.val(_8, 0);
+  DmI[5] = element.val(_9, 0);
+  DmI[6] = element.val(_10, 0);
+  DmI[7] = element.val(_11, 0);
+  DmI[8] = element.val(_12, 0);
+  PREC V0 = element.val(_13, 0); //< Undeformed volume [m^3]
+  PREC sJ = element.val(_14, 0);
+  PREC sJBar = element.val(_15, 0);
+  int sV0 = V0<0.f ? -1.f : 1.f;
+
+  // Set position of vertices
+#pragma unroll 4
+  for (int v = 0; v < 4; v++) {
+    int ID = IDs[v] - 1; //< Index at 0, my elements input files index from 1
+    p[v][0] = vertice_array.val(_0, ID) * l; //< x [m]
+    p[v][1] = vertice_array.val(_1, ID) * l; //< y [m]
+    p[v][2] = vertice_array.val(_2, ID) * l; //< z [m]
+  }
+
+  pvec3 centroid;
+  centroid.set(0.0);
+
+#pragma unroll 3
+  for (int d = 0; d < 3; d++)
+    centroid[d] = (p[0][d] + p[1][d] + p[2][d] + p[3][d]) / 4.0;
+
+
+  //__syncthreads();
+
+  /// Run-Time
+  // Ds is deformed edge vector matrix relative to node 0
+  pvec9 Ds;
+  Ds.set(0.0);
+  Ds[0] = p[1][0] - p[0][0];
+  Ds[1] = p[1][1] - p[0][1];
+  Ds[2] = p[1][2] - p[0][2];
+  Ds[3] = p[2][0] - p[0][0];
+  Ds[4] = p[2][1] - p[0][1];
+  Ds[5] = p[2][2] - p[0][2];
+  Ds[6] = p[3][0] - p[0][0];
+  Ds[7] = p[3][1] - p[0][1];
+  Ds[8] = p[3][2] - p[0][2];
+
+  // F is 3x3 deformation gradient at Gauss Points (Centroid for Lin. Tet.)
+  pvec9 F; //< Deformation gradient
+  F.set(0.0);
+  // F = Ds Dm^-1 = Ds Bm^T; Bm^T = Dm^-1
+  matrixMatrixMultiplication3d(Ds.data(), DmI.data(), F.data());
+
+  // J = det | F |,  i.e. volume change ratio undef -> def
+  PREC J = matrixDeterminant3d(F.data());
+  PREC Vn = V0 * J;
+  Bm.set(0.0);
+  Bm[0] = V0 * DmI[0];
+  Bm[1] = V0 * DmI[3];
+  Bm[2] = V0 * DmI[6];
+  Bm[3] = V0 * DmI[1];
+  Bm[4] = V0 * DmI[4];
+  Bm[5] = V0 * DmI[7];
+  Bm[6] = V0 * DmI[2];
+  Bm[7] = V0 * DmI[5];
+  Bm[8] = V0 * DmI[8];
+
+  PREC J_Scale =  cbrt( ((1.0 - sJBar) / J) );
+#pragma unroll 9
+  for (int d=0; d<9; d++) F[d] = J_Scale * F[d];
+  PREC JBar = (1.0 - sJBar);
+
+  pvec9 P;
+  pvec9 G;
+  pvec9 Bs;
+  P.set(0.0);
+  G.set(0.0);
+  Bs.set(0.0);
+  compute_stress_fixedcorotated_PK1(elementBins.mu, elementBins.lambda, F, P);
+
+  // G = P Bm
+  matrixMatrixMultiplication3d(P.data(), Bm.data(), G.data());
+  
+  // F^-1 = inv(F)
+  pvec9 Finv; //< Deformation gradient inverse
+  Finv.set(0.0);
+  matrixInverse(F.data(), Finv.data());
+  // Bs = J F^-1^T Bm ;  Bs^T = J Bm^T F^-1; Note: (AB)^T = B^T A^T
+  matrixTransposeMatrixMultiplication3d(Finv.data(), Bm.data(), Bs.data());
+
+  Bm.set(0.0); //< Now use for Cauchy stress
+  matrixMatrixTransposeMultiplication3d(P.data(), F.data(), Bm.data());
+  PREC pressure  = compute_MeanStress_from_StressCauchy(Bm.data()) / J;
+  PREC von_mises = compute_VonMisesStress_from_StressCauchy(Bm.data()) / sqrt(J);
+  atomicAdd(_elcnt, 1);
+    /// Increase particle ID
+  /// Send positions (x,y,z) [0.0, 1.0] to parray (device --> device)
+  element_attribs.val(_0, element_number) = (PREC)(centroid[0] - (o * l));
+  element_attribs.val(_1, element_number) = (PREC)(centroid[1] - (o * l));
+  element_attribs.val(_2, element_number) = (PREC)(centroid[2] - (o * l));
+
+
+  /// Send attributes to element_attribs (device --> device)
+  element_attribs.val(_3, element_number) = (PREC)(1.0 - JBar);
+  element_attribs.val(_4, element_number) = (PREC)pressure; //< I2
+  element_attribs.val(_5, element_number) = (PREC)von_mises; //< vy
+
+    // if (1) {
+    //   /// Set desired value of tracked particle
+    //   auto ID = source_bin.val(_3, _source_pidib);
+    //   for (int i = 0; i < sizeof(g_track_IDs)/4; i++) {
+    //     if (ID == g_track_ID) {
+    //       PREC v = (source_bin.val(_1, _source_pidib) - o) * l;
+    //       atomicAdd(trackVal, v);
+    //     }
+    //   }
+    // }
+  }
+}
+
 /// Retrieve grid-cells between points a & b from grid-buffer to gridTarget (JB)
 template <typename Partition, typename Grid, typename GridTarget>
 __global__ void retrieve_selected_grid_cells(
-    uint32_t blockCount, const Partition partition,
-    Grid prev_grid, GridTarget garray,
-    float dt, float *forceSum, vec3 point_a, vec3 point_b, PREC length) {
+    const uint32_t blockCount, const Partition partition,
+    const Grid prev_grid, GridTarget garray,
+    const float dt, PREC_G *forceSum, const vec7 target, int *_targetcnt, const PREC length) {
 
-  auto blockno = blockIdx.x;  //< Block number in partition
-  auto blockid = partition._activeKeys[blockno];
+  auto blockno = blockIdx.x;  //< Grid block number in partition
+  if (blockno < blockCount) 
+  {
+    auto blockid = partition._activeKeys[blockno];
 
-  // Check if gridblock contains part of the point_a to point_b region
-  // End all threads in block if not
-  if ((4*blockid[0] + 3)*g_dx < point_a[0] || (4*blockid[0])*g_dx > point_b[0]) return;
-  if ((4*blockid[1] + 3)*g_dx < point_a[1] || (4*blockid[1])*g_dx > point_b[1]) return;
-  if ((4*blockid[2] + 3)*g_dx < point_a[2] || (4*blockid[2])*g_dx > point_b[2]) return;
-  
+    int target_type = (int)target[0];
+    vec3 point_a {target[1], target[2], target[3]};
+    vec3 point_b {target[4], target[5], target[6]};
 
-  //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
-  if (blockno < blockCount) {
 
-    auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
-    float tol = g_dx * 0.0f; // Tolerance layer around target domain
-    float o = g_offset; // Offset [1]
-    float l = length; // Domain length [m]
-    // Add +1 to each? For point_b ~= point_a...
-    ivec3 maxCoord;
-    maxCoord[0] = (int)((point_b[0] + tol - point_a[0] + tol) * g_dx_inv + 1);
-    maxCoord[1] = (int)((point_b[1] + tol - point_a[1] + tol) * g_dx_inv + 1);
-    maxCoord[2] = (int)((point_b[2] + tol - point_a[2] + tol) * g_dx_inv + 1);
-    int maxNodes = maxCoord[0] * maxCoord[1] * maxCoord[2];
-    if (maxNodes >= g_target_cells && threadIdx.x == 0) printf("Allocate more space for gridTarget!\n");
+    // Check if gridblock contains part of the point_a to point_b region
+    // End all threads in block if not
+    if ((4*blockid[0] + 3)*g_dx < point_a[0] || (4*blockid[0])*g_dx > point_b[0]) return;
+    else if ((4*blockid[1] + 3)*g_dx < point_a[1] || (4*blockid[1])*g_dx > point_b[1]) return;
+    else if ((4*blockid[2] + 3)*g_dx < point_a[2] || (4*blockid[2])*g_dx > point_b[2]) return;
+    else
+    {
+    //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
 
-    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
-    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
+      auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
+      PREC_G tol = g_dx * 0; // Tolerance layer around target domain
+      PREC_G o = g_offset; // Offset [1]
+      PREC_G l = length; // Domain length [m]
+      // Add +1 to each? For point_b ~= point_a...
+      if (g_log_level > 2)
+      {
+        ivec3 maxCoord;
+        maxCoord[0] = (int)(((point_b[0] + tol) - (point_a[0] + tol)) * g_dx_inv + 1);
+        maxCoord[1] = (int)(((point_b[1] + tol) - (point_a[1] + tol)) * g_dx_inv + 1);
+        maxCoord[2] = (int)(((point_b[2] + tol) - (point_a[2] + tol)) * g_dx_inv + 1);
+        int maxNodes = maxCoord[0] * maxCoord[1] * maxCoord[2];
+        if (maxNodes >= g_target_cells && threadIdx.x == 0) printf("Allocate more space for gridTarget! Max target nodes  of %d compared to preallocated %d nodes!\n", maxNodes, g_target_cells);
+      }
+      // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
+      for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
 
-      // Grid node coordinate [i,j,k] in grid-block
-      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-      int j = (cidib >> g_blockbits) & g_blockmask;
-      int k = cidib & g_blockmask;
+        // Grid node coordinate [i,j,k] in grid-block
+        int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
+        int j = (cidib >> g_blockbits) & g_blockmask;
+        int k = cidib & g_blockmask;
 
-      // Grid node position [x,y,z] in entire domain 
-      float xc = (4*blockid[0] + i)*g_dx; //< Node x position [1m]
-      float yc = (4*blockid[1] + j)*g_dx; //< Node y position [1m]
-      float zc = (4*blockid[2] + k)*g_dx; //< Node z position [1m]
+        // Grid node position [x,y,z] in entire domain 
+        PREC_G xc = (4*blockid[0] + i)*g_dx; //< Node x position [1m]
+        PREC_G yc = (4*blockid[1] + j)*g_dx; //< Node y position [1m]
+        PREC_G zc = (4*blockid[2] + k)*g_dx; //< Node z position [1m]
 
-      // Exit thread if cell is not inside grid-target +/- tol
-      if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
-      if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
-      if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
+        // Continue thread if cell is not inside grid-target +/- tol
+        // if (xc < point_a[0] - tol || xc > point_b[0] + tol) {};
+        // else if (yc < point_a[1] - tol || yc > point_b[1] + tol) {};
+        // else if (zc < point_a[2] - tol || zc > point_b[2] + tol) {};
+        if ((xc >= (point_a[0]-tol) && xc <= (point_b[0]+tol)) && 
+            (yc >= (point_a[1]-tol) && yc <= (point_b[1]+tol)) &&
+            (zc >= (point_a[2]-tol) && zc <= (point_b[2]+tol)))
+        {
+        // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
+          // int node_id;
+          // node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv) * maxCoord[1] * maxCoord[2]) +
+          //           ((int)((yc - point_a[1] + tol) * g_dx_inv) * maxCoord[2]) +
+          //           ((int)((zc - point_a[2] + tol) * g_dx_inv));
+          
+          /// Set values in grid-array to specific cell from grid-buffer
+          PREC_G x = (xc - o) * l;
+          PREC_G y = (yc - o) * l;
+          PREC_G z = (zc - o) * l;
+          PREC_G mass = sourceblock.val(_0, i, j, k);
+          PREC_G mvx1 = sourceblock.val(_1, i, j, k) * l;
+          PREC_G mvy1 = sourceblock.val(_2, i, j, k) * l;
+          PREC_G mvz1 = sourceblock.val(_3, i, j, k) * l;
+          /// Set values in grid-array to specific cell from grid-buffer
+          //PREC_G m1  = mass;
+          PREC_G small = 1e-7;
+          if (mass > small) 
+          {
+            PREC_G m1 = 1.0 / mass; //< Invert mass, avoids division operator
+            PREC_G vx1 = mvx1 * m1;
+            PREC_G vy1 = mvy1 * m1;
+            PREC_G vz1 = mvz1 * m1;
+            // PREC_G vx2 = 0.f;
+            // PREC_G vy2 = 0.f;
+            // PREC_G vz2 = 0.f;
 
-      // Unique ID by spatial position of cell in target [0 to g_target_cells-1]
-      int node_id;
-      node_id = ((int)((xc - point_a[0] + tol) * g_dx_inv) * maxCoord[1] * maxCoord[2]) +
-                ((int)((yc - point_a[1] + tol) * g_dx_inv) * maxCoord[2]) +
-                ((int)((zc - point_a[2] + tol) * g_dx_inv));
+            PREC_G fx = mass * (vx1) / dt;
+            PREC_G fy = mass * (vy1) / dt;
+            PREC_G fz = mass * (vz1) / dt;
 
-      /// Set values in grid-array to specific cell from grid-buffer
-      garray.val(_0, node_id) = (xc - o) * l;
-      garray.val(_1, node_id) = (yc - o) * l;
-      garray.val(_2, node_id) = (zc - o) * l;
-      garray.val(_3, node_id) = sourceblock.val(_0, i, j, k);
-      garray.val(_4, node_id) = sourceblock.val(_1, i, j, k) * l;
-      garray.val(_5, node_id) = sourceblock.val(_2, i, j, k) * l;
-      garray.val(_6, node_id) = sourceblock.val(_3, i, j, k) * l;
+            auto node_id = atomicAdd(_targetcnt, 1);
+            if (node_id >= g_target_cells) printf("Allocate more space for gridTarget! node_id of %d compared to preallocated %d nodes!\n", node_id, g_target_cells);
 
-      /// Set values in grid-array to specific cell from grid-buffer
-      float m1  = garray.val(_3, node_id);
-      if (m1 <= 0.f) continue;
-      float m2  = m1;
-      float m = m1;
-      m1 = 1.f / m1; //< Invert mass, avoids division operator
-      m2 = 1.f / m2; //< Invert mass, avoids division operator
+            if (0)
+            {
+              garray.val(_0, node_id) = x;
+              garray.val(_1, node_id) = y;
+              garray.val(_2, node_id) = z;
+              garray.val(_3, node_id) = mass;
+              garray.val(_4, node_id) = mvx1;
+              garray.val(_5, node_id) = mvy1;
+              garray.val(_6, node_id) = mvz1;
+              garray.val(_7, node_id) = fx;
+              garray.val(_8, node_id) = fy;
+              garray.val(_9, node_id) = fz; 
+            }
 
-      float vx1 = garray.val(_4, node_id) * m1;
-      float vy1 = garray.val(_5, node_id) * m1;
-      float vz1 = garray.val(_6, node_id) * m1;
-      float vx2 = 0.f;
-      float vy2 = 0.f;
-      float vz2 = 0.f;
+            if (1)
+            {
+              PREC_G val = 0;
+              if      ( target_type / 3 == 0 ) val = fx;
+              else if ( target_type / 3 == 1 ) val = fy;
+              else if ( target_type / 3 == 2 ) val = fz;
+              
+              if ((target_type % 3) == 1)
+                val = (val > 0) ? 0 : val;
+              else if ((target_type % 3) == 2) 
+                val = (val < 0) ? 0 : val;
+              else
+                val = val;
+              garray.val(_0, node_id) = x;
+              garray.val(_1, node_id) = y;
+              garray.val(_2, node_id) = z;
+              garray.val(_3, node_id) = mass;
+              garray.val(_4, node_id) = mvx1;
+              garray.val(_5, node_id) = mvy1;
+              garray.val(_6, node_id) = mvz1;
+              garray.val(_7, node_id) = (target_type / 3 == 0) ? val : 0;
+              garray.val(_8, node_id) = (target_type / 3 == 1) ? val : 0;
+              garray.val(_9, node_id) = (target_type / 3 == 2) ? val : 0; 
+            }
 
-      float fx = m * (vx1 - vx2) / dt;
-      float fy = m * (vy1 - vy2) / dt;
-      float fz = m * (vz1 - vz2) / dt;
-      
+            PREC_G val = 0;
+            // Set load direction x/y/z
+            if      ( target_type / 3 == 0 ) val = fx;
+            else if ( target_type / 3 == 1 ) val = fy;
+            else if ( target_type / 3 == 2 ) val = fz;
+            //else val = 0.f;
+            // Seperation -+/-/+ condition for load
+            if ((target_type % 3) == 1)
+              val = (val >= 0) ? 0 : -val;
+            else if ((target_type % 3) == 2) 
+              val = (val <= 0) ? 0 : val;
+            
 
-      // Set load direction x/y/z
-      // if ( dir_val == 0 || dir_val == 1 || dir_val == 2 ) force = fx;
-      // else if ( dir_val == 3 || dir_val == 4 || dir_val == 5 ) force = fy;
-      // else if ( dir_val == 6 || dir_val == 7 || dir_val == 8 ) force = fz;
-      // else force = 0.f;
-      // // Seperation -+/-/+ condition for load
-      // if ((dir_val % 3) == 1) {
-      //   if (force >= 0.f) continue;
-      // } else if ((dir_val % 3) == 2) {
-      //   if (force <= 0.f) continue;
-      // }
-
-      garray.val(_7, node_id) = fx;
-      garray.val(_8, node_id) = fy;
-      garray.val(_9, node_id) = fz; 
-
-      float force;
-      force = fx;
-      if (force <= 0.f) continue;
-      atomicAdd(forceSum, force);
+            atomicAdd(forceSum, val);
+          }
+        }
+      }
     }
   }
 }
@@ -5775,6 +6652,8 @@ __global__ void retrieve_wave_gauge(
     float dt, float *waveMax, vec3 point_a, vec3 point_b, PREC length) {
 
   auto blockno = blockIdx.x;  //< Block number in partition
+  if (blockno < blockCount) {
+
   //if (blockno == -1) return;
   auto blockid = partition._activeKeys[blockno];
 
@@ -5786,7 +6665,6 @@ __global__ void retrieve_wave_gauge(
   
 
   //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
-  if (blockno < blockCount) {
     auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
 
     // Tolerance layer thickness around wg space
@@ -5821,7 +6699,7 @@ __global__ void retrieve_wave_gauge(
     }
   }
 }
-
+                      
 } // namespace mn
 
 #endif

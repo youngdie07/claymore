@@ -4,47 +4,32 @@
 		"gravity": -10.0,
 		"fps": 60,
 		"frames": 180,
-		"default_dt": 5.5e-5,
+		"default_dt": 1.65e-5,
 		"default_dx": 0.05,
-		"domain": [
-			3.2, 
-			4.0, 
-			0.4
-		]
+		"domain": [3.2, 4.0, 3.2]
 	},
 	"meshes": [
 		{
 			"gpu": 1,
 			"type": "mesh",
-			"file": "Debris/HSI_Box_0.4m_res4cm.mesh",
-			"file_elements": "Debris/HSI_Box_0.4m_res4cm_Elements.csv",
-			"file_vertices": "Debris/HSI_Box_0.4m_res4cm_Vertices.csv",
+			"file": "Debris/HSI_x3.2_y3.2_z0.4_res0.1m.mesh",
+			"file_elements": "Debris/HSI_x3.2_y3.2_z0.4_res0.1m_Elements.csv",
+			"file_vertices": "Debris/HSI_x3.2_y3.2_z0.4_res0.1m_Vertices.csv",
 			"constitutive": "Meshed",
-			"ppc": 8.00,
+			"output_attribs": ["JBar", "Pressure", "VonMisesStress"],
+			"ppc": 1,
 			"rho": 1000,
-			"youngs_modulus": 1e6,
-			"poisson_ratio": 0.4,
-			"use_ASFLIP": true,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.0,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
+			"use_ASFLIP": true,
 			"use_FEM": true,
-			"use_FBAR": true,
-			"offset": [
-				0.0, 
-				0.0, 
-				0.0
-			],
-			"span": [
-				0.4,
-				0.4,
-				0.4
-			],
-			"velocity": [
-				0.0,
-				0.0,
-				0.0
-			]
+			"use_FBAR": false,
+			"offset": [0.0, 0.0, 0.0],
+			"span": [0.4, 0.4, 0.4],
+			"velocity": [0.0, 0.0, 0.0]
 		}
 	],
 	"models": [
@@ -53,37 +38,29 @@
 			"type": "particles",
 			"file": "use.box",
 			"constitutive": "JBarFluid",
-			"output_attribs": ["J", "Pressure", "Velocity Y"],
+			"output_attribs": ["JBar", "Pressure", "Velocity_Y"],
 			"ppc": 8.0,
 			"rho": 1e3,
-			"bulk_modulus": 2.2e8,
+			"bulk_modulus": 2.2e9,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"youngs_modulus": 1e6,
-			"poisson_ratio": 0.4,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.3,
+			"logJp0": 0.0,
+			"friction_angle": 60.0,
+			"cohesion": 0.0,
 			"beta": 0.5,
+			"Sand_volCorrection": true,
 			"xi": 0.8,
-			"use_ASFLIP": true,
-			"alpha": 0.0,
+			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
+			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
-			"offset": [
-				0, 
-				0, 
-				0
-			],
-			"span": [
-				1.6,
-				3.2,
-				0.4
-			],
-			"velocity": [
-				0,
-				0,
-				0
-			],
+			"offset": [0, 0, 0],
+			"span": [1.6, 3.2, 1.6],
+			"velocity": [0, 0, 0],
 			"partition": 0,
 			"point_a": [0,0,0],
 			"point_b": [0,0,0],
@@ -95,7 +72,7 @@
 		{
 			"wall_type": 2,
 			"wall_start": [0, 0, 0],
-			"wall_end": [3.2, 6.4, 0.4],
+			"wall_end": [1.6, 6.4, 1.6],
 			"box_type": 0,
 			"box_start": [0, 0, 0],
 			"box_end": [0,0,0]
@@ -103,18 +80,16 @@
 	],
 	"targets": [
 		{
-			"direction": 0,
+			"type": 1,
 			"output_frequency": 120,
-			"point_a": [
-				3.199, 
-				-0.15, 
-				-0.15
-			],
-			"point_b": [
-				3.3,
-				3.4,
-				0.55
-			]
+			"point_a": [-0.1, -0.15, -0.15],
+			"point_b": [0.0, 3.6, 1.75]
+		},
+		{
+			"type": 2,
+			"output_frequency": 120,
+			"point_a": [1.599, -0.15, -0.15],
+			"point_b": [1.7, 3.6, 1.75]
 		}
 	]
 }

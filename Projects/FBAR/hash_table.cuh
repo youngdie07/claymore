@@ -28,6 +28,8 @@ template <> struct HaloPartition<1> {
   void copy_to(HaloPartition &other, std::size_t blockCnt,
                cudaStream_t stream) {
     other.h_count = h_count;
+      //fmt::print(fg(fmt::color::green), "h_count: {}\n", h_count) ;
+
     checkCudaErrors(cudaMemcpyAsync(other._haloMarks, _haloMarks,
                                     sizeof(char) * blockCnt, cudaMemcpyDefault,
                                     stream));
@@ -156,6 +158,9 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   // Copy Partition information to next time-step's Partition
   void copy_to(Partition &other, std::size_t blockCnt, cudaStream_t stream) {
     halo_base_t::copy_to(other, blockCnt, stream);
+      //fmt::print(fg(fmt::color::green), "Extent: {}\n", domain::extent) ;
+      //fmt::print(fg(fmt::color::green), "value_t: {}\n", sizeof(value_t)) ;
+
     checkCudaErrors(cudaMemcpyAsync(other._indexTable, this->_indexTable,
                                     sizeof(value_t) * domain::extent,
                                     cudaMemcpyDefault, stream));
