@@ -10,6 +10,8 @@ namespace mn {
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
 using ParticleBufferDomain = compact_domain<int, config::g_max_particle_bin>;
 using ParticleArrayDomain = compact_domain<int, config::g_max_particle_num>;
+using ParticleTargetDomain = compact_domain<int, config::g_max_particle_target_nodes>;
+
 
 using particle_bin4_ =
     structural<structural_type::dense,
@@ -70,12 +72,21 @@ using particle_bin16_f_ =
                ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
                f_, f_, f_, f_, f_, f_, f_, f_, 
                f_, f_, f_, f_>; ///< pos, F, logJp, vel
+using particle_bin17_f_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_,
+               f_, f_>; ///< pos, F, vel, vol_Bar, J_Bar
 template <material_e mt> struct particle_bin_;
 template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {};
 template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {};
 template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin17_f_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin16_f_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin16_f_ {};
 template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
@@ -104,11 +115,16 @@ using particle_array_6_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_>;
-using particle_array_9_ =
+using particle_target_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
-               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+               ParticleTargetDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+// using particle_array_ =
+//     structural<structural_type::dynamic,
+//                decorator<structural_allocation_policy::full_allocation,
+//                          structural_padding_policy::compact>,
+//                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
 
 template <material_e mt>
 struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
@@ -174,6 +190,36 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
       else if (n == std::string{"StressCauchy_1"}) idx = 39;
       else if (n == std::string{"StressCauchy_2"}) idx = 40;
       else if (n == std::string{"StressCauchy_3"}) idx = 41;
+      else if (n == std::string{"StressPK1_XX"}) idx = 42;
+      else if (n == std::string{"StressPK1_XY"}) idx = 43;
+      else if (n == std::string{"StressPK1_XZ"}) idx = 44;
+      else if (n == std::string{"StressPK1_YX"}) idx = 45;
+      else if (n == std::string{"StressPK1_YY"}) idx = 46;
+      else if (n == std::string{"StressPK1_YZ"}) idx = 47;
+      else if (n == std::string{"StressPK1_ZX"}) idx = 48;
+      else if (n == std::string{"StressPK1_ZY"}) idx = 49;
+      else if (n == std::string{"StressPK1_ZZ"}) idx = 50;
+      else if (n == std::string{"StressPK1_Invariant1"}) idx = 51;
+      else if (n == std::string{"StressPK1_Invariant2"}) idx = 52;
+      else if (n == std::string{"StressPK1_Invariant3"}) idx = 53;
+      else if (n == std::string{"StressPK1_1"}) idx = 54;
+      else if (n == std::string{"StressPK1_2"}) idx = 55;
+      else if (n == std::string{"StressPK1_3"}) idx = 56;
+      else if (n == std::string{"StrainSmall_XX"}) idx = 57;
+      else if (n == std::string{"StrainSmall_XY"}) idx = 58;
+      else if (n == std::string{"StrainSmall_XZ"}) idx = 59;
+      else if (n == std::string{"StrainSmall_YX"}) idx = 60;
+      else if (n == std::string{"StrainSmall_YY"}) idx = 61;
+      else if (n == std::string{"StrainSmall_YZ"}) idx = 62;
+      else if (n == std::string{"StrainSmall_ZX"}) idx = 63;
+      else if (n == std::string{"StrainSmall_ZY"}) idx = 64;
+      else if (n == std::string{"StrainSmall_ZZ"}) idx = 65;
+      else if (n == std::string{"StrainSmall_Invariant1"}) idx = 66;
+      else if (n == std::string{"StrainSmall_Invariant2"}) idx = 67;
+      else if (n == std::string{"StrainSmall_Invariant3"}) idx = 68;
+      else if (n == std::string{"StrainSmall_1"}) idx = 69;
+      else if (n == std::string{"StrainSmall_2"}) idx = 70;
+      else if (n == std::string{"StrainSmall_3"}) idx = 71;
       else idx = -1;
       output_attribs[i] = idx;
       i = i+1;
@@ -381,6 +427,49 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
 
+
+
+template <>
+struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
+    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR> {
+  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR>;
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
+                        PREC a, PREC bmin, PREC bmax,
+                        PREC ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
+    rho = density;
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / ppc);
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+    alpha = a;
+    beta_min = bmin;
+    beta_max = bmax;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
 template <>
 struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   using base_t = ParticleBufferImpl<material_e::Sand>;
@@ -546,6 +635,7 @@ using particle_buffer_t =
             ParticleBuffer<material_e::JBarFluid>,
             ParticleBuffer<material_e::FixedCorotated>,
             ParticleBuffer<material_e::FixedCorotated_ASFLIP>,
+            ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>,
             ParticleBuffer<material_e::Sand>, 
             ParticleBuffer<material_e::NACC>,
             ParticleBuffer<material_e::Meshed>>;
@@ -565,6 +655,18 @@ struct ParticleAttrib: Instance<particle_array_> {
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
+};
+
+/// ParticleTarget structure for device instantiation (JB)
+struct ParticleTarget : Instance<particle_target_> {
+  using base_t = Instance<particle_target_>;
+  ParticleTarget &operator=(base_t &&instance) {
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  ParticleTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
+  // template <typename Allocator>
+  // ParticleTarget(Allocator allocator) : base_t{allocator} {}
 };
 
 } // namespace mn

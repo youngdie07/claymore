@@ -1,12 +1,12 @@
 {
 	"simulation": {
 		"gpuid": 0,
-		"gravity": 0.0,
-		"fps": 48000,
-		"frames": 288,
-		"default_dt": 4e-6,
-		"default_dx": 0.005,
-		"domain": [1.0, 0.25, 0.5]
+		"gravity": -1.0,
+		"fps": 60,
+		"frames": 180,
+		"default_dt": 4e-5,
+		"default_dx": 0.2,
+		"domain": [3.2, 6.4, 3.2]
 	},
 	"meshes": [
 		{
@@ -18,8 +18,8 @@
 			"constitutive": "Meshed",
 			"output_attribs": ["JBar", "Pressure", "VonMisesStress"],
 			"ppc": 1,
-			"rho": 500,
-			"youngs_modulus": 1e8,
+			"rho": 1000,
+			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.0,
 			"alpha": 0,
 			"beta_min": 0,
@@ -37,15 +37,15 @@
 			"gpu": 0,
 			"type": "particles",
 			"file": "use.box",
-			"constitutive": "FixedCorotated_ASFLIP_FBAR",
-			"output_attribs": ["Pressure", "VonMisesStress", "JBar"],
+			"constitutive": "JBarFluid",
+			"output_attribs": ["JBar", "Pressure", "Velocity_Y"],
 			"ppc": 8.0,
-			"rho": 1000,
+			"rho": 1e3,
 			"bulk_modulus": 2.2e9,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"youngs_modulus": 1e9,
-			"poisson_ratio": 0.0,
+			"youngs_modulus": 1e7,
+			"poisson_ratio": 0.3,
 			"logJp0": 0.0,
 			"friction_angle": 60.0,
 			"cohesion": 0.0,
@@ -58,9 +58,9 @@
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
-			"offset": [0.728592599149, 0.1, 0.114296299574],
-			"span": [0.5, 0.05, 0.5],
-			"velocity": [1, 0, 0],
+			"offset": [0, 0, 0],
+			"span": [3.2, 3.1, 0.4],
+			"velocity": [0, 0, 0],
 			"partition": 0,
 			"point_a": [0,0,0],
 			"point_b": [0,0,0],
@@ -70,9 +70,9 @@
 	],
 	"grid-boundaries": [
 		{
-			"wall_type": 2,
-			"wall_start": [0.0, 0, 0],
-			"wall_end": [1.0, 0.25, 0.5],
+			"wall_type": 1,
+			"wall_start": [0, 0, 0],
+			"wall_end": [3.2, 6.4, 0.4],
 			"box_type": 0,
 			"box_start": [0, 0, 0],
 			"box_end": [0,0,0]
@@ -80,10 +80,22 @@
 	],
 	"targets": [
 		{
+			"type": 1,
+			"output_frequency": 480,
+			"point_a": [-0.2, -0.2, -0.2],
+			"point_b": [0, 6.6, 0.6]
+		},
+		{
 			"type": 2,
-			"output_frequency": 960000,
-			"point_a": [0.999, -0.01, -0.01],
-			"point_b": [1.01, 0.26, 0.51]
+			"output_frequency": 480,
+			"point_a": [3.199, -0.2, -0.2],
+			"point_b": [3.4, 6.6, 0.6]
+		},
+		{
+			"type": 4,
+			"output_frequency": 480,
+			"point_a": [-0.2, -0.2, -0.2],
+			"point_b": [3.4, 0.0, 0.6]
 		}
 	]
 }

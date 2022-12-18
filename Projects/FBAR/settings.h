@@ -56,6 +56,7 @@ enum class material_e { JFluid = 0,
                         JBarFluid,
                         FixedCorotated, 
                         FixedCorotated_ASFLIP,
+                        FixedCorotated_ASFLIP_FBAR,
                         Sand, 
                         NACC, 
                         Meshed,
@@ -104,7 +105,7 @@ constexpr float cfl = CFL; //< Default CFL Condition Coefficient
 
 // Grid set-up
 #define BLOCK_BITS 2 //< Bits for grid block resolution. 2 -> 4x4x4 grid-nodes. 
-#define DOMAIN_BITS 8 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
+#define DOMAIN_BITS 9 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
@@ -137,9 +138,9 @@ constexpr double g_grid_ratio_z = g_length_z / g_length + 0.0 * g_dx; //< Domain
 // constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) + 4; //< Domain x grid-blocks
 // constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) + 4; //< Domain y grid-blocks
 // constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) + 4; //< Domain z grid-blocks
-constexpr int g_grid_size_x = g_grid_size + g_bc; //< Domain x grid-blocks
-constexpr int g_grid_size_y = g_grid_size + g_bc; //< Domain y grid-blocks
-constexpr int g_grid_size_z = g_grid_size + g_bc; //< Domain z grid-blocks
+constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
+constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
+constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
 
 
 /// ------------------
@@ -150,15 +151,15 @@ constexpr int g_grid_size_z = g_grid_size + g_bc; //< Domain z grid-blocks
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_particle_batch_capacity = 128;
-constexpr int g_max_active_block = 6250; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 8000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // Particles
-#define MAX_PPC 128 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 600000; //< Max no. particles. Preallocated, can resize.
+#define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
+constexpr int g_max_particle_num = 1600000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
+constexpr int g_particle_batch_capacity = 128;
 constexpr int g_particle_num_per_block = 
     (MAX_PPC * (1 << (BLOCK_BITS * 3))); //< Max no. particles in a block
 constexpr std::size_t g_max_particle_bin = 
@@ -175,11 +176,13 @@ constexpr int g_max_fem_element_bin =
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 // Grid-Targets
-constexpr int g_target_cells = 8000; //< Max grid-nodes per gridTarget
+constexpr int g_target_cells = 10000; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 10000; //< Max grid-nodes per gridTarget
 constexpr int g_target_attribs = 10; //< No. of values per gridTarget node
 
 // Particle-Targets
 constexpr int g_particle_target_cells = 8000; //< Max grid-nodes per gridTarget
+constexpr int g_max_particle_target_nodes = 8000; //< Max particless per particleTarget
 constexpr int g_particle_target_attribs = 6; //< No. of values per gridTarget node
 
 // Halo

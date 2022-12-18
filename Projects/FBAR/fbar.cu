@@ -131,8 +131,56 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
           arr[0] = (i + 0.5) * ppl_dx + offset[0];
           arr[1] = (j + 0.5) * ppl_dx + offset[1];
           arr[2] = (k + 0.5) * ppl_dx + offset[2];
+          PREC x, y, z;
+          x = ((arr[0] - offset[0]) * l);
+          y = ((arr[1] - offset[1]) * l);
+          z = ((arr[2] - offset[2]) * l);
           if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
-            fields.push_back(arr);
+            if (0)
+            {
+              PREC m, b, surf;
+              
+              m = -0.2/3.2;
+              b = (3.2 + 0.2/2.0);
+              surf =  m * x + b;
+              
+              if (y <= surf)
+              fields.push_back(arr);
+            }  
+            else if (0)
+            {
+              PREC m, b, surf_one, surf_two;
+              
+              m = -(0.1-0.00001)/0.5;
+              b = 0.1;
+              surf_one =  m * (x) + b;
+              m = (0.1-0.00001)/0.5;
+              b = 0.1;
+              surf_two =  m * (x) + b;
+
+              if (z >= surf_one && z <= surf_two)
+                fields.push_back(arr);
+            }
+            else if (0)
+            {
+              PREC R = 0.126156626101; // Volume = pi * R^2 * 0.05 
+              PREC R_out = 0.13570370042; // Volume = pi * R^2 * 0.05 
+              PREC R_in = 0.05; // Volume = pi * R^2 * 0.05 
+
+              PREC xo = R_out ; 
+              PREC zo = R_out ;
+              PREC r = std::sqrt((x-xo)*(x-xo) + (z-zo)*(z-zo));
+              // "offset": [0.747686747798, 0.1, 0.123843373899],
+              //			"offset": [0.728592599149, 0.1, 0.114296299574],
+			        // "span": [0.5, 0.05, 0.5],
+              //fmt::print("r: {}", r);
+              if (r <= R_out && r >= R_in)
+                fields.push_back(arr);
+            }
+            else 
+            {
+              fields.push_back(arr);
+            }
         }
       }
     }
@@ -239,10 +287,9 @@ void parse_scene(std::string fn,
         auto &sim = it->value;
         if (sim.IsObject()) {
 
+          //dx = sim["default_dx"].GetDouble();
           l = sim["default_dx"].GetDouble() * mn::config::g_dx_inv_d; 
-          //printf("length %f \n", length);
-          //cudaMemcpyToSymbol("length", &l, sizeof(PREC), cudaMemcpyHostToDevice);
-
+          //o =  mn::config::g_offset /  mn::config::g_dx * dx;
           fmt::print(
               fg(fmt::color::cyan),
               "Simulation: gpuid[{}], Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}]\n",
@@ -400,7 +447,15 @@ void parse_scene(std::string fn,
                     output_attribs);
               } else if (constitutive == "FixedCorotated_ASFLIP") {
                 benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateFRASFLIPParameters( model["gpu"].GetInt(),
+                benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
+                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                    output_attribs);
+              } else if (constitutive == "FixedCorotated_ASFLIP_FBAR") {
+                benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
+                benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
                     model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
                     model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
@@ -678,14 +733,19 @@ int main(int argc, char *argv[]) {
     getchar();
   }
   benchmark->main_loop();
+  std::cout << "Finished main loop of simulation." << '\n';
   // ----------------
   /// Clear
   IO::flush();
+  std::cout << "Cleared I/O." << '\n';
   benchmark.reset();
+  std::cout << "Reset simulation structure." << '\n';
   // ----------------
   /// Shutdown GPU
   Cuda::shutdown();
+  std::cout << "Shut-down CUDA GPUs." << '\n';
   // ----------------
   /// End program
+  std::cout << "Simulation finished." << '\n';
   return 0;
 }

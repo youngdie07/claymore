@@ -386,6 +386,8 @@ constexpr void compute_J_Invariants_from_I_Invariants_3x3_Tensor(const T *x, T *
 template <typename T>
 constexpr void compute_Principals_from_Invariants_3x3_Sym_Tensor(const T *x, T *out)
 {
+  // A number of assumptions about the tensor required
+  // Must be symmetric, maybe positive semi-definite?
   T p = - ((1.0/3.0)*x[0]*x[0] - x[1]);  //< -J2
   T q = - ((2.0/27.0)*x[0]*x[0]*x[0] - (1.0/3.0)*x[0]*x[1] + x[2]); //< -J3
   for (int k = 0; k < 3; k++) 

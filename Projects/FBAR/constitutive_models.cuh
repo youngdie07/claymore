@@ -54,6 +54,138 @@ compute_stress_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
   PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
 }
 
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_energy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
+                              T &strain_energy) {
+  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  T J = S[0] * S[1] * S[2];
+
+  // Fixed-corotated potential strain energy. Page 90 UCLA MPM course Jiang et al.
+  strain_energy = mu * ((S[0] - 1.0)*(S[0] - 1.0) + (S[1] - 1.0)*(S[1] - 1.0) +
+                        (S[2] - 1.0)*(S[2] - 1.0)) + 0.5 * lambda*(J - 1.0)*(J - 1.0);
+}
+
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
+                             vec<T, 9> &PF)
+{
+  // Neo-hooken Cauchy stress. Page 90 UCLA MPM course Jiang et al.
+  // ABAQUS uses a slightly different formulation.
+  vec<T, 9> Finv;
+  matrixInverse(F.data(), Finv.data());
+
+  T J = matrixDeterminant3D(F.data());
+  T logJ = log(J);
+
+  // P  = mu * (F - F^-T) + lambda * log(J) * F^-T
+  vec<T, 9> P;
+  P[0] = mu * (F[0] - Finv[0]) + lambda * logJ * Finv[0];
+  P[1] = mu * (F[1] - Finv[3]) + lambda * logJ * Finv[3];
+  P[2] = mu * (F[2] - Finv[6]) + lambda * logJ * Finv[6];
+  P[3] = mu * (F[3] - Finv[1]) + lambda * logJ * Finv[1];
+  P[4] = mu * (F[4] - Finv[4]) + lambda * logJ * Finv[4];
+  P[5] = mu * (F[5] - Finv[7]) + lambda * logJ * Finv[7];
+  P[6] = mu * (F[6] - Finv[2]) + lambda * logJ * Finv[2];
+  P[7] = mu * (F[7] - Finv[5]) + lambda * logJ * Finv[5];
+  P[8] = mu * (F[8] - Finv[8]) + lambda * logJ * Finv[8];
+
+  /// PF'
+  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) * volume;
+  PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6]) * volume;
+  PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6]) * volume;
+  PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) * volume;
+  PF[4] = (P[1] * F[1] + P[4] * F[4] + P[7] * F[7]) * volume;
+  PF[5] = (P[2] * F[1] + P[5] * F[4] + P[8] * F[7]) * volume;
+  PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) * volume;
+  PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) * volume;
+  PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
+}
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
+                             T &strain_energy)
+{
+  // Neo-hooken strain potential energy. Page 90 UCLA MPM course Jiang et al.
+  // ABAQUS uses a slightly different formulation.
+  T J = matrixDeterminant3D(F.data());
+  T logJ = log(J);
+
+  T C[3]; //< Left Cauchy Green Diagonal, F^T F
+  // tr(F'F)
+  C[0] = (F[0] - F[0] + F[1] * F[1] + F[2] * F[2]) ;
+  C[1] = (F[3] * F[3] + F[4] * F[4] + F[5] * F[5]) ;
+  C[2] = (F[6] * F[6] + F[7] * F[7] + F[8] * F[8]) ;
+  strain_energy = (mu * (0.5*((C[0] + C[1] + C[2]) - 3) - logJ) + 0.5*lambda*logJ*logJ) * volume;
+}
+
+template <typename T>
+__forceinline__ __device__ void
+compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, vec<T, 1> &strain_energy)
+{
+  // Based on Pradhana 2017 Multi-Species MPM paper. Modified pressure constant term for gamma
+  // Energy(J) = -(bulk/bulk_wrt_pressure) * ( ( J^(1 - bulk_wrt_pressure)  / (1 - bulk_wrt_pressure) ) - J) * volume?
+  // J = det | Deformation Gradient | = V / Vo = Ratio of volume change of particle
+  // bulk = bulk modulus [Pa] (2.2e9 Pa for water at 20 deg C, sea-level, no salinity)
+  // bulk_wrt_pressure = bulk modulus derivative with respect to pressure at atmospheric conditions (7.1 for water)
+  // strain_energy = [Joules]
+  // A better Tait-Murnaghan energy formulation is probabaly:
+  // E = Eo + k * volume * ( (1 / (g(g-1)))*J^(1-g) + (1/g)*J - (1/(1-g)) )
+  // Note that assuming Eo = 0 (i.e. no strain energy at ambient pressure without deformation)
+  // for J = 1 (no volume change) there is no energy (good)
+  // gamma cannot be 0 or 1 in this model (1 is common in graphics). Maybe impossible to go under 5/3 (Thomas-Fermi limit)
+//   strain_energy = - volume * (bulk / bulk_wrt_pressure) * 
+                    // ( ( pow(J, (1.0 - bulk_wrt_pressure))  / (1.0 - bulk_wrt_pressure) ) - J );
+  T one_minus_bwp = 1.0 - bulk_wrt_pressure;
+  strain_energy[0] = volume * bulk * 
+                    ((1.0/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * pow(J, one_minus_bwp) + (1.0/bulk_wrt_pressure)*J - (1.0/(bulk_wrt_pressure-1.0)));
+
+}
+
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T J, T &pressure)
+{
+  pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+}
+
+
+template <typename T = float>
+__forceinline__ __device__ void
+compute_energy_sand(T volume, T mu, T lambda, T cohesion, T beta,
+                    T yieldSurface, bool volCorrection, T &logJp, vec<T, 9> &F, T &strain_energy) {
+  T U[9], S[3], V[9];
+  // ψs(Fs) = ψ˜s (ϵ) = µtr(ϵ^2) + λ/2 tr(ϵ) 
+  // Modified code from stress graphics version, need to recheck it
+  // https://www.math.ucla.edu/~jteran/papers/PGKFTJM17.pdf  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+
+  T epsilon[3]; ///< logarithmic strain
+  // 'Cohesion' uses a strange definition to account for wet sand tensile effects
+#pragma unroll 3
+  for (int i = 0; i < 3; i++) 
+  {
+    T abs_S = S[i] > 0 ? S[i] : -S[i];
+    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
+    epsilon[i] = log(abs_S) - cohesion;
+  }
+  T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
+  T sum_epsilon_squared = epsilon[0]*epsilon[0] + epsilon[1]*epsilon[1] + epsilon[2]*epsilon[2];
+  T trace_epsilon = sum_epsilon + logJp;
+  T trace_epsilon_squared = sum_epsilon + logJp*logJp;
+  strain_energy = (mu * trace_epsilon_squared + lambda * 0.5 * trace_epsilon) * volume;
+}                  
+
 template <typename T = float>
 __forceinline__ __device__ void
 compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
