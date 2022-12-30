@@ -68,20 +68,26 @@ void write_partio_general(std::string filename,
 template <typename T, std::size_t dim>
 void write_partio_particles(std::string filename,
                   const std::vector<std::array<T, 3>>  &positions, 
-                  const std::vector<std::array<T,dim>> &attributes) {
+                  const std::vector<std::array<T,dim>> &attributes,
+                  const std::vector<std::string> &labels) {
   // Create a mutable Partio structure pointer
   Partio::ParticlesDataMutable*       parts = Partio::create();
 
   // Add positions and attributes to the pointer by arrow operator
   Partio::ParticleAttribute pos     = parts->addAttribute("position", Partio::VECTOR, 3);
-  Partio::ParticleAttribute attrib  = parts->addAttribute("attributes", Partio::FLOAT, (int)dim);
+  Partio::ParticleAttribute attrib[dim];
+  for (int d = 0; d < dim; d++){
+    attrib[d] = parts->addAttribute(labels[d].c_str(), Partio::FLOAT, (int)1);
+  }
+  //Partio::ParticleAttribute attrib  = parts->addAttribute("attributes", Partio::FLOAT, (int)dim);
 
   for(int i=0; i < (int)positions.size(); ++i)
   {
     // Create new particle with two write-input vectors/arrays
     int idx  = parts->addParticle();
     float* p = parts->dataWrite<float>(pos,    idx);
-    float* a = parts->dataWrite<float>(attrib, idx);
+    
+    //float* a = parts->dataWrite<float>(attrib, idx);
 
     // Add position data for particle
     for(int k=0; k<3; ++k)
@@ -92,7 +98,10 @@ void write_partio_particles(std::string filename,
     // Add extra attributes for particle
     for(int k=0; k<(int)dim; ++k)
     {
-      a[k] = attributes[i][k];
+      float* a = parts->dataWrite<float>(attrib[k], idx);
+      //a[k] = attributes[i][k];
+
+      a[0] = attributes[i][k];
     }
   }
 
