@@ -76,8 +76,8 @@ using particle_bin17_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, f_,
-               f_, f_, f_, f_, f_, f_, f_, f_, 
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_, 
                f_, f_, f_,
                f_, f_>; ///< pos, F, vel, vol_Bar, J_Bar
 template <material_e mt> struct particle_bin_;

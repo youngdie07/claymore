@@ -66,8 +66,8 @@ compute_energy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
   T J = S[0] * S[1] * S[2];
 
   // Fixed-corotated potential strain energy. Page 90 UCLA MPM course Jiang et al.
-  strain_energy = mu * ((S[0] - 1.0)*(S[0] - 1.0) + (S[1] - 1.0)*(S[1] - 1.0) +
-                        (S[2] - 1.0)*(S[2] - 1.0)) + 0.5 * lambda*(J - 1.0)*(J - 1.0);
+  strain_energy = (mu * ((S[0] - 1.0)*(S[0] - 1.0) + (S[1] - 1.0)*(S[1] - 1.0) +
+                        (S[2] - 1.0)*(S[2] - 1.0)) + 0.5 * lambda*(J - 1.0)*(J - 1.0)) * volume;
 }
 
 

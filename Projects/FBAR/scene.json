@@ -1,12 +1,12 @@
 {
 	"simulation": {
 		"gpuid": 0,
-		"gravity": 0.0,
-		"fps": 48000,
-		"frames": 288,
-		"default_dt": 4e-6,
+		"gravity": 0,
+		"fps": 1440,
+		"frames": 144,
+		"default_dt": 4e-5,
 		"default_dx": 0.005,
-		"domain": [1.0, 0.25, 0.5]
+		"domain": [1.0, 0.25, 0.25]
 	},
 	"meshes": [
 		{
@@ -36,16 +36,16 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "use.box",
-			"constitutive": "FixedCorotated_ASFLIP_FBAR",
+			"file": "use.cylinder",
+			"constitutive": "FixedCorotated",
 			"output_attribs": ["Pressure", "VonMisesStress", "JBar"],
 			"ppc": 8.0,
 			"rho": 1000,
-			"bulk_modulus": 2.2e9,
+			"bulk_modulus": 2.2e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"youngs_modulus": 1e9,
-			"poisson_ratio": 0.0,
+			"youngs_modulus": 1e6,
+			"poisson_ratio": 0.3,
 			"logJp0": 0.0,
 			"friction_angle": 60.0,
 			"cohesion": 0.0,
@@ -58,22 +58,24 @@
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
-			"offset": [0.728592599149, 0.1, 0.114296299574],
-			"span": [0.5, 0.05, 0.5],
-			"velocity": [1, 0, 0],
+			"offset": [0.5, 0.1, 0.075],
+			"span": [0.50, 0.05, 0.1],
+			"velocity": [10, 0, 0],
 			"partition": 0,
 			"point_a": [0,0,0],
 			"point_b": [0,0,0],
 			"inter_a": [0,0,0],
-			"inter_b": [0,0,0]
+			"inter_b": [0,0,0],
+			"radius": 0.025,
+			"axis": "X"
 		}
 	],
 	"grid-boundaries": [
 		{
-			"wall_type": 2,
+			"wall_type": "Separable",
 			"wall_start": [0.0, 0, 0],
-			"wall_end": [1.0, 0.25, 0.5],
-			"box_type": 0,
+			"wall_end": [1.0, 0.25, 0.25],
+			"box_type": "Separable",
 			"box_start": [0, 0, 0],
 			"box_end": [0,0,0]
 		}
@@ -81,9 +83,9 @@
 	"targets": [
 		{
 			"type": 2,
-			"output_frequency": 960000,
+			"output_frequency": 125000,
 			"point_a": [0.999, -0.01, -0.01],
-			"point_b": [1.01, 0.26, 0.51]
+			"point_b": [1.01, 0.26, 0.26]
 		}
 	]
 }

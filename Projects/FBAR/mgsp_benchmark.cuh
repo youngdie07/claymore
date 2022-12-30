@@ -156,13 +156,13 @@ struct mgsp_benchmark {
                   const mn::vec<PREC, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
-    for (int gpu = 0; gpu < config::g_device_cnt; gpu++){
+    //for (int gpu = 0; gpu < config::g_device_cnt; gpu++){
       // Double-buffering for G2P2G
       for (int copyid = 0; copyid < 2; copyid++) {
         particleBins[copyid].emplace_back(ParticleBuffer<m>(
             device_allocator{}));
       }
-    }
+    //}
     fmt::print("GPU[{}] Particle Bins, Double-Buffered with Padding: ParticleBin[0] size {} bytes -vs- ParticleBin[1] size {} bytes.\n", GPU_ID,
                match(particleBins[0][GPU_ID])([&](auto &pb) { return pb.size; }),
                match(particleBins[1][GPU_ID])([&](auto &pb) { return pb.size; }));    
@@ -214,10 +214,10 @@ struct mgsp_benchmark {
     device_element_IDs[GPU_ID] = spawn<element_array_, orphan_signature>(device_allocator{}); //< FEM elements
     cuDev.syncStream<streamIdx::Compute>();
 
-    for (int gpu = 0; gpu < config::g_device_cnt; gpu++)
-    {
+    //for (int gpu = 0; gpu < config::g_device_cnt; gpu++)
+    //{
       elementBins.emplace_back(ElementBuffer<f>(device_allocator{}));
-    }
+    //}
 
     vertice_cnt[GPU_ID] = input_vertices.size(); // Vertice count
     element_cnt[GPU_ID] = input_elements.size(); // Element count

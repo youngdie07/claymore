@@ -166,6 +166,8 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
               PREC R = 0.126156626101; // Volume = pi * R^2 * 0.05 
               PREC R_out = 0.13570370042; // Volume = pi * R^2 * 0.05 
               PREC R_in = 0.05; // Volume = pi * R^2 * 0.05 
+			//"offset": [0.728592599149, 0.1, 0.114296299574],
+			//"span": [0.5, 0.05, 0.5],
 
               PREC xo = R_out ; 
               PREC zo = R_out ;
@@ -181,6 +183,54 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
             {
               fields.push_back(arr);
             }
+        }
+      }
+    }
+  } 
+}
+
+
+void make_cylinder(std::vector<std::array<PREC, 3>>& fields, 
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
+                        PREC ppc, PREC radius, std::string axis) {
+  // Make a cylinder of particles, write to fields
+  // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
+  // Assumes span and offset are pre-adjusted to 1x1x1 box with 8*g_dx offset
+  PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
+  int i_lim, j_lim, k_lim; // Number of par. per span direction
+  i_lim = (int)((span[0]) / ppl_dx + 1.0); 
+  j_lim = (int)((span[1]) / ppl_dx + 1.0); 
+  k_lim = (int)((span[2]) / ppl_dx + 1.0); 
+
+  for (int i = 0; i < i_lim ; i++) {
+    for (int j = 0; j < j_lim ; j++) {
+      for (int k = 0; k < k_lim ; k++) {
+          std::array<PREC, 3> arr;
+          arr[0] = (i + 0.5) * ppl_dx + offset[0];
+          arr[1] = (j + 0.5) * ppl_dx + offset[1];
+          arr[2] = (k + 0.5) * ppl_dx + offset[2];
+          PREC x, y, z;
+          x = ((arr[0] - offset[0]) * l);
+          y = ((arr[1] - offset[1]) * l);
+          z = ((arr[2] - offset[2]) * l);
+          if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
+            PREC xo = radius; 
+            PREC yo = radius;
+            PREC zo = radius;
+            PREC r;
+            if (axis == "x" || axis == "X") 
+              r = std::sqrt((y-yo)*(y-yo) + (z-zo)*(z-zo));
+            else if (axis == "y" || axis == "Y") 
+              r = std::sqrt((x-xo)*(x-xo) + (z-zo)*(z-zo));
+            else if (axis == "z" || axis == "Z") 
+              r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo));
+            else 
+            {
+              r = 0;
+              fmt::print("ERRROR: Value of axis[{}] is not applicable for a Cylinder. Use X, Y, or Z.", axis);
+            }
+
+            if (r <= radius) fields.push_back(arr);
         }
       }
     }
@@ -414,54 +464,108 @@ void parse_scene(std::string fn,
 
             auto initModel = [&](auto &positions, auto &velocity) {
 
-              if (constitutive == "JFluid") {
-                benchmark->initModel<mn::material_e::JFluid>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateJFluidParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
-                    model["viscosity"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "JFluid_ASFLIP") {
-                benchmark->initModel<mn::material_e::JFluid_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateJFluidASFLIPParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "JBarFluid") {
-                benchmark->initModel<mn::material_e::JBarFluid>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateJBarFluidParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "FixedCorotated") {
-                benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateFRParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "FixedCorotated_ASFLIP") {
-                benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "FixedCorotated_ASFLIP_FBAR") {
-                benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);
-              } else if (constitutive == "Sand") { 
+              if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
+                if(!model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::JFluid>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->updateJFluidParameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
+                      model["viscosity"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else if (model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->updateJFluidASFLIPParameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
+                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::JBarFluid>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->updateJBarFluidParameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
+                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else 
+                {
+                  fmt::print(fg(fmt::color::red),
+                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
+                       model["gpu"].GetInt(), constitutive,
+                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
+                  getchar();
+                }
+              } else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
+
+                if(!model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->updateFRParameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else if (model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      output_attribs);
+                  fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else 
+                {
+                  fmt::print(fg(fmt::color::red),
+                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
+                       model["gpu"].GetInt(), constitutive,
+                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
+                  getchar();
+                }
+
+              // } else if (constitutive == "FixedCorotated_ASFLIP") {
+              //   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
+              //   benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
+              //       model["rho"].GetDouble(), model["ppc"].GetDouble(),
+              //       model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+              //       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+              //       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+              //       output_attribs);
+              // } else if (constitutive == "FixedCorotated_ASFLIP_FBAR") {
+              //   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
+              //   benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
+              //       model["rho"].GetDouble(), model["ppc"].GetDouble(),
+              //       model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+              //       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+              //       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+              //       output_attribs);
+              } else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
                 benchmark->initModel<mn::material_e::Sand>(model["gpu"].GetInt(), positions, velocity); 
                 benchmark->updateSandParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
@@ -469,8 +573,9 @@ void parse_scene(std::string fn,
                     model["logJp0"].GetDouble(), model["friction_angle"].GetDouble(),model["cohesion"].GetDouble(),model["beta"].GetDouble(),model["Sand_volCorrection"].GetBool(),
                     model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    output_attribs);              
-              } else if (constitutive == "NACC") {
+                    output_attribs);        
+                fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+              } else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
                 benchmark->initModel<mn::material_e::NACC>(model["gpu"].GetInt(), positions, velocity);
                 benchmark->updateNACCParameters( model["gpu"].GetInt(),
                     model["rho"].GetDouble(), model["ppc"].GetDouble(),
@@ -478,10 +583,10 @@ void parse_scene(std::string fn,
                     model["beta"].GetDouble(), model["xi"].GetDouble(),
                     model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
                     output_attribs);
+                fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
               } 
               
               //benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
-              fmt::print("Particle material model updated.\n");
 
             };
             mn::vec<PREC, 3> offset, span, velocity;
@@ -549,6 +654,17 @@ void parse_scene(std::string fn,
               mn::IO::flush();
               initModel(positions, velocity);
             }
+            if (p.extension() == ".cylinder") {
+              make_cylinder(models[model["gpu"].GetInt()], 
+                        span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble(), model["axis"].GetString());
+              auto positions = models[model["gpu"].GetInt()];
+              mn::IO::insert_job([&]() {
+                mn::write_partio<PREC, 3>(std::string{p.stem()} + ".bgeo",
+                                          positions);
+              });              
+              mn::IO::flush();
+              initModel(positions, velocity);
+            }
           }
         }
       }
@@ -606,9 +722,22 @@ void parse_scene(std::string fn,
               h_walls[d+3] = model["wall_end"].GetArray()[d].GetFloat() / l + o;
               h_boxes[d+3] = model["box_end"].GetArray()[d].GetFloat() / l + o;
             }
-            h_walls[6] = model["wall_type"].GetFloat(); // Contact
-            h_boxes[6] = model["box_type"].GetFloat(); // Contact
+            std::string wall_type{model["wall_type"].GetString()};
+            std::string box_type{model["box_type"].GetString()};
 
+
+            if (wall_type == "Rigid" || wall_type == "Sticky" || wall_type == "Stick") h_walls[6] = 0;
+            else if (wall_type == "Slip") h_walls[6] = 1;
+            else if (wall_type == "Separable") h_walls[6] = 2;
+            else h_walls[6] = -1;
+
+            if (box_type == "Rigid" || box_type == "Sticky" || box_type == "Stick") h_boxes[6] = 0;
+            else if (box_type == "Slip") h_boxes[6] = 1;
+            else if (box_type == "Separable") h_boxes[6] = 2;
+            else h_boxes[6] = -1;
+
+            // h_walls[6] = model["wall_type"].GetFloat(); // Contact
+            // h_boxes[6] = model["box_type"].GetFloat(); // Contact
             // ----------------
             /// Loop through GPU devices
             //for (int did = 0; did < mn::config::g_device_cnt; ++did) {
