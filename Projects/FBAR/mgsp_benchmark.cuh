@@ -1477,9 +1477,11 @@ struct mgsp_benchmark {
 
     std::string fn = std::string{"model"} + "_dev[" + std::to_string(did) +
                      "]_frame[" + std::to_string(curFrame) + "].bgeo";
+    match(particleBins[rollid][did])([&](const auto &pb) {
     IO::insert_job(
-        [fn, m = models[did], a = attribs[did]]() { write_partio_particles<PREC, 3>(fn, m, a); });
-    
+        [fn, m = models[did], a = attribs[did], l = pb.output_labels]() { write_partio_particles<PREC, 3>(fn, m, a, l); });
+    });
+
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particles", did,
                            curFrame, curStep));
   }

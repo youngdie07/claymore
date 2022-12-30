@@ -142,10 +142,13 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   }
 
   vec<int, 3> output_attribs;
+  std::vector<std::string> output_labels;   
   void updateOutputs(std::vector<std::string> names) {
     int i = 0;
+
     for (auto n : names)
     {
+      output_labels.emplace_back(n);
       int idx;
       if      (n == std::string{"ID"}) idx = 0; 
       else if (n == std::string{"Mass"}) idx = 1;

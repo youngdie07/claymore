@@ -237,6 +237,44 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
   } 
 }
 
+
+
+void make_sphere(std::vector<std::array<PREC, 3>>& fields, 
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
+                        PREC ppc, PREC radius) {
+  // Make a sphere of particles, write to fields
+  // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
+  // Assumes span and offset are pre-adjusted to 1x1x1 box with 8*g_dx offset
+  PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
+  int i_lim, j_lim, k_lim; // Number of par. per span direction
+  i_lim = (int)((span[0]) / ppl_dx + 1.0); 
+  j_lim = (int)((span[1]) / ppl_dx + 1.0); 
+  k_lim = (int)((span[2]) / ppl_dx + 1.0); 
+
+  for (int i = 0; i < i_lim ; i++) {
+    for (int j = 0; j < j_lim ; j++) {
+      for (int k = 0; k < k_lim ; k++) {
+          std::array<PREC, 3> arr;
+          arr[0] = (i + 0.5) * ppl_dx + offset[0];
+          arr[1] = (j + 0.5) * ppl_dx + offset[1];
+          arr[2] = (k + 0.5) * ppl_dx + offset[2];
+          PREC x, y, z;
+          x = ((arr[0] - offset[0]) * l);
+          y = ((arr[1] - offset[1]) * l);
+          z = ((arr[2] - offset[2]) * l);
+          if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
+            PREC xo = radius; 
+            PREC yo = radius;
+            PREC zo = radius;
+            PREC r;
+            r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo) + (z-zo)*(z-zo));
+            if (r <= radius) fields.push_back(arr);
+        }
+      }
+    }
+  } 
+}
+
 void load_FEM_Vertices(const std::string& filename, char sep, 
                        VerticeHolder& fields, 
                        mn::vec<PREC, 3> offset){
@@ -657,6 +695,17 @@ void parse_scene(std::string fn,
             if (p.extension() == ".cylinder") {
               make_cylinder(models[model["gpu"].GetInt()], 
                         span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble(), model["axis"].GetString());
+              auto positions = models[model["gpu"].GetInt()];
+              mn::IO::insert_job([&]() {
+                mn::write_partio<PREC, 3>(std::string{p.stem()} + ".bgeo",
+                                          positions);
+              });              
+              mn::IO::flush();
+              initModel(positions, velocity);
+            }
+            if (p.extension() == ".sphere") {
+              make_sphere(models[model["gpu"].GetInt()], 
+                        span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble());
               auto positions = models[model["gpu"].GetInt()];
               mn::IO::insert_job([&]() {
                 mn::write_partio<PREC, 3>(std::string{p.stem()} + ".bgeo",

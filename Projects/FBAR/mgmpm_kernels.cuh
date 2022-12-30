@@ -1156,6 +1156,104 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
                                 return;
 }
 
+
+template <typename Partition>
+__global__ void query_energy_particles(Partition partition, Partition prev_partition,
+                              ParticleBuffer<material_e::JFluid> pbuffer,
+                              PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = partition._binsts[blockIdx.x];
+  PREC_G thread_kinetic_energy = (PREC_G)0;
+  PREC_G thread_gravity_energy = (PREC_G)0;
+  PREC_G thread_strain_energy = (PREC_G)0;
+  PREC o = g_offset;
+  PREC l = pbuffer.length;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
+  {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+    
+    PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
+    PREC J = 1.0 - source_bin.val(_3, _source_pidib);
+
+    PREC one_minus_bwp = 1.0 - pbuffer.gamma;
+
+    PREC particle_kinetic_energy = 0.0;// 0.5 * pbuffer.mass * (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]);
+    PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
+    PREC particle_strain_energy = pbuffer.volume * pbuffer.bulk * 
+                      ((1.0/(pbuffer.gamma*(pbuffer.gamma - 1.0))) * pow(J, one_minus_bwp) + (1.0/pbuffer.gamma)*J - (1.0/(pbuffer.gamma - 1.0)));
+
+    thread_strain_energy  += (PREC_G)particle_strain_energy;
+    thread_gravity_energy += (PREC_G)particle_gravity_energy;
+    thread_kinetic_energy += (PREC_G)particle_kinetic_energy;
+  }
+
+  __syncthreads();
+  atomicAdd(kinetic_energy, thread_kinetic_energy);
+  atomicAdd(gravity_energy, thread_gravity_energy);
+  atomicAdd(strain_energy, thread_strain_energy);
+}
+
+template <typename Partition>
+__global__ void query_energy_particles(Partition partition, Partition prev_partition,
+                              ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
+                              PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = partition._binsts[blockIdx.x];
+  PREC_G thread_kinetic_energy = (PREC_G)0;
+  PREC_G thread_gravity_energy = (PREC_G)0;
+  PREC_G thread_strain_energy = (PREC_G)0;
+  PREC_G vel[3];
+  PREC o = g_offset;
+  PREC l = pbuffer.length;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
+  {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+    
+    PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
+    PREC J = 1.0 - source_bin.val(_3, _source_pidib);
+    vel[0] = source_bin.val(_4, _source_pidib) * l;
+    vel[1] = source_bin.val(_5, _source_pidib) * l;
+    vel[2] = source_bin.val(_6, _source_pidib) * l;
+    PREC one_minus_bwp = 1.0 - pbuffer.gamma;
+
+    PREC particle_kinetic_energy = 0.5 * pbuffer.mass * (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]);
+    PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
+    PREC particle_strain_energy = pbuffer.volume * pbuffer.bulk * 
+                      ((1.0/(pbuffer.gamma*(pbuffer.gamma - 1.0))) * pow(J, one_minus_bwp) + (1.0/pbuffer.gamma)*J - (1.0/(pbuffer.gamma - 1.0)));
+
+    thread_strain_energy  += (PREC_G)particle_strain_energy;
+    thread_gravity_energy += (PREC_G)particle_gravity_energy;
+    thread_kinetic_energy += (PREC_G)particle_kinetic_energy;
+  }
+
+  __syncthreads();
+  atomicAdd(kinetic_energy, thread_kinetic_energy);
+  atomicAdd(gravity_energy, thread_gravity_energy);
+  atomicAdd(strain_energy, thread_strain_energy);
+}
+
 template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::JBarFluid> pbuffer,
@@ -1215,6 +1313,121 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
 
 template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
+                              ParticleBuffer<material_e::FixedCorotated> pbuffer,
+                              PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = partition._binsts[blockIdx.x];
+  PREC_G thread_kinetic_energy = (PREC_G)0;
+  PREC_G thread_gravity_energy = (PREC_G)0;
+  PREC_G thread_strain_energy = (PREC_G)0;
+  PREC o = g_offset;
+  PREC l = pbuffer.length;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
+  {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+    pvec9 F;
+    F.set(0.0);
+    PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
+    F[0] = source_bin.val(_3, _source_pidib) ;
+    F[1] = source_bin.val(_4, _source_pidib) ;
+    F[2] = source_bin.val(_5, _source_pidib) ;
+    F[3] = source_bin.val(_6, _source_pidib) ;
+    F[4] = source_bin.val(_7, _source_pidib) ;
+    F[5] = source_bin.val(_8, _source_pidib) ;
+    F[6] = source_bin.val(_9, _source_pidib) ;
+    F[7] = source_bin.val(_10, _source_pidib) ;
+    F[8] = source_bin.val(_11, _source_pidib) ;
+
+
+
+    PREC particle_kinetic_energy = 0.0;// 0.5 * pbuffer.mass * (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]);
+    PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
+    PREC particle_strain_energy = 0.0;
+    compute_energy_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, particle_strain_energy);
+
+    thread_strain_energy  += (PREC_G)particle_strain_energy;
+    thread_gravity_energy += (PREC_G)particle_gravity_energy;
+    thread_kinetic_energy += (PREC_G)particle_kinetic_energy;
+  }
+
+  __syncthreads();
+  atomicAdd(kinetic_energy, thread_kinetic_energy);
+  atomicAdd(gravity_energy, thread_gravity_energy);
+  atomicAdd(strain_energy, thread_strain_energy);
+}
+
+template <typename Partition>
+__global__ void query_energy_particles(Partition partition, Partition prev_partition,
+                              ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
+                              PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
+  int pcnt = partition._ppbs[blockIdx.x];
+  ivec3 blockid = partition._activeKeys[blockIdx.x];
+  auto advection_bucket =
+      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  // auto particle_offset = partition._binsts[blockIdx.x];
+  PREC_G thread_kinetic_energy = (PREC_G)0;
+  PREC_G thread_gravity_energy = (PREC_G)0;
+  PREC_G thread_strain_energy = (PREC_G)0;
+  PREC_G vel[3];
+  PREC o = g_offset;
+  PREC l = pbuffer.length;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
+  {
+    auto advect = advection_bucket[pidib];
+    ivec3 source_blockid;
+    dir_components(advect / g_particle_num_per_block, source_blockid);
+    source_blockid += blockid;
+    auto source_blockno = prev_partition.query(source_blockid);
+    auto source_pidib = advect % g_particle_num_per_block;
+    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
+                                         source_pidib / g_bin_capacity);
+    auto _source_pidib = source_pidib % g_bin_capacity;
+    pvec9 F;
+    F.set(0.0);
+    PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
+    F[0] = source_bin.val(_3, _source_pidib) ;
+    F[1] = source_bin.val(_4, _source_pidib) ;
+    F[2] = source_bin.val(_5, _source_pidib) ;
+    F[3] = source_bin.val(_6, _source_pidib) ;
+    F[4] = source_bin.val(_7, _source_pidib) ;
+    F[5] = source_bin.val(_8, _source_pidib) ;
+    F[6] = source_bin.val(_9, _source_pidib) ;
+    F[7] = source_bin.val(_10, _source_pidib) ;
+    F[8] = source_bin.val(_11, _source_pidib) ;
+    vel[0] = source_bin.val(_12, _source_pidib) * l;
+    vel[1] = source_bin.val(_13, _source_pidib) * l;
+    vel[2] = source_bin.val(_14, _source_pidib) * l;
+
+
+    PREC particle_kinetic_energy = 0.5 * pbuffer.mass * (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]);
+    PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
+    PREC particle_strain_energy = 0.0;
+    compute_energy_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, particle_strain_energy);
+
+    thread_strain_energy  += (PREC_G)particle_strain_energy;
+    thread_gravity_energy += (PREC_G)particle_gravity_energy;
+    thread_kinetic_energy += (PREC_G)particle_kinetic_energy;
+  }
+
+  __syncthreads();
+  atomicAdd(kinetic_energy, thread_kinetic_energy);
+  atomicAdd(gravity_energy, thread_gravity_energy);
+  atomicAdd(strain_energy, thread_strain_energy);
+}
+
+template <typename Partition>
+__global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
   int pcnt = partition._ppbs[blockIdx.x];
@@ -1261,17 +1474,13 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
     PREC particle_strain_energy = 0.0;
     compute_energy_fixedcorotated(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, particle_strain_energy);
-    //mn::vec<PREC,1> particle_strain_energy;
-    //particle_strain_energy.set(0.0);
-    //compute_energy_jfluid(pbuffer.volume, pbuffer.bulk, pbuffer.gamma, JBar, particle_strain_energy);
+
     thread_strain_energy  += (PREC_G)particle_strain_energy;
     thread_gravity_energy += (PREC_G)particle_gravity_energy;
     thread_kinetic_energy += (PREC_G)particle_kinetic_energy;
-
   }
 
   __syncthreads();
-  //atomicAdd(kinetic_energy, thread_kinetic_energy);
   atomicAdd(kinetic_energy, thread_kinetic_energy);
   atomicAdd(gravity_energy, thread_gravity_energy);
   atomicAdd(strain_energy, thread_strain_energy);
