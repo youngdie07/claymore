@@ -499,7 +499,9 @@ void parse_scene(std::string fn,
                        model["file"].GetString());
             fs::path p{model["file"].GetString()};
             std::vector<std::string> output_attribs;
-
+            int track_particle_id;
+            std::vector<std::string> track_attribs;
+            std::vector<std::string> target_attribs;
             auto initModel = [&](auto &positions, auto &velocity) {
 
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
@@ -533,7 +535,9 @@ void parse_scene(std::string fn,
                       model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
                       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      output_attribs);
+                      output_attribs,
+                      track_particle_id, track_attribs, 
+                      target_attribs);
                   fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
                 else 
@@ -575,7 +579,9 @@ void parse_scene(std::string fn,
                       model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
                       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      output_attribs);
+                      output_attribs, 
+                      track_particle_id, track_attribs, 
+                      target_attribs);
                   fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
                 else 
@@ -586,23 +592,6 @@ void parse_scene(std::string fn,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   getchar();
                 }
-
-              // } else if (constitutive == "FixedCorotated_ASFLIP") {
-              //   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-              //   benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
-              //       model["rho"].GetDouble(), model["ppc"].GetDouble(),
-              //       model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-              //       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-              //       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-              //       output_attribs);
-              // } else if (constitutive == "FixedCorotated_ASFLIP_FBAR") {
-              //   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
-              //   benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
-              //       model["rho"].GetDouble(), model["ppc"].GetDouble(),
-              //       model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-              //       model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-              //       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-              //       output_attribs);
               } else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
                 benchmark->initModel<mn::material_e::Sand>(model["gpu"].GetInt(), positions, velocity); 
                 benchmark->updateSandParameters( model["gpu"].GetInt(),
@@ -623,8 +612,6 @@ void parse_scene(std::string fn,
                     output_attribs);
                 fmt::print("GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
               } 
-              
-              //benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
 
             };
             mn::vec<PREC, 3> offset, span, velocity;
@@ -640,7 +627,12 @@ void parse_scene(std::string fn,
             }
             for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
-
+            track_particle_id = model["track_particle_id"].GetInt();
+            for (int d = 0; d < 1; ++d) track_attribs.emplace_back(model["track_attribs"].GetArray()[d].GetString());
+            std::cout <<"Track particle ID: " << track_particle_id << " for Attributes: [ " << track_attribs[0] <<" ]"<<'\n';
+            for (int d = 0; d < 1; ++d) target_attribs.emplace_back(model["target_attribs"].GetArray()[d].GetString());
+            std::cout <<"Target Attributes: [ " << target_attribs[0] <<" ]"<<'\n';
+            
 
             // Signed-Distance-Field MPM particle input (make with SDFGen or SideFX Houdini)
             if (p.extension() == ".sdf") {
@@ -719,10 +711,10 @@ void parse_scene(std::string fn,
       }
     } ///< end models parsing
     {
-      auto it = doc.FindMember("targets");
+      auto it = doc.FindMember("grid-targets");
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
-          fmt::print("has {} targets\n", it->value.Size());
+          fmt::print("has {} grid-targets\n", it->value.Size());
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
@@ -748,13 +740,46 @@ void parse_scene(std::string fn,
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               benchmark->initGridTarget(did, h_gridTarget, target, 
                 model["output_frequency"].GetFloat());
-            fmt::print("GPU[{}] Target[{}] Initialized.\n", did, target_ID);
+            fmt::print("GPU[{}] gridTarget[{}] Initialized.\n", did, target_ID);
             }
             target_ID += 1;
           }
         }
       }
     } ///< end grid-target parsing
+    {
+      auto it = doc.FindMember("particle-targets");
+      if (it != doc.MemberEnd()) {
+        if (it->value.IsArray()) {
+          fmt::print("has {} particle-targets\n", it->value.Size());
+          int target_ID = 0;
+          for (auto &model : it->value.GetArray()) {
+          
+            std::vector<std::array<PREC, mn::config::g_particle_target_attribs>> h_particleTarget(mn::config::g_particle_target_cells, 
+                                                            std::array<PREC, mn::config::g_particle_target_attribs>{0.f,0.f,0.f,
+                                                            0.f,0.f,0.f,
+                                                            0.f,0.f,0.f,0.f});
+            // Load and scale target domain
+            mn::vec<PREC, 7> target;
+            target[0] = model["type"].GetFloat();
+            for (int d = 0; d < 3; ++d) 
+            {
+              target[d+1] = model["point_a"].GetArray()[d].GetFloat() / l + o;
+              target[d+4] = model["point_b"].GetArray()[d].GetFloat() / l + o;
+            }
+
+            // ----------------
+            /// Loop through GPU devices
+            for (int did = 0; did < mn::config::g_device_cnt; ++did) {
+              benchmark->initParticleTarget(did, h_particleTarget, target, 
+                model["output_frequency"].GetFloat());
+            fmt::print("GPU[{}] particleTarget[{}] Initialized.\n", did, target_ID);
+            }
+            target_ID += 1;
+          }
+        }
+      }
+    } ///< end particle-target parsing
     {
       auto it = doc.FindMember("grid-boundaries");
       if (it != doc.MemberEnd()) {

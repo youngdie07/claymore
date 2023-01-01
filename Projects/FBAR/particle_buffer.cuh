@@ -80,15 +80,25 @@ using particle_bin17_f_ =
                f_, f_, f_, f_, f_, f_, f_, f_, f_, 
                f_, f_, f_,
                f_, f_>; ///< pos, F, vel, vol_Bar, J_Bar
+using particle_bin18_f_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               ParticleBinDomain, attrib_layout::soa, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_,
+               f_, f_,
+               f_>; ///< pos, F, vel, vol_Bar, J_Bar, ID
+
 template <material_e mt> struct particle_bin_;
 template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {};
 template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {};
 template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
-template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin12_f_ {};
-template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin15_f_ {};
-template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin17_f_ {};
-template <> struct particle_bin_<material_e::Sand> : particle_bin16_f_ {};
-template <> struct particle_bin_<material_e::NACC> : particle_bin16_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin13_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin16_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin18_f_ {};
+template <> struct particle_bin_<material_e::Sand> : particle_bin17_f_ {};
+template <> struct particle_bin_<material_e::NACC> : particle_bin17_f_ {};
 template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
 
 
@@ -119,7 +129,7 @@ using particle_target_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
-               ParticleTargetDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+               ParticleTargetDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
 // using particle_array_ =
 //     structural<structural_type::dynamic,
 //                decorator<structural_allocation_policy::full_allocation,
@@ -139,6 +149,97 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > this->_capacity)
       this->resize(allocator, capacity);
+  }
+
+
+  int track_ID = 0;
+  vec<int, 1> track_attribs;
+  std::vector<std::string> track_labels;   
+  void updateTrack(int trackID, std::vector<std::string> names) {
+    track_ID = trackID;
+
+    int i = 0;
+    for (auto n : names)
+    {
+        track_labels.emplace_back(n);
+        int idx;
+        if      (n == std::string{"ID"}) idx = 0; 
+        else if (n == std::string{"Mass"}) idx = 1;
+        else if (n == std::string{"Volume"}) idx = 2;
+        else if (n == std::string{"Position_X"}) idx = 3; 
+        else if (n == std::string{"Position_Y"}) idx = 4;
+        else if (n == std::string{"Position_Z"}) idx = 5;
+        else if (n == std::string{"Velocity_X"}) idx = 6;
+        else if (n == std::string{"Velocity_Y"}) idx = 7;
+        else if (n == std::string{"Velocity_Z"}) idx = 8;
+        else if (n == std::string{"DefGrad_XX"}) idx = 9;
+        else if (n == std::string{"DefGrad_XY"}) idx = 10;
+        else if (n == std::string{"DefGrad_XZ"}) idx = 11;
+        else if (n == std::string{"DefGrad_YX"}) idx = 12;
+        else if (n == std::string{"DefGrad_YY"}) idx = 13;
+        else if (n == std::string{"DefGrad_YZ"}) idx = 14;
+        else if (n == std::string{"DefGrad_ZX"}) idx = 15;
+        else if (n == std::string{"DefGrad_ZY"}) idx = 16;
+        else if (n == std::string{"DefGrad_ZZ"}) idx = 17;
+        else if (n == std::string{"J"})          idx = 18;
+        else if (n == std::string{"JBar"})       idx = 19;
+        else if (n == std::string{"StressCauchy_XX"}) idx = 20;
+        else if (n == std::string{"StressCauchy_XY"}) idx = 21;
+        else if (n == std::string{"StressCauchy_XZ"}) idx = 22;
+        else if (n == std::string{"StressCauchy_YX"}) idx = 23;
+        else if (n == std::string{"StressCauchy_YY"}) idx = 24;
+        else if (n == std::string{"StressCauchy_YZ"}) idx = 25;
+        else if (n == std::string{"StressCauchy_ZX"}) idx = 26;
+        else if (n == std::string{"StressCauchy_ZY"}) idx = 27;
+        else if (n == std::string{"StressCauchy_ZZ"}) idx = 28;
+        else if (n == std::string{"Pressure"})        idx = 29;
+        else if (n == std::string{"VonMisesStress"})  idx = 30;
+        else if (n == std::string{"DefGrad_Invariant1"}) idx = 31;
+        else if (n == std::string{"DefGrad_Invariant2"}) idx = 32;
+        else if (n == std::string{"DefGrad_Invariant3"}) idx = 33;
+        else if (n == std::string{"DefGrad_1"}) idx = 33;
+        else if (n == std::string{"DefGrad_2"}) idx = 34;
+        else if (n == std::string{"DefGrad_3"}) idx = 35;
+        else if (n == std::string{"StressCauchy_Invariant1"}) idx = 36;
+        else if (n == std::string{"StressCauchy_Invariant2"}) idx = 37;
+        else if (n == std::string{"StressCauchy_Invariant3"}) idx = 38;
+        else if (n == std::string{"StressCauchy_1"}) idx = 39;
+        else if (n == std::string{"StressCauchy_2"}) idx = 40;
+        else if (n == std::string{"StressCauchy_3"}) idx = 41;
+        else if (n == std::string{"StressPK1_XX"}) idx = 42;
+        else if (n == std::string{"StressPK1_XY"}) idx = 43;
+        else if (n == std::string{"StressPK1_XZ"}) idx = 44;
+        else if (n == std::string{"StressPK1_YX"}) idx = 45;
+        else if (n == std::string{"StressPK1_YY"}) idx = 46;
+        else if (n == std::string{"StressPK1_YZ"}) idx = 47;
+        else if (n == std::string{"StressPK1_ZX"}) idx = 48;
+        else if (n == std::string{"StressPK1_ZY"}) idx = 49;
+        else if (n == std::string{"StressPK1_ZZ"}) idx = 50;
+        else if (n == std::string{"StressPK1_Invariant1"}) idx = 51;
+        else if (n == std::string{"StressPK1_Invariant2"}) idx = 52;
+        else if (n == std::string{"StressPK1_Invariant3"}) idx = 53;
+        else if (n == std::string{"StressPK1_1"}) idx = 54;
+        else if (n == std::string{"StressPK1_2"}) idx = 55;
+        else if (n == std::string{"StressPK1_3"}) idx = 56;
+        else if (n == std::string{"StrainSmall_XX"}) idx = 57;
+        else if (n == std::string{"StrainSmall_XY"}) idx = 58;
+        else if (n == std::string{"StrainSmall_XZ"}) idx = 59;
+        else if (n == std::string{"StrainSmall_YX"}) idx = 60;
+        else if (n == std::string{"StrainSmall_YY"}) idx = 61;
+        else if (n == std::string{"StrainSmall_YZ"}) idx = 62;
+        else if (n == std::string{"StrainSmall_ZX"}) idx = 63;
+        else if (n == std::string{"StrainSmall_ZY"}) idx = 64;
+        else if (n == std::string{"StrainSmall_ZZ"}) idx = 65;
+        else if (n == std::string{"StrainSmall_Invariant1"}) idx = 66;
+        else if (n == std::string{"StrainSmall_Invariant2"}) idx = 67;
+        else if (n == std::string{"StrainSmall_Invariant3"}) idx = 68;
+        else if (n == std::string{"StrainSmall_1"}) idx = 69;
+        else if (n == std::string{"StrainSmall_2"}) idx = 70;
+        else if (n == std::string{"StrainSmall_3"}) idx = 71;
+        else idx = -1;
+        track_attribs[i] = idx;
+        i = i+1;
+      }
   }
 
   vec<int, 3> output_attribs;
@@ -228,6 +329,97 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
       i = i+1;
     }
   }
+
+
+
+  vec<int, 1> target_attribs;
+  std::vector<std::string> target_labels;   
+  void updateTargets(std::vector<std::string> names) {
+    int i = 0;
+
+    for (auto n : names)
+    {
+      target_labels.emplace_back(n);
+      int idx;
+      if      (n == std::string{"ID"}) idx = 0; 
+      else if (n == std::string{"Mass"}) idx = 1;
+      else if (n == std::string{"Volume"}) idx = 2;
+      else if (n == std::string{"Position_X"}) idx = 3; 
+      else if (n == std::string{"Position_Y"}) idx = 4;
+      else if (n == std::string{"Position_Z"}) idx = 5;
+      else if (n == std::string{"Velocity_X"}) idx = 6;
+      else if (n == std::string{"Velocity_Y"}) idx = 7;
+      else if (n == std::string{"Velocity_Z"}) idx = 8;
+      else if (n == std::string{"DefGrad_XX"}) idx = 9;
+      else if (n == std::string{"DefGrad_XY"}) idx = 10;
+      else if (n == std::string{"DefGrad_XZ"}) idx = 11;
+      else if (n == std::string{"DefGrad_YX"}) idx = 12;
+      else if (n == std::string{"DefGrad_YY"}) idx = 13;
+      else if (n == std::string{"DefGrad_YZ"}) idx = 14;
+      else if (n == std::string{"DefGrad_ZX"}) idx = 15;
+      else if (n == std::string{"DefGrad_ZY"}) idx = 16;
+      else if (n == std::string{"DefGrad_ZZ"}) idx = 17;
+      else if (n == std::string{"J"})          idx = 18;
+      else if (n == std::string{"JBar"})       idx = 19;
+      else if (n == std::string{"StressCauchy_XX"}) idx = 20;
+      else if (n == std::string{"StressCauchy_XY"}) idx = 21;
+      else if (n == std::string{"StressCauchy_XZ"}) idx = 22;
+      else if (n == std::string{"StressCauchy_YX"}) idx = 23;
+      else if (n == std::string{"StressCauchy_YY"}) idx = 24;
+      else if (n == std::string{"StressCauchy_YZ"}) idx = 25;
+      else if (n == std::string{"StressCauchy_ZX"}) idx = 26;
+      else if (n == std::string{"StressCauchy_ZY"}) idx = 27;
+      else if (n == std::string{"StressCauchy_ZZ"}) idx = 28;
+      else if (n == std::string{"Pressure"})        idx = 29;
+      else if (n == std::string{"VonMisesStress"})  idx = 30;
+      else if (n == std::string{"DefGrad_Invariant1"}) idx = 31;
+      else if (n == std::string{"DefGrad_Invariant2"}) idx = 32;
+      else if (n == std::string{"DefGrad_Invariant3"}) idx = 33;
+      else if (n == std::string{"DefGrad_1"}) idx = 33;
+      else if (n == std::string{"DefGrad_2"}) idx = 34;
+      else if (n == std::string{"DefGrad_3"}) idx = 35;
+      else if (n == std::string{"StressCauchy_Invariant1"}) idx = 36;
+      else if (n == std::string{"StressCauchy_Invariant2"}) idx = 37;
+      else if (n == std::string{"StressCauchy_Invariant3"}) idx = 38;
+      else if (n == std::string{"StressCauchy_1"}) idx = 39;
+      else if (n == std::string{"StressCauchy_2"}) idx = 40;
+      else if (n == std::string{"StressCauchy_3"}) idx = 41;
+      else if (n == std::string{"StressPK1_XX"}) idx = 42;
+      else if (n == std::string{"StressPK1_XY"}) idx = 43;
+      else if (n == std::string{"StressPK1_XZ"}) idx = 44;
+      else if (n == std::string{"StressPK1_YX"}) idx = 45;
+      else if (n == std::string{"StressPK1_YY"}) idx = 46;
+      else if (n == std::string{"StressPK1_YZ"}) idx = 47;
+      else if (n == std::string{"StressPK1_ZX"}) idx = 48;
+      else if (n == std::string{"StressPK1_ZY"}) idx = 49;
+      else if (n == std::string{"StressPK1_ZZ"}) idx = 50;
+      else if (n == std::string{"StressPK1_Invariant1"}) idx = 51;
+      else if (n == std::string{"StressPK1_Invariant2"}) idx = 52;
+      else if (n == std::string{"StressPK1_Invariant3"}) idx = 53;
+      else if (n == std::string{"StressPK1_1"}) idx = 54;
+      else if (n == std::string{"StressPK1_2"}) idx = 55;
+      else if (n == std::string{"StressPK1_3"}) idx = 56;
+      else if (n == std::string{"StrainSmall_XX"}) idx = 57;
+      else if (n == std::string{"StrainSmall_XY"}) idx = 58;
+      else if (n == std::string{"StrainSmall_XZ"}) idx = 59;
+      else if (n == std::string{"StrainSmall_YX"}) idx = 60;
+      else if (n == std::string{"StrainSmall_YY"}) idx = 61;
+      else if (n == std::string{"StrainSmall_YZ"}) idx = 62;
+      else if (n == std::string{"StrainSmall_ZX"}) idx = 63;
+      else if (n == std::string{"StrainSmall_ZY"}) idx = 64;
+      else if (n == std::string{"StrainSmall_ZZ"}) idx = 65;
+      else if (n == std::string{"StrainSmall_Invariant1"}) idx = 66;
+      else if (n == std::string{"StrainSmall_Invariant2"}) idx = 67;
+      else if (n == std::string{"StrainSmall_Invariant3"}) idx = 68;
+      else if (n == std::string{"StrainSmall_1"}) idx = 69;
+      else if (n == std::string{"StrainSmall_2"}) idx = 70;
+      else if (n == std::string{"StrainSmall_3"}) idx = 71;
+      else idx = -1;
+      target_attribs[i] = idx;
+      i = i+1;
+    }
+  }
+
 
 };
 
