@@ -76,7 +76,7 @@
 			"gpu": 1,
 			"type": "particles",
 			"file": "use.box",
-			"constitutive": "JFluid",
+			"constitutive": "FixedCorotated",
 			"output_attribs": ["Pressure", "VonMisesStress", "ID"],
 			"ppc": 8.0,
 			"rho": 1000,
@@ -97,7 +97,7 @@
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
-			"offset": [0.296, -0.006, 0.0],
+			"offset": [0.292, -0.006, 0.0],
 			"span": [0.12, 0.086, 0.012],
 			"velocity": [0, 0, 0],
 			"partition": 0,
@@ -107,7 +107,7 @@
 			"inter_b": [0,0,0],
 			"radius": 0.025,
 			"axis": "X",
-			"track_particle_id": 0,
+			"track_particle_id": 488,
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"]
 		}
@@ -116,7 +116,7 @@
 		{
 			"wall_type": "Separable",
 			"wall_start": [0.0, 0.0, 0],
-			"wall_end": [0.586, 0.586, 0.012],
+			"wall_end": [0.584, 0.365, 0.012],
 			"box_type": "Separable",
 			"box_start": [0, 0, 0],
 			"box_end": [0,0,0]
@@ -134,8 +134,8 @@
 		{
 			"type": 0,
 			"output_frequency": 1440,
-			"point_a": [0.146, 0.0, 0.0],
-			"point_b": [0.152, 0.292, 0.012]
+			"point_a": [0.145, 0.0, 0.0],
+			"point_b": [0.147, 0.292, 0.012]
 		}
 	]
 }
