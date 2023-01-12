@@ -696,8 +696,74 @@ void parse_scene(std::string fn,
               initModel(positions, velocity);
             }
             if (p.extension() == ".sphere") {
+
               make_sphere(models[model["gpu"].GetInt()], 
                         span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble());
+              auto positions = models[model["gpu"].GetInt()];
+              mn::IO::insert_job([&]() {
+                mn::write_partio<PREC, 3>(std::string{p.stem()} + ".bgeo",
+                                          positions);
+              });              
+              mn::IO::flush();
+              initModel(positions, velocity);
+            }
+            if (p.extension() == ".geometry") {
+              
+              auto geo = model.FindMember("add");
+              if (geo != model.MemberEnd()) {
+                if (geo->value.IsArray()) {
+                  fmt::print("Model has {} particle geometries to add. \n", geo->value.Size());
+                  for (auto &geometry : geo->value.GetArray()) {
+              
+                    std::string type{geometry["geometry"].GetString()};
+                    fmt::print("Add geometry[{}]. \n", type);
+
+                    mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
+                    mn::vec<int, 3> geometry_array;
+                    for (int d = 0; d < 3; ++d) {
+                      geometry_offset[d]   = geometry["offset"].GetArray()[d].GetDouble() / l + o;
+                      geometry_span[d]     = geometry["span"].GetArray()[d].GetDouble() / l;
+                      geometry_spacing[d]  = geometry["spacing"].GetArray()[d].GetDouble() / l;
+                      geometry_array[d]    = geometry["array"].GetArray()[d].GetInt();
+                    }
+
+                    mn::vec<PREC, 3> geometry_offset_updated;
+                    geometry_offset_updated[0] = geometry_offset[0];
+                    for (int i = 0; i < geometry_array[0]; i++)
+                    {
+                      geometry_offset_updated[1] = geometry_offset[1];
+                      for (int j = 0; j < geometry_array[1]; j++)
+                      {
+                        geometry_offset_updated[2] = geometry_offset[2];
+                        for (int k = 0; k < geometry_array[2]; k++)
+                        {
+                          if (type == "box")
+                          {
+                            make_box(models[model["gpu"].GetInt()], 
+                                    geometry_span, geometry_offset_updated, model["ppc"].GetFloat());
+                          }
+                          else if (type =="cylinder")
+                          {
+                            make_cylinder(models[model["gpu"].GetInt()], 
+                                    geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString());
+                          }
+                          else if (type =="sphere")
+                          {
+                            make_sphere(models[model["gpu"].GetInt()], 
+                                    geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble());
+                          }
+                          geometry_offset_updated[2] += geometry_spacing[2];
+                        }
+                        geometry_offset_updated[1] += geometry_spacing[1];
+                      }
+                      geometry_offset_updated[0] += geometry_spacing[0];
+                    }
+
+
+                  }
+                }
+              }
+              
               auto positions = models[model["gpu"].GetInt()];
               mn::IO::insert_job([&]() {
                 mn::write_partio<PREC, 3>(std::string{p.stem()} + ".bgeo",
