@@ -3,15 +3,16 @@
 #include <MnBase/Math/Matrix/svd.cuh>
 #include <MnBase/Math/Matrix/MatrixUtils.h>
 #include <MnBase/Math/Vec.h>
+#include "settings.h"
 
 namespace mn {
 
-template <typename T = float>
+template <typename T = PREC>
 __forceinline__ __device__ void
 compute_stress_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
                               vec<T, 9> &PF) {
   T U[9], S[3], V[9];
-  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+  math::svd<T>(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
             U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
             V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
   T J = S[0] * S[1] * S[2];

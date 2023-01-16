@@ -171,8 +171,9 @@ struct ElementBuffer<fem_e::Tetrahedron_FBar> : ElementBufferImpl<fem_e::Tetrahe
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  PREC FBAR_ratio = 0.0;
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) 
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr, PREC fbar_ratio) 
   {
     length = l;
     rho = density;
@@ -183,6 +184,7 @@ struct ElementBuffer<fem_e::Tetrahedron_FBar> : ElementBufferImpl<fem_e::Tetrahe
     mass = volume * density;
     lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
     mu = E / (2 * (1 + nu));
+    FBAR_ratio = fbar_ratio;
   }
 
   template <typename Allocator>

@@ -2,11 +2,11 @@
 	"simulation": {
 		"gpuid": 0,
 		"gravity": -9.81,
-		"fps": 144,
-		"frames": 144,
-		"default_dt": 6e-5,
+		"fps": 120,
+		"frames": 120,
+		"default_dt": 6.5e-6,
 		"default_dx": 0.003,
-		"domain": [1.0, 0.25, 0.25]
+		"domain": [0.8, 0.8, 0.25]
 	},
 	"meshes": [
 		{
@@ -24,6 +24,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
+			"FBAR_ratio": 0,
 			"use_ASFLIP": true,
 			"use_FEM": true,
 			"use_FBAR": false,
@@ -37,59 +38,46 @@
 			"gpu": 0,
 			"type": "particles",
 			"file": "use.geometry",
-			"constitutive": "FixedCorotated",
+			"constitutive": "JFluid",
 			"output_attribs": ["Pressure", "Velocity_Y", "ID"],
 			"ppc": 8.0,
 			"rho": 1000,
 			"bulk_modulus": 2.2e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"youngs_modulus": 5e5,
+			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.0,
-			"logJp0": 0.0,
-			"friction_angle": 60.0,
-			"cohesion": 0.0,
-			"beta": 0.5,
+			"logJp0": 0,
+			"friction_angle": 30,
+			"cohesion": 0,
+			"beta": 0,
 			"Sand_volCorrection": true,
-			"xi": 0.8,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
+			"FBAR_ratio": 0,
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"offset": [0.0, 0.0, 0.0],
-			"span": [0.146, 0.292, 0.012],
+			"span": [0.146, 0.292, 0.001],
 			"velocity": [0, 0, 0],
 			"partition": 0,
-			"point_a": [0,0,0],
-			"point_b": [0,0,0],
+			"partition_start": [0,0,0],
+			"partition_end": [0,0,0],
 			"inter_a": [0,0,0],
 			"inter_b": [0,0,0],
-			"radius": 0.025,
-			"axis": "X",
 			"track_particle_id": 0,
 			"track_attribs": ["Velocity_X"],
 			"target_attribs": ["Position_Y"],
-			"add": [
+			"geometry": [
 				{
-					"geometry": "box",
-					"span": [0.146, 0.292, 0.012],
-					"offset": [0,0,0]
-				},
-				{
-					"geometry": "cylinder",
-					"span": [0.1, 0.1, 0.012],
-					"offset": [0.156, 0.0,0],
-					"radius": 0.05,
-					"axis": "Z"
-				},
-				{
-					"geometry": "cylinder",
-					"span": [0.1, 0.1, 0.012],
-					"offset": [0.156, 0.15, 0],
-					"radius": 0.05,
-					"axis": "Z"
+					"object": "box",
+					"operation": "add",
+					"span": [0.146, 0.292, 0.001],
+					"offset": [0,0,0],
+					"array": [1,1,1],
+					"spacing": [0,0,0]
 				}
 			]
 		},
@@ -101,20 +89,12 @@
 			"output_attribs": ["Pressure", "VonMisesStress", "ID"],
 			"ppc": 8.0,
 			"rho": 1000,
-			"bulk_modulus": 2.2e7,
-			"gamma": 7.1,
-			"viscosity": 0.001,
 			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.0,
-			"logJp0": 0.0,
-			"friction_angle": 60.0,
-			"cohesion": 0.0,
-			"beta": 0.5,
-			"Sand_volCorrection": true,
-			"xi": 0.8,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
+			"FBAR_ratio": 0,
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
@@ -122,41 +102,49 @@
 			"span": [0.012, 0.086, 0.012],
 			"velocity": [0, 0, 0],
 			"partition": 0,
-			"point_a": [0,0,0],
-			"point_b": [0,0,0],
+			"partition_start": [0,0,0],
+			"partition_end": [0,0,0],
 			"inter_a": [0,0,0],
 			"inter_b": [0,0,0],
-			"radius": 0.025,
-			"axis": "X",
 			"track_particle_id": 451,
 			"track_attribs": ["Position_X"],
-			"target_attribs": ["Position_Y"]
+			"target_attribs": ["Position_Y"],
+			"geometry": [
+				{
+					"object": "Box",
+					"operation": "Add",
+					"offset": [0.292, -0.006, 0.0],
+					"span": [0.012, 0.086, 0.012],
+					"array": [1,1,1],
+					"spacing": [0,0,0]
+				}
+			]
 		}
 	],
 	"grid-boundaries": [
 		{
-			"wall_type": "Slip",
-			"wall_start": [0.0, 0.0, 0],
-			"wall_end": [0.584, 0.365, 0.012],
-			"box_type": "Separable",
-			"box_start": [0, 0, 0],
-			"box_end": [0,0,0]
+			"type": "Wall",
+			"contact": "Separable",
+			"domain_start": [0.0, 0.0, 0],
+			"domain_end": [0.584, 0.365, 0.003],
+			"time": [0,60]
 		}
 	],
 	"grid-targets": [
 		{
-			"type": 1,
+			"type": "X-",
 			"output_frequency": 1440,
-			"point_a": [-0.01, -0.01, -0.01],
-			"point_b": [0.00, 0.6, 0.02]
+			"domain_start": [-0.01, -0.01, -0.01],
+			"domain_end": [0.00, 0.6, 0.02]
 		}
 	],
 	"particle-targets": [
 		{
-			"type": 0,
+			"type": "Max",
+			"attribute": "Elevation",
 			"output_frequency": 1440,
-			"point_a": [0.145, 0.0, 0.0],
-			"point_b": [0.147, 0.292, 0.012]
+			"domain_start": [0.145, 0.0, 0.0],
+			"domain_end": [0.147, 0.292, 0.012]
 		}
 	]
 }

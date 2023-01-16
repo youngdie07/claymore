@@ -10,6 +10,7 @@
 
 namespace mn {
 
+
 template <typename T, std::size_t dim>
 void write_partio(std::string filename,
                   const std::vector<std::array<T, dim>> &data,
@@ -36,10 +37,11 @@ void write_partio_general(std::string filename,
                   const std::vector<std::string> &tags,
                   const std::vector<int> &sets) {
   Partio::ParticlesDataMutable *parts = Partio::create();
-
-  Partio::ParticleAttribute pos =
-      parts->addAttribute("position", Partio::VECTOR, 3);
-
+  
+  Partio::FixedAttribute Cd = parts->addFixedAttribute("color", Partio::VECTOR, 3);
+  float* c = parts->fixedDataWrite<float>(Cd);
+  c[0] = 0; c[1] = 191; c[2] = 255;
+  Partio::ParticleAttribute pos = parts->addAttribute("position", Partio::VECTOR, 3);
   for(int i=0; i < (int)positions.size(); ++i) {
     // Create new particle with two write-input vectors/arrays
     int idx  = parts->addParticle();
@@ -47,7 +49,6 @@ void write_partio_general(std::string filename,
 
     // Add position data for particle
     for(int k=0; k<3; ++k) p[k] = positions[i][k];
-    
 
     // Add extra attributes for particle
     int shift = 0; // Shift position in attributes as we go through
@@ -74,6 +75,9 @@ void write_partio_particles(std::string filename,
   Partio::ParticlesDataMutable*       parts = Partio::create();
 
   // Add positions and attributes to the pointer by arrow operator
+  Partio::FixedAttribute Cd      = parts->addFixedAttribute("color", Partio::VECTOR, 3);
+  float* c = parts->fixedDataWrite<float>(Cd);
+  c[0] = 0; c[1] = 191; c[2] = 255;
   Partio::ParticleAttribute pos     = parts->addAttribute("position", Partio::VECTOR, 3);
   Partio::ParticleAttribute attrib[dim];
   for (int d = 0; d < dim; d++){
@@ -244,12 +248,7 @@ void write_partio_particleTarget(std::string filename,
       p[1]  = data[i][1];
       p[2]  = data[i][2];
       m[0]  = data[i][3];
-      // mv[0] = data[i][4];
-      // mv[1] = data[i][5];
-      // mv[2] = data[i][6];
-      // f[0]  = data[i][7];
-      // f[1]  = data[i][8];
-      // f[2]  = data[i][9];
+
     }
   /// Output as *.bgeo
   Partio::write(filename.c_str(), *parts);

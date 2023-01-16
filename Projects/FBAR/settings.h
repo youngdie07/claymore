@@ -42,13 +42,7 @@ using vec9 = vec<float, 9>;
 using vec3x3 = vec<float, 3, 3>;
 using vec3x4 = vec<float, 3, 4>;
 using vec3x3x3 = vec<float, 3, 3, 3>;
-using dvec3 = vec<double, 3>;
-using dvec6 = vec<double, 6>;
-using dvec7 = vec<double, 7>;
-using dvec9 = vec<double, 9>;
-using dvec3x3 = vec<double, 3, 3>;
-using dvec3x4 = vec<double, 3, 4>;
-using dvec3x3x3 = vec<double, 3, 3, 3>;
+
 
 /// Available material models
 enum class material_e { JFluid = 0, 
@@ -105,7 +99,7 @@ constexpr float cfl = CFL; //< Default CFL Condition Coefficient
 
 // Grid set-up
 #define BLOCK_BITS 2 //< Bits for grid block resolution. 2 -> 4x4x4 grid-nodes. 
-#define DOMAIN_BITS 9 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
+#define DOMAIN_BITS 10 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
@@ -124,13 +118,13 @@ constexpr int g_grid_size = (1 << (DOMAIN_BITS - BLOCK_BITS)); //< Max blocks in
 constexpr float g_offset = g_dx * 8; //< 
 
 // Domain size
-#define DOMAIN_LENGTH 12.8 //< Default max domain length [m]
-#define DOMAIN_VOLUME DOMAIN_LENGTH * DOMAIN_LENGTH * DOMAIN_LENGTH //< g_length^3, scales mass-volume at compilation
-constexpr double g_length   = 12.8; // 10.24f; //< Default domain full length (m)
+#define DOMAIN_LENGTH 1.0 //< Default max domain length 
+#define DOMAIN_VOLUME DOMAIN_LENGTH * DOMAIN_LENGTH * DOMAIN_LENGTH //< Domain Vol. 
+constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length; //< Default domain x length (m)
-constexpr double g_length_y = g_length; //< Default domain y length (m)
-constexpr double g_length_z = g_length; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 8.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
@@ -151,12 +145,12 @@ constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 15000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 25000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // Particles
-#define MAX_PPC 128 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 500000; //< Max no. particles. Preallocated, can resize.
+#define MAX_PPC 32 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
+constexpr int g_max_particle_num = 600000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 128;
@@ -191,6 +185,8 @@ constexpr std::size_t g_max_halo_block = 0;  //< Max active halo blocks. Preallo
 
 constexpr int g_track_ID = 0; // Index from [0, g_max_fem_vertice_num)
 std::vector<int> g_track_IDs = {g_track_ID};
+
+constexpr int g_max_grid_boundaries = 8; //< Max grid-boundaries for scene
 
 } // namespace config
 
