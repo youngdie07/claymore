@@ -4,7 +4,7 @@
 		"gravity": -9.81,
 		"fps": 120,
 		"frames": 120,
-		"default_dt": 1.4e-4,
+		"default_dt": 1.0e-4,
 		"default_dx": 0.001,
 		"domain": [0.4, 0.8, 0.001],
 		"save_path": "./",
@@ -14,12 +14,11 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "use.geometry",
 			"constitutive": "FixedCorotated",
 			"output_attribs": ["Pressure", "Velocity_Y", "ID"],
 			"target_attribs": ["Position_Y"],
 			"track_attribs": ["Velocity_X"],
-			"track_particle_id": 0,
+			"track_particle_id": [0],
 			"ppc": 27.001,
 			"CFL": 0.5,
 			"rho": 2650,
@@ -33,8 +32,6 @@
 			"beta_max": 0,
 			"FBAR_ratio": 0.25,
 			"velocity": [-0.25, 0, 0],
-			"offset": [0.0, 0.0, 0.0],
-			"span": [0.4, 0.6, 0.0003],
 			"partition": 0,
 			"partition_start": [0,0,0],
 			"partition_end": [0,0,0],
@@ -56,7 +53,7 @@
 	],
 	"grid-boundaries": [
 		{
-			"type": "Wall",
+			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
 			"domain_end": [0.3, 0.6, 0.001],
@@ -65,25 +62,27 @@
 	],
 	"grid-targets": [
 		{
-			"type": "X-",
 			"attribute": "Force",
-			"output_frequency": 1440,
+			"direction": "X-",
+			"operation": "Sum",
+			"output_frequency": 600,
 			"domain_start": [-0.01, -0.01, -0.01],
 			"domain_end": [0.00, 0.6, 0.02]
 		},
 		{
-			"type": "Y-",
 			"attribute": "Force",
-			"output_frequency": 1440,
+			"direction": "Y-",
+			"operation": "Sum",
+			"output_frequency": 600,
 			"domain_start": [-0.01, -0.01, -0.01],
 			"domain_end": [0.4, 0.0, 0.02]
 		}
 	],
 	"particle-targets": [
 		{
-			"type": "Max",
 			"attribute": "Elevation",
-			"output_frequency": 1440,
+			"operation": "Max",
+			"output_frequency": 600,
 			"domain_start": [0.3, 0.0, 0.0],
 			"domain_end": [0.3, 0.292, 0.012]
 		}

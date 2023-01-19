@@ -47,6 +47,7 @@ using vec3x3x3 = vec<float, 3, 3, 3>;
 /// * Available material models
 enum class material_e { JFluid = 0, 
                         JFluid_ASFLIP, 
+                        JFluid_FBAR,
                         JBarFluid,
                         FixedCorotated, 
                         FixedCorotated_ASFLIP,
@@ -121,9 +122,9 @@ constexpr float g_offset = g_dx * 8; //<
 #define DOMAIN_VOLUME DOMAIN_LENGTH * DOMAIN_LENGTH * DOMAIN_LENGTH //< Domain Vol. 
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
-constexpr double g_length_x = g_length; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 16.0; //< Default domain z length (m)
+constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
+constexpr double g_length_y = g_length / 32.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 128.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
@@ -144,11 +145,11 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) + 4; //< Doma
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 11000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 10000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
-#define MAX_PPC 32 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
+#define MAX_PPC 16 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
 constexpr int g_max_particle_num = 200000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
@@ -174,8 +175,8 @@ constexpr int g_max_grid_target_nodes = 1000; //< Max grid-nodes per gridTarget
 constexpr int g_target_attribs = 10; //< No. of values per gridTarget node
 
 // * Particle-Targets
-constexpr int g_particle_target_cells = 1000; //< Max grid-nodes per gridTarget
-constexpr int g_max_particle_target_nodes = 1000; //< Max particless per particleTarget
+constexpr int g_particle_target_cells = 2000; //< Max grid-nodes per gridTarget
+constexpr int g_max_particle_target_nodes = 2000; //< Max particless per particleTarget
 constexpr int g_particle_target_attribs = 10; //< No. of values per gridTarget node
 constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
 std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
@@ -198,15 +199,14 @@ struct SimulatorConfigs {
 } simConfigs;
 
 struct MaterialConfigs {
-  PREC ppc;
-  PREC rho;
+  PREC ppc, rho;
   PREC bulk, visco, gamma;
   PREC E, nu;
   PREC logJp0, frictionAngle, cohesion, beta;
   bool volumeCorrection;
   PREC xi;
-  MaterialConfigs() : ppc{8.0}, rho{1e3}, bulk{2.2e6}, visco{1e-3}, gamma{7.1}, E{1e6}, nu{0.3}, logJp0{0}, frictionAngle{30}, cohesion{0}, beta{1}, volumeCorrection{false}, xi{1.0} {}
-  MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x) : ppc{p}, rho{density}, bulk{k}, visco{v}, gamma{g}, E{e}, nu{pr}, logJp0{j}, frictionAngle{fa}, cohesion{c}, beta{b}, volumeCorrection{false}, xi{x} {}
+  MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0), frictionAngle(30), cohesion(0), beta(1), volumeCorrection(false), xi(1.0) {}
+  MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x) : ppc(p), rho(density), bulk(k), visco(v), gamma(g), E(e), nu(pr), logJp0(j), frictionAngle(fa), cohesion(c), beta(b), volumeCorrection(false), xi(x) {}
   ~MaterialConfigs() {}
 };
 
@@ -218,8 +218,8 @@ struct AlgoConfigs {
   PREC ASFLIP_beta_min;
   PREC ASFLIP_beta_max;
   PREC FBAR_ratio;
-  AlgoConfigs() : use_ASFLIP{true}, use_FEM{false}, use_FBAR{false}, ASFLIP_alpha{0}, ASFLIP_beta_min{0}, ASFLIP_beta_max{0}, FBAR_ratio{0} {}
-  AlgoConfigs(bool asflip = true, bool fem = false, bool fbar = false, PREC alpha = 0.0, PREC beta_min = 0.0, PREC beta_max = 0.0, PREC fbar_ratio = 0.0) : use_ASFLIP{asflip}, use_FEM{fem}, use_FBAR{fbar}, ASFLIP_alpha{alpha}, ASFLIP_beta_min{beta_min}, ASFLIP_beta_max{beta_max}, FBAR_ratio{fbar_ratio} {}
+  AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0), ASFLIP_beta_min(0), ASFLIP_beta_max(0), FBAR_ratio(0) {}
+  AlgoConfigs(bool asflip = true, bool fem = false, bool fbar = false, PREC alpha = 0.0, PREC beta_min = 0.0, PREC beta_max = 0.0, PREC fbar_ratio = 0.0) : use_ASFLIP(asflip), use_FEM(fem), use_FBAR(fbar), ASFLIP_alpha(alpha), ASFLIP_beta_min(beta_min), ASFLIP_beta_max(beta_max), FBAR_ratio(fbar_ratio) {}
   ~AlgoConfigs() {}
 };
 
@@ -235,13 +235,13 @@ struct GridTargetConfigs
   float3 domain_end;
   float output_frequency;
 
-  GridTargetConfigs() : target_ID{number_of_targets}, idx_attribute{-1}, idx_operation{-1}, idx_direction{-1}, domain_start{0.f,0.f,0.f}, domain_end{0.f,0.f,0.f}, output_frequency{1.f} 
+  GridTargetConfigs() : target_ID(number_of_targets), idx_attribute(-1), idx_operation(-1), idx_direction(-1), domain_start(make_float3(0.f,0.f,0.f)), domain_end(make_float3(0.f,0.f,0.f)), output_frequency(1.f) 
   { 
     number_of_targets++;
   }
   GridTargetConfigs(int attr, int oper, int dir,
-                    float3 start, float3 end, float3 vel, float3 accel, float2 time, 
-                    float freq) : target_ID{number_of_targets}, idx_attribute{attr}, idx_operation{oper}, idx_direction{dir}, domain_start{start}, domain_end{end}, output_frequency{freq} 
+                    float3 start, float3 end, 
+                    float freq) : target_ID{number_of_targets}, idx_attribute(attr), idx_operation(oper), idx_direction(dir), domain_start(start), domain_end(end), output_frequency(freq) 
   { 
     number_of_targets++;
     if (output_frequency == 0) output_frequency = 1; //< Avoid potential divide by zero
@@ -255,8 +255,7 @@ struct GridTargetConfigs
 int GridTargetConfigs::number_of_targets = 0; 
 
 
-struct ParticleTargetConfigs 
-{
+struct ParticleTargetConfigs  {
   static int number_of_targets; //< Total no. of grid-targets
 
   int target_ID; //< Specific particle-target ID, [0, number_of_targets)
@@ -267,13 +266,13 @@ struct ParticleTargetConfigs
   float3 domain_end;
   float output_frequency;
 
-  ParticleTargetConfigs() : target_ID{number_of_targets}, idx_attribute{-1}, idx_operation{-1}, idx_direction{-1}, domain_start{0.f,0.f,0.f}, domain_end{0.f,0.f,0.f}, output_frequency{1.f} 
+  ParticleTargetConfigs() : target_ID{number_of_targets}, idx_attribute(-1), idx_operation(-1), idx_direction(-1), domain_start(make_float3(0.f,0.f,0.f)), domain_end(make_float3(0.f,0.f,0.f)), output_frequency(1.f) 
   { 
     number_of_targets++;
   }
   ParticleTargetConfigs(int attr, int oper, int dir,
-                    float3 start, float3 end, float3 vel, float3 accel, float2 time, 
-                    float freq) : target_ID{number_of_targets}, idx_attribute{attr}, idx_operation{oper}, idx_direction{dir}, domain_start{start}, domain_end{end}, output_frequency{freq} 
+                    float3 start, float3 end, 
+                    float freq) : target_ID(number_of_targets), idx_attribute(attr), idx_operation(oper), idx_direction(dir), domain_start(start), domain_end(end), output_frequency(freq) 
   { 
     number_of_targets++;
     if (output_frequency == 0) output_frequency = 1; //< Avoid potential divide by zero

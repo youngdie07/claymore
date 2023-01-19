@@ -7,12 +7,102 @@
 
 namespace mn {
 
-template <typename T = PREC>
+
+/// * J-Fluid - Pressure, Stress, and Energy
+/// * Isotropic Tait-Murnaghan fluid, uses the deformation gradient determinant J
+template <typename T = double>
+__forceinline__ __device__ void
+compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T J, T &pressure)
+{
+  pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+}
+template <>
+__forceinline__ __device__ void
+compute_pressure_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float &pressure)
+{
+  pressure =  (bulk / bulk_wrt_pressure) * (  powf(J, -bulk_wrt_pressure) - 1.f );
+}
+template <typename T = double>
+__forceinline__ __device__ void
+compute_stress_jfluid(T volume, T bulk, T bulk_wrt_pressure, T Dp_inv, T viscosity, T J, const vec<T, 9> &C, vec<T, 9> &PF)
+{
+  T pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+  {
+    PF[0] = ((C[0] + C[0]) * Dp_inv * viscosity - pressure) * volume;
+    PF[1] = (C[1] + C[3]) * Dp_inv * viscosity * volume;
+    PF[2] = (C[2] + C[6]) * Dp_inv * viscosity * volume;
+    PF[3] = (C[3] + C[1]) * Dp_inv * viscosity * volume;
+    PF[4] = ((C[4] + C[4]) * Dp_inv * viscosity - pressure) * volume;
+    PF[5] = (C[5] + C[7]) * Dp_inv * viscosity * volume;
+    PF[6] = (C[6] + C[2]) * Dp_inv * viscosity * volume;
+    PF[7] = (C[7] + C[5]) * Dp_inv * viscosity * volume;
+    PF[8] = ((C[8] + C[8]) * Dp_inv * viscosity - pressure) * volume;
+  }
+}
+
+template <typename T = double>
+__forceinline__ __device__ void
+compute_stress_jfluid(T volume, T bulk, T bulk_wrt_pressure, T Dp_inv, T viscosity, T J, const vec<T, 9> &C, vec<T, 6> &PF)
+{
+  // Use symmetry of Cauchy stress to reduce size.
+  // Array index 0, 1, 2, 3, 4, 5 -> 
+  // | 11, 12, 13, |
+  // |     22. 23, |
+  // |         33  |
+  T pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+  {
+    PF[0] = ((C[0] + C[0]) * Dp_inv * viscosity - pressure) * volume;
+
+    PF[1] = (C[3] + C[1]) * Dp_inv * viscosity * volume;
+    PF[2] = ((C[4] + C[4]) * Dp_inv * viscosity - pressure) * volume;
+
+    PF[3] = (C[6] + C[2]) * Dp_inv * viscosity * volume;
+    PF[4] = (C[7] + C[5]) * Dp_inv * viscosity * volume;
+    PF[5] = ((C[8] + C[8]) * Dp_inv * viscosity - pressure) * volume;
+  }
+}
+
+template <typename T = double>
+__forceinline__ __device__ void
+compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, T& strain_energy)
+{
+  // Based on Pradhana 2017 Multi-Species MPM paper. Modified pressure constant term for gamma
+  // Energy(J) = -(bulk/bulk_wrt_pressure) * ( ( J^(1 - bulk_wrt_pressure)  / (1 - bulk_wrt_pressure) ) - J) * volume?
+  // J = det | Deformation Gradient | = V / Vo = Ratio of volume change of particle
+  // bulk = bulk modulus [Pa] (2.2e9 Pa for water at 20 deg C, sea-level, no salinity)
+  // bulk_wrt_pressure = bulk modulus derivative with respect to pressure at atmospheric conditions (7.1 for water)
+  // strain_energy = [Joules]
+  // A better Tait-Murnaghan energy formulation is probabaly:
+  // E = Eo + k * volume * ( (1 / (g(g-1)))*J^(1-g) + (1/g)*J - (1/(1-g)) )
+  // Note that assuming Eo = 0 (i.e. no strain energy at ambient pressure without deformation)
+  // for J = 1 (no volume change) there is no energy (good)
+  // gamma cannot be 0 or 1 in this model (1 is common in graphics). Maybe impossible to go under 5/3 (Thomas-Fermi limit)
+//   strain_energy = - volume * (bulk / bulk_wrt_pressure) * 
+                    // ( ( pow(J, (1.0 - bulk_wrt_pressure))  / (1.0 - bulk_wrt_pressure) ) - J );
+  T one_minus_bwp = 1.0 - bulk_wrt_pressure;
+  strain_energy = volume * bulk * 
+                    ((1.0/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * pow(J, one_minus_bwp) + (1.0/bulk_wrt_pressure)*J - (1.0/(bulk_wrt_pressure-1.0)));
+}
+
+template <>
+__forceinline__ __device__ void
+compute_energy_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float& strain_energy)
+{
+  float one_minus_bwp = 1.f - bulk_wrt_pressure;
+  strain_energy = volume * bulk * 
+                    ((1.f/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * powf(J, one_minus_bwp) + (1.f/bulk_wrt_pressure)*J - (1.f/(bulk_wrt_pressure-1.f)));
+}
+
+
+/// * Fixed-Corotated - Stress and Energy
+/// * Hyperelastic solid model. Similar to NeoHookean, popular in graphics.
+/// TODO : Force derivative
+template <typename T = double>
 __forceinline__ __device__ void
 compute_stress_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
                               vec<T, 9> &PF) {
   T U[9], S[3], V[9];
-  math::svd<T>(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
             U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
             V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
   T J = S[0] * S[1] * S[2];
@@ -55,8 +145,43 @@ compute_stress_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
   PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
 }
 
+template <typename T = double>
+__forceinline__ __device__ void
+compute_stress_PK1_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
+                              vec<T, 9> &P) {
+  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  T J = S[0] * S[1] * S[2];
+  T scaled_mu = 2.0 * mu;
+  T scaled_lambda = lambda * (J - 1.0);
+  vec<T, 3> P_hat;
+  P_hat[0] = scaled_mu * (S[0] - 1.0) + scaled_lambda * (S[1] * S[2]);
+  P_hat[1] = scaled_mu * (S[1] - 1.0) + scaled_lambda * (S[0] * S[2]);
+  P_hat[2] = scaled_mu * (S[2] - 1.0) + scaled_lambda * (S[0] * S[1]);
 
-template <typename T = float>
+  P[0] =
+      (P_hat[0] * U[0] * V[0] + P_hat[1] * U[3] * V[3] + P_hat[2] * U[6] * V[6]) * volume;
+  P[1] =
+      (P_hat[0] * U[1] * V[0] + P_hat[1] * U[4] * V[3] + P_hat[2] * U[7] * V[6]) * volume;
+  P[2] =
+      (P_hat[0] * U[2] * V[0] + P_hat[1] * U[5] * V[3] + P_hat[2] * U[8] * V[6]) * volume;
+  P[3] =
+      (P_hat[0] * U[0] * V[1] + P_hat[1] * U[3] * V[4] + P_hat[2] * U[6] * V[7]) * volume;
+  P[4] =
+      (P_hat[0] * U[1] * V[1] + P_hat[1] * U[4] * V[4] + P_hat[2] * U[7] * V[7]) * volume;
+  P[5] =
+      (P_hat[0] * U[2] * V[1] + P_hat[1] * U[5] * V[4] + P_hat[2] * U[8] * V[7]) * volume;
+  P[6] =
+      (P_hat[0] * U[0] * V[2] + P_hat[1] * U[3] * V[5] + P_hat[2] * U[6] * V[8]) * volume;
+  P[7] =
+      (P_hat[0] * U[1] * V[2] + P_hat[1] * U[4] * V[5] + P_hat[2] * U[7] * V[8]) * volume;
+  P[8] =
+      (P_hat[0] * U[2] * V[2] + P_hat[1] * U[5] * V[5] + P_hat[2] * U[8] * V[8]) * volume;
+}
+
+template <typename T = double>
 __forceinline__ __device__ void
 compute_energy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
                               T &strain_energy) {
@@ -70,15 +195,30 @@ compute_energy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
   strain_energy = (mu * ((S[0] - 1.0)*(S[0] - 1.0) + (S[1] - 1.0)*(S[1] - 1.0) +
                         (S[2] - 1.0)*(S[2] - 1.0)) + 0.5 * lambda*(J - 1.0)*(J - 1.0)) * volume;
 }
+template <>
+__forceinline__ __device__ void
+compute_energy_fixedcorotated(float volume, float mu, float lambda, const vec<float, 9> &F,
+                              float &strain_energy) {
+  float U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  float J = S[0] * S[1] * S[2];
+
+  // Fixed-corotated potential strain energy. Page 90 UCLA MPM course Jiang et al.
+  strain_energy = (mu * ((S[0] - 1.f)*(S[0] - 1.f) + (S[1] - 1.f)*(S[1] - 1.f) +
+                        (S[2] - 1.f)*(S[2] - 1.f)) + 0.5f * lambda*(J - 1.f)*(J - 1.f)) * volume;
+}
 
 
+/// * Neo-Hookean - Stress and Energy
+/// * Hyperelastic model for solids. Abaqus uses a slighly different formulation.
 template <typename T = double>
 __forceinline__ __device__ void
 compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
                              vec<T, 9> &PF)
 {
   // Neo-hooken Cauchy stress. Page 90 UCLA MPM course Jiang et al.
-  // ABAQUS uses a slightly different formulation.
   vec<T, 9> Finv;
   matrixInverse(F.data(), Finv.data());
 
@@ -127,52 +267,9 @@ compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
   strain_energy = (mu * (0.5*((C[0] + C[1] + C[2]) - 3) - logJ) + 0.5*lambda*logJ*logJ) * volume;
 }
 
+/// Drucker-Prager - Stress and Energy
+/// Granular materials.
 template <typename T = double>
-__forceinline__ __device__ void
-compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, T& strain_energy)
-{
-  // Based on Pradhana 2017 Multi-Species MPM paper. Modified pressure constant term for gamma
-  // Energy(J) = -(bulk/bulk_wrt_pressure) * ( ( J^(1 - bulk_wrt_pressure)  / (1 - bulk_wrt_pressure) ) - J) * volume?
-  // J = det | Deformation Gradient | = V / Vo = Ratio of volume change of particle
-  // bulk = bulk modulus [Pa] (2.2e9 Pa for water at 20 deg C, sea-level, no salinity)
-  // bulk_wrt_pressure = bulk modulus derivative with respect to pressure at atmospheric conditions (7.1 for water)
-  // strain_energy = [Joules]
-  // A better Tait-Murnaghan energy formulation is probabaly:
-  // E = Eo + k * volume * ( (1 / (g(g-1)))*J^(1-g) + (1/g)*J - (1/(1-g)) )
-  // Note that assuming Eo = 0 (i.e. no strain energy at ambient pressure without deformation)
-  // for J = 1 (no volume change) there is no energy (good)
-  // gamma cannot be 0 or 1 in this model (1 is common in graphics). Maybe impossible to go under 5/3 (Thomas-Fermi limit)
-//   strain_energy = - volume * (bulk / bulk_wrt_pressure) * 
-                    // ( ( pow(J, (1.0 - bulk_wrt_pressure))  / (1.0 - bulk_wrt_pressure) ) - J );
-  T one_minus_bwp = 1.0 - bulk_wrt_pressure;
-  strain_energy = volume * bulk * 
-                    ((1.0/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * pow(J, one_minus_bwp) + (1.0/bulk_wrt_pressure)*J - (1.0/(bulk_wrt_pressure-1.0)));
-}
-
-template <>
-__forceinline__ __device__ void
-compute_energy_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float& strain_energy)
-{
-  float one_minus_bwp = 1.f - bulk_wrt_pressure;
-  strain_energy = volume * bulk * 
-                    ((1.f/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * powf(J, one_minus_bwp) + (1.f/bulk_wrt_pressure)*J - (1.f/(bulk_wrt_pressure-1.f)));
-}
-
-
-template <typename T = double>
-__forceinline__ __device__ void
-compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T J, T &pressure)
-{
-  pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
-}
-template <>
-__forceinline__ __device__ void
-compute_pressure_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float &pressure)
-{
-  pressure =  (bulk / bulk_wrt_pressure) * (  powf(J, -bulk_wrt_pressure) - 1.f );
-}
-
-template <typename T = float>
 __forceinline__ __device__ void
 compute_energy_sand(T volume, T mu, T lambda, T cohesion, T beta,
                     T yieldSurface, bool volCorrection, T logJp, vec<T, 9> &F, T &strain_energy) {
@@ -200,6 +297,105 @@ compute_energy_sand(T volume, T mu, T lambda, T cohesion, T beta,
   strain_energy = (mu * trace_epsilon_squared + lambda * 0.5 * trace_epsilon) * volume;
 }                  
 
+
+
+template <typename T = double>
+__forceinline__ __device__ void
+compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
+                    T yieldSurface, bool volCorrection, T &logJp, vec<T, 9> &F,
+                    vec<T, 9> &PF) {
+  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  T scaled_mu = T(2) * mu;
+
+  T epsilon[3], New_S[3]; ///< helper
+  T New_F[9];
+
+#pragma unroll 3
+  for (int i = 0; i < 3; i++) {
+    T abs_S = S[i] > 0 ? S[i] : -S[i];
+    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
+    epsilon[i] = log(abs_S) - cohesion;
+  }
+  T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
+  T trace_epsilon = sum_epsilon + logJp;
+
+  T epsilon_hat[3];
+#pragma unroll 3
+  for (int i = 0; i < 3; i++)
+    epsilon_hat[i] = epsilon[i] - (trace_epsilon / (T)3);
+
+  T epsilon_hat_norm =
+      sqrt(epsilon_hat[0] * epsilon_hat[0] + epsilon_hat[1] * epsilon_hat[1] +
+            epsilon_hat[2] * epsilon_hat[2]);
+
+  /* Calculate Plasticiy */
+  if (trace_epsilon >= (T)0) { ///< case II: project to the cone tip
+    New_S[0] = New_S[1] = New_S[2] = exp(cohesion);
+    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
+                                                 /* Update F */
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+    if (volCorrection) {
+      logJp = beta * sum_epsilon + logJp;
+    }
+  } else if (mu != 0) {
+    logJp = 0;
+    T delta_gamma = epsilon_hat_norm + ((T)3 * lambda + scaled_mu) / scaled_mu *
+                                           trace_epsilon * yieldSurface;
+    T H[3];
+    if (delta_gamma <= 0) { ///< case I: inside the yield surface cone
+#pragma unroll 3
+      for (int i = 0; i < 3; i++)
+        H[i] = epsilon[i] + cohesion;
+    } else { ///< case III: project to the cone surface
+#pragma unroll 3
+      for (int i = 0; i < 3; i++)
+        H[i] = epsilon[i] - (delta_gamma / epsilon_hat_norm) * epsilon_hat[i] +
+               cohesion;
+    }
+#pragma unroll 3
+    for (int i = 0; i < 3; i++)
+      New_S[i] = exp(H[i]);
+    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
+                                                 /* Update F */
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+  }
+
+  /* Elasticity -- Calculate Coefficient */
+  T New_S_log[3] = {log(New_S[0]), log(New_S[1]), log(New_S[2])};
+  T P_hat[3];
+
+  // T S_inverse[3] = {1.f/S[0], 1.f/S[1], 1.f/S[2]};  // TO CHECK
+  // T S_inverse[3] = {1.f / New_S[0], 1.f / New_S[1], 1.f / New_S[2]}; // TO
+  // CHECK
+  T trace_log_S = New_S_log[0] + New_S_log[1] + New_S_log[2];
+#pragma unroll 3
+  for (int i = 0; i < 3; i++)
+    P_hat[i] = (scaled_mu * New_S_log[i] + lambda * trace_log_S) / New_S[i];
+
+  T P[9];
+  matmul_mat_diag_matT_3D(P, U, P_hat, V);
+  ///< |f| = P * F^T * Volume
+  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) * volume;
+  PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6]) * volume;
+  PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6]) * volume;
+  PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) * volume;
+  PF[4] = (P[1] * F[1] + P[4] * F[4] + P[7] * F[7]) * volume;
+  PF[5] = (P[2] * F[1] + P[5] * F[4] + P[8] * F[7]) * volume;
+  PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) * volume;
+  PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) * volume;
+  PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
+}
+
+
+/// * Non-Associateive Cam-Clay - Stress and Energy
+/// * Elasto-plastic model. Good for snow, clay, etc.
 template <typename T = float>
 __forceinline__ __device__ void
 compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
@@ -213,7 +409,7 @@ compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,
 
   T Je_trial = S[0] * S[1] * S[2];
 
-  ///< 0). calculate YS
+  ///< 0). Calculate Yield Surface
   T B_hat_trial[3] = {S[0] * S[0], S[1] * S[1], S[2] * S[2]};
   T trace_B_hat_trial_divdim =
       (B_hat_trial[0] + B_hat_trial[1] + B_hat_trial[2]) / 3.f;
@@ -350,7 +546,7 @@ compute_stress_nacc(double volume, double mu, double lambda, double bm, double x
   T U[9], S[3], V[9];
   math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
             U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
-            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); // Need to check math::svd for double
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]); 
   T p0 = bm * (T(0.00001) + sinh(xi * (-logJp > 0 ? -logJp : 0)));
   T p_min = -beta * p0;
 
@@ -485,140 +681,10 @@ compute_stress_nacc(double volume, double mu, double lambda, double bm, double x
   PF[8] = (dev_b_coeff * b_dev[8] + i_coeff) * volume;
 }
 
+
+/// * Various continuum mechanics / matrix functions
+
 template <typename T = double>
-__forceinline__ __device__ void
-compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
-                    T yieldSurface, bool volCorrection, T &logJp, vec<T, 9> &F,
-                    vec<T, 9> &PF) {
-  T U[9], S[3], V[9];
-  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
-            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
-            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
-  T scaled_mu = T(2) * mu;
-
-  T epsilon[3], New_S[3]; ///< helper
-  T New_F[9];
-
-#pragma unroll 3
-  for (int i = 0; i < 3; i++) {
-    T abs_S = S[i] > 0 ? S[i] : -S[i];
-    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
-    epsilon[i] = log(abs_S) - cohesion;
-  }
-  T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
-  T trace_epsilon = sum_epsilon + logJp;
-
-  T epsilon_hat[3];
-#pragma unroll 3
-  for (int i = 0; i < 3; i++)
-    epsilon_hat[i] = epsilon[i] - (trace_epsilon / (T)3);
-
-  T epsilon_hat_norm =
-      sqrt(epsilon_hat[0] * epsilon_hat[0] + epsilon_hat[1] * epsilon_hat[1] +
-            epsilon_hat[2] * epsilon_hat[2]);
-
-  /* Calculate Plasticiy */
-  if (trace_epsilon >= (T)0) { ///< case II: project to the cone tip
-    New_S[0] = New_S[1] = New_S[2] = exp(cohesion);
-    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
-                                                 /* Update F */
-#pragma unroll 9
-    for (int i = 0; i < 9; i++)
-      F[i] = New_F[i];
-    if (volCorrection) {
-      logJp = beta * sum_epsilon + logJp;
-    }
-  } else if (mu != 0) {
-    logJp = 0;
-    T delta_gamma = epsilon_hat_norm + ((T)3 * lambda + scaled_mu) / scaled_mu *
-                                           trace_epsilon * yieldSurface;
-    T H[3];
-    if (delta_gamma <= 0) { ///< case I: inside the yield surface cone
-#pragma unroll 3
-      for (int i = 0; i < 3; i++)
-        H[i] = epsilon[i] + cohesion;
-    } else { ///< case III: project to the cone surface
-#pragma unroll 3
-      for (int i = 0; i < 3; i++)
-        H[i] = epsilon[i] - (delta_gamma / epsilon_hat_norm) * epsilon_hat[i] +
-               cohesion;
-    }
-#pragma unroll 3
-    for (int i = 0; i < 3; i++)
-      New_S[i] = exp(H[i]);
-    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
-                                                 /* Update F */
-#pragma unroll 9
-    for (int i = 0; i < 9; i++)
-      F[i] = New_F[i];
-  }
-
-  /* Elasticity -- Calculate Coefficient */
-  T New_S_log[3] = {log(New_S[0]), log(New_S[1]), log(New_S[2])};
-  T P_hat[3];
-
-  // T S_inverse[3] = {1.f/S[0], 1.f/S[1], 1.f/S[2]};  // TO CHECK
-  // T S_inverse[3] = {1.f / New_S[0], 1.f / New_S[1], 1.f / New_S[2]}; // TO
-  // CHECK
-  T trace_log_S = New_S_log[0] + New_S_log[1] + New_S_log[2];
-#pragma unroll 3
-  for (int i = 0; i < 3; i++)
-    P_hat[i] = (scaled_mu * New_S_log[i] + lambda * trace_log_S) / New_S[i];
-
-  T P[9];
-  matmul_mat_diag_matT_3D(P, U, P_hat, V);
-  ///< |f| = P * F^T * Volume
-  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) * volume;
-  PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6]) * volume;
-  PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6]) * volume;
-  PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) * volume;
-  PF[4] = (P[1] * F[1] + P[4] * F[4] + P[7] * F[7]) * volume;
-  PF[5] = (P[2] * F[1] + P[5] * F[4] + P[8] * F[7]) * volume;
-  PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) * volume;
-  PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) * volume;
-  PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
-}
-
-
-
-template <typename T = float>
-__forceinline__ __device__ void
-compute_stress_fixedcorotated_PK1(T mu, T lambda, const vec<T, 9> &F,
-                              vec<T, 9> &P) {
-  T U[9], S[3], V[9];
-  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
-            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
-            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
-  T J = S[0] * S[1] * S[2];
-  T scaled_mu = 2.0 * mu;
-  T scaled_lambda = lambda * (J - 1.0);
-  vec<T, 3> P_hat;
-  P_hat[0] = scaled_mu * (S[0] - 1.0) + scaled_lambda * (S[1] * S[2]);
-  P_hat[1] = scaled_mu * (S[1] - 1.0) + scaled_lambda * (S[0] * S[2]);
-  P_hat[2] = scaled_mu * (S[2] - 1.0) + scaled_lambda * (S[0] * S[1]);
-
-  P[0] =
-      P_hat[0] * U[0] * V[0] + P_hat[1] * U[3] * V[3] + P_hat[2] * U[6] * V[6];
-  P[1] =
-      P_hat[0] * U[1] * V[0] + P_hat[1] * U[4] * V[3] + P_hat[2] * U[7] * V[6];
-  P[2] =
-      P_hat[0] * U[2] * V[0] + P_hat[1] * U[5] * V[3] + P_hat[2] * U[8] * V[6];
-  P[3] =
-      P_hat[0] * U[0] * V[1] + P_hat[1] * U[3] * V[4] + P_hat[2] * U[6] * V[7];
-  P[4] =
-      P_hat[0] * U[1] * V[1] + P_hat[1] * U[4] * V[4] + P_hat[2] * U[7] * V[7];
-  P[5] =
-      P_hat[0] * U[2] * V[1] + P_hat[1] * U[5] * V[4] + P_hat[2] * U[8] * V[7];
-  P[6] =
-      P_hat[0] * U[0] * V[2] + P_hat[1] * U[3] * V[5] + P_hat[2] * U[6] * V[8];
-  P[7] =
-      P_hat[0] * U[1] * V[2] + P_hat[1] * U[4] * V[5] + P_hat[2] * U[7] * V[8];
-  P[8] =
-      P_hat[0] * U[2] * V[2] + P_hat[1] * U[5] * V[5] + P_hat[2] * U[8] * V[8];
-}
-
-
-template <typename T = float>
 __forceinline__ __device__ void
 compute_SVD_DefGrad(const vec<T, 9> &F,
                               vec<T, 9> &U, vec<T, 3> &S, vec<T, 9> &V) 
@@ -629,8 +695,7 @@ compute_SVD_DefGrad(const vec<T, 9> &F,
 }
 
 
-
-template <typename T=float>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_DefGradRate_from_DefGrad_and_VelocityGrad(const vec<T, 9> &F,
                                const vec<T, 9> &C, vec<T, 9> &Fdot) 
@@ -638,7 +703,7 @@ compute_DefGradRate_from_DefGrad_and_VelocityGrad(const vec<T, 9> &F,
   matrixTransposeMatrixMultiplication3d(F.data(), C.data(), Fdot.data());
 }
 
-template <typename T>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_StressCauchy_from_DefGrad_and_StressPK1(const vec<T, 9> &F,
                                const vec<T, 9> &P, vec<T, 9> &C) 

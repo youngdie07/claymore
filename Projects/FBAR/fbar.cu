@@ -624,6 +624,18 @@ void parse_scene(std::string fn,
                       track_particle_id, track_attribs, 
                       target_attribs);
                   fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                } 
+                else if (!model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::JFluid_FBAR>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->updateJFluidFBARParameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
+                      algoConfigs,
+                      output_attribs,
+                      track_particle_id, track_attribs, 
+                      target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
                 else 
                 {
@@ -680,15 +692,13 @@ void parse_scene(std::string fn,
                 }
               } else if (constitutive == "NeoHookean" || constitutive == "neohookena" || constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
 
+                mn::config::MaterialConfigs materialConfigs(model["ppc"].GetDouble(), model["rho"].GetDouble(), 0, 0, 0, model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 0, 0, 0, 0, 0, 0);
+
                 if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
                   benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      model["FBAR_ratio"].GetDouble(),
+                  benchmark->update_NH_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
+                      materialConfigs, algoConfigs,
                       output_attribs, 
                       track_particle_id, track_attribs, 
                       target_attribs);
@@ -732,8 +742,7 @@ void parse_scene(std::string fn,
                 getchar();
               }
             };
-            mn::vec<PREC, 3> offset, span, velocity;
-            mn::vec<PREC, 3> partition_start, partition_end, inter_a, inter_b;
+            mn::vec<PREC, 3> velocity, partition_start, partition_end, inter_a, inter_b;
             for (int d = 0; d < 3; ++d) {
               //offset[d]   = model["offset"].GetArray()[d].GetDouble() / l + o;
               //span[d]     = model["span"].GetArray()[d].GetDouble() / l;
@@ -942,7 +951,6 @@ void parse_scene(std::string fn,
                                                             0.f,0.f,0.f,
                                                             0.f,0.f,0.f,0.f});
             mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
-            
 
             if (0) // TODO : Implement attribute selection for grid-target
             {
@@ -987,13 +995,14 @@ void parse_scene(std::string fn,
             // * NOTE: Checks for zero length target dimensions, grows by 1 grid-cell if so
             for (int d=0; d < 3; ++d)
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
+            PREC_G freq = model["output_frequency"].GetFloat();
 
-            //GridTargetConfigs new_target;
+            mn::config::GridTargetConfigs gridTargetConfigs(target[6], target[6], target[6], make_float3(target[1], target[2], target[3]), make_float3(target[4], target[5], target[6]), freq);
 
             // * Loop through GPU devices to initialzie
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               benchmark->initGridTarget(did, h_gridTarget, target, 
-                model["output_frequency"].GetFloat()); // TODO : Allow more than one frequency for grid-targets
+                freq); // TODO : Allow more than one frequency for grid-targets
             fmt::print(fg(fmt::color::green), "GPU[{}] gridTarget[{}] Initialized.\n", did, target_ID);
             }
             target_ID += 1;
@@ -1035,10 +1044,15 @@ void parse_scene(std::string fn,
               target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
 
+            PREC freq = model["output_frequency"].GetDouble();
+
+            mn::config::ParticleTargetConfigs particleTargetConfigs(target[6], target[6], target[6], {target[1], target[2], target[3]}, {target[4], target[5], target[6]}, freq);
+
+
             // Initialize on GPUs
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               benchmark->initParticleTarget(did, h_particleTarget, target, 
-                model["output_frequency"].GetFloat());
+                freq);
               fmt::print(fg(fmt::color::green), "GPU[{}] particleTarget[{}] Initialized.\n", did, target_ID);
             }
             target_ID += 1; // TODO : Count targets using static variable in a structure

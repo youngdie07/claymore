@@ -28,10 +28,10 @@ union un {
     unsigned int ui;
 };
 
-// union d_un {
-//     double f;
-//     unsigned int ui;
-// };
+union d_un {
+    double f;
+    unsigned int ui;
+};
 
 template<typename T>
 __forceinline__ __device__ void svd(
@@ -1070,7 +1070,6 @@ __forceinline__ __device__ void svd(
 }
 
 
-
 // template<>
 // __forceinline__ __device__ void svd(
 // 	double a11, double a12, double a13, double a21, double a22, double a23, double a31, double a32, double a33, // input A
@@ -1161,7 +1160,7 @@ __forceinline__ __device__ void svd(
 // 		Stmp1.f = Ssh.f * Ssh.f;
 // 		Stmp2.f = Sch.f * Sch.f;
 // 		Stmp3.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 		Stmp4.f = __frsqrt_rn(Stmp3.f);
+// 		Stmp4.f = 1.0 / __dsqrt_rn(Stmp3.f);
 
 // 		Ssh.f = Stmp4.f * Ssh.f;
 // 		Sch.f = Stmp4.f * Sch.f;
@@ -1264,7 +1263,7 @@ __forceinline__ __device__ void svd(
 // 		Stmp1.f = Ssh.f * Ssh.f;
 // 		Stmp2.f = Sch.f * Sch.f;
 // 		Stmp3.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 		Stmp4.f = __frsqrt_rn(Stmp3.f);
+// 		Stmp4.f = 1.0 / __dsqrt_rn(Stmp3.f);
 
 // 		Ssh.f = Stmp4.f * Ssh.f;
 // 		Sch.f = Stmp4.f * Sch.f;
@@ -1369,7 +1368,7 @@ __forceinline__ __device__ void svd(
 // 		Stmp1.f = Ssh.f * Ssh.f;
 // 		Stmp2.f = Sch.f * Sch.f;
 // 		Stmp3.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 		Stmp4.f = __frsqrt_rn(Stmp3.f);
+// 		Stmp4.f = 1.0 / __dsqrt_rn(Stmp3.f);
 
 // 		Ssh.f = Stmp4.f * Ssh.f;
 // 		Sch.f = Stmp4.f * Sch.f;
@@ -1467,7 +1466,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sqvvz.f * Sqvvz.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
 
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
 // 	Stmp3.f = Stmp1.f * Stmp3.f;
@@ -1778,7 +1777,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
@@ -1800,7 +1799,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
@@ -1883,7 +1882,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
@@ -1905,7 +1904,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
@@ -1988,7 +1987,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;
@@ -2010,7 +2009,7 @@ __forceinline__ __device__ void svd(
 // 	Stmp1.f = Sch.f * Sch.f;
 // 	Stmp2.f = Ssh.f * Ssh.f;
 // 	Stmp2.f = __dadd_rn(Stmp1.f, Stmp2.f);
-// 	Stmp1.f = __frsqrt_rn(Stmp2.f);
+// 	Stmp1.f = 1.0 / __dsqrt_rn(Stmp2.f);
 
 // 	Stmp4.f = Stmp1.f * 0.5;
 // 	Stmp3.f = Stmp1.f * Stmp4.f;

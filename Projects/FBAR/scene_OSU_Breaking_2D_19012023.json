@@ -116,8 +116,8 @@
 			"domain_start": [1.6, -0.2, -0.2],
 			"domain_end": [2.0, 5, 4],
 			"time": [0, 180],
-			"file": "WaveMaker/wmdisp_unbroken_20210329_HydroError_25s_1200hz_smooth_19012023.csv",
-			"output_frequency": 1200
+			"file":"WaveMaker/wmdisp_hydro2sec_smooth_19012023.csv",
+			"output_frequency": 120
 		}	
 	],
 	"grid-targets": [
