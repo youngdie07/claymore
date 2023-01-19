@@ -31,97 +31,33 @@ namespace rj = rapidjson;
 static const char *kTypeNames[] = {"Null",  "False",  "True",  "Object",
                                    "Array", "String", "Number"};
 
-
-typedef std::vector<std::array<PREC_G, 3>> WaveHolder;
+typedef std::vector<std::array<PREC, 3>> PositionHolder;
 typedef std::vector<std::array<PREC, 13>> VerticeHolder;
 typedef std::vector<std::array<int, 4>> ElementHolder;
 typedef std::vector<std::array<PREC, 6>> ElementAttribsHolder;
+typedef std::vector<std::array<PREC_G, 3>> MotionHolder;
 
 float verbose = 0;
-std::string save_suffix; //< File-format to save particles with
 PREC o = mn::config::g_offset; //< Grid-cell buffer size (see off-by-2, Xinlei Wang)
 PREC l = mn::config::g_length; //< Grid-length
 PREC dx = mn::config::g_dx; //< Grid-cell length [1x1x1]
+std::string save_suffix; //< File-format to save particles with
 //__device__ __constant__ PREC length;
 
-struct SimulatorConfigs {
-  int _dim;
-  float _dx, _dxInv;
-  int _resolution;
-  float _gravity;
-  std::vector<float> _offset;
-} simConfigs;
 
-struct MaterialConfigs {
-  PREC ppc;
-  PREC rho;
-  PREC bulk;
-  PREC visco;
-  PREC gamma;
-  PREC E;
-  PREC nu;
-  PREC logJp0;
-  PREC frictionAngle;
-  PREC cohesion;
-  PREC beta;
-  bool volCorrection;
-  PREC xi;
-} materialConfigs;
-
-struct AlgoConfigs {
-  bool use_ASFLIP;
-  bool use_FEM;
-  bool use_FBAR;
-  PREC ASFLIP_alpha;
-  PREC ASFLIP_beta_min;
-  PREC ASFLIP_beta_max;
-  PREC FBAR_ratio;
-} algoConfigs;
 
 decltype(auto) load_model(std::size_t pcnt, std::string filename) {
   std::vector<std::array<float, 3>> rawpos(pcnt);
-  auto addr_str = std::string(AssetDirPath) + "MpmParticles/";
-  auto f = fopen((addr_str + filename).c_str(), "rb");
+  auto f = fopen(filename.c_str(), "rb");
   auto res = std::fread((float *)rawpos.data(), sizeof(float), rawpos.size() * 3, f);
   std::fclose(f);
   return rawpos;
 }
 
-void load_waveMaker(const std::string& filename, char sep, WaveHolder& fields, int rate=1){
-  auto addr_str = std::string(AssetDirPath) + "WaveMaker/";
-  std::ifstream in((addr_str + filename).c_str());
-  if (in) {
-      int iter = 0;
-      std::string line;
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          int col = 0;
-          std::array<float, 3> arr;
-          while (getline(sep, field, ',')) {
-              if (col >= 3) break;
-              if ((iter % rate) == 0) arr[col] = stof(field);
-              col++;
-          }
-          if ((iter % rate) == 0) fields.push_back(arr);
-          iter++;
-      }
-  }
-  if (verbose) {
-    for (auto row : fields) {
-      for (auto field : row) std::cout << field << ' '; 
-      std::cout << '\n';
-    }
-    std::cout << '\n';
-  }
-}
-
-
 void load_csv_particles(const std::string& filename, char sep, 
                         std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> offset, const std::string& addr=std::string{"TetMesh/"}){
-  auto addr_str = std::string(AssetDirPath) + addr;
-  std::ifstream in((addr_str + filename).c_str());
+  std::ifstream in(filename.c_str());
   if (in) {
       std::string line;
       while (getline(in, line)) {
@@ -202,8 +138,6 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
 }
 
 
-
-
 void make_cylinder(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
                         PREC ppc, PREC radius, std::string axis) {
@@ -249,8 +183,6 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
     }
   } 
 }
-
-
 
 void make_sphere(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
@@ -300,7 +232,8 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   j_lim = (int)((span[1]) / ppl_dx + 1.0); 
   k_lim = (int)((span[2]) / ppl_dx + 1.0); 
 
-  PREC wave_maker_neutral = -2.0; 
+  //PREC wave_maker_neutral = -2.0; 
+  // Assume JSON input offsets model 2 meters forward in X
   PREC bathx[7];
   PREC bathy[7];
   PREC bath_slope[7];
@@ -336,10 +269,9 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
         arr[0] = (i + 0.5) * ppl_dx + offset[0];
         arr[1] = (j + 0.5) * ppl_dx + offset[1];
         arr[2] = (k + 0.5) * ppl_dx + offset[2];
-        PREC x, y, z;
+        PREC x, y;
         x = ((arr[0] - offset[0]) * l);
         y = ((arr[1] - offset[1]) * l);
-        z = ((arr[2] - offset[2]) * l);
         if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
           // Start ramp segment definition for OSU flume
           // Based on bathymetry diagram, February
@@ -425,6 +357,35 @@ void load_FEM_Elements(const std::string& filename, char sep,
   }
   if (verbose) {
     for (auto row : fields) for (auto field : row) std::cout << field << ' ' << '\n';
+  }
+}
+
+
+void load_motionPath(const std::string& filename, char sep, MotionHolder& fields, int rate=1){
+  std::ifstream in((filename).c_str());
+  if (in) {
+      int iter = 0;
+      std::string line;
+      while (getline(in, line)) {
+          std::stringstream sep(line);
+          std::string field;
+          int col = 0;
+          std::array<float, 3> arr;
+          while (getline(sep, field, ',')) {
+              if (col >= 3) break;
+              if ((iter % rate) == 0) arr[col] = stof(field);
+              col++;
+          }
+          if ((iter % rate) == 0) fields.push_back(arr);
+          iter++;
+      }
+  }
+  if (verbose) {
+    for (auto row : fields) {
+      for (auto field : row) std::cout << field << ' '; 
+      std::cout << '\n';
+    }
+    std::cout << '\n';
   }
 }
 
@@ -616,15 +577,17 @@ void parse_scene(std::string fn,
                        "ERROR! GPU ID[{}] cannot be negative. \n", model["gpu"].GetInt());
               break;
             }
-            fs::path p{model["file"].GetString()};
+            //fs::path p{model["file"].GetString()};
             std::string constitutive{model["constitutive"].GetString()};
             fmt::print(fg(fmt::color::green),
-                       "GPU[{}] Read model constitutive[{}], file[{}]\n", model["gpu"].GetInt(), constitutive,
-                       model["file"].GetString());
+                       "GPU[{}] Read model constitutive[{}].\n", model["gpu"].GetInt(), constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> target_attribs;
             std::vector<std::string> track_attribs;
             int track_particle_id;
+
+            mn::config::AlgoConfigs algoConfigs( model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),  model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(), model["FBAR_ratio"].GetDouble());
+
             auto initModel = [&](auto &positions, auto &velocity) {
 
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
@@ -635,7 +598,7 @@ void parse_scene(std::string fn,
                       model["rho"].GetDouble(), model["ppc"].GetDouble(),
                       model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
                       model["viscosity"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      algoConfigs,
                       output_attribs);
                   fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
@@ -656,9 +619,7 @@ void parse_scene(std::string fn,
                   benchmark->updateJBarFluidParameters( model["gpu"].GetInt(),
                       model["rho"].GetDouble(), model["ppc"].GetDouble(),
                       model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      model["FBAR_ratio"].GetDouble(),
+                      algoConfigs,
                       output_attribs,
                       track_particle_id, track_attribs, 
                       target_attribs);
@@ -717,6 +678,30 @@ void parse_scene(std::string fn,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   getchar();
                 }
+              } else if (constitutive == "NeoHookean" || constitutive == "neohookena" || constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
+
+                if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                {
+                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
+                  benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
+                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
+                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
+                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
+                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
+                      model["FBAR_ratio"].GetDouble(),
+                      output_attribs, 
+                      track_particle_id, track_attribs, 
+                      target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                }
+                else 
+                {
+                  fmt::print(fg(fmt::color::red),
+                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
+                       model["gpu"].GetInt(), constitutive,
+                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
+                  getchar();
+                }
               } else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
                 benchmark->initModel<mn::material_e::Sand>(model["gpu"].GetInt(), positions, velocity); 
                 benchmark->updateSandParameters( model["gpu"].GetInt(),
@@ -750,98 +735,24 @@ void parse_scene(std::string fn,
             mn::vec<PREC, 3> offset, span, velocity;
             mn::vec<PREC, 3> partition_start, partition_end, inter_a, inter_b;
             for (int d = 0; d < 3; ++d) {
-              offset[d]   = model["offset"].GetArray()[d].GetDouble() / l + o;
-              span[d]     = model["span"].GetArray()[d].GetDouble() / l;
+              //offset[d]   = model["offset"].GetArray()[d].GetDouble() / l + o;
+              //span[d]     = model["span"].GetArray()[d].GetDouble() / l;
               velocity[d] = model["velocity"].GetArray()[d].GetDouble() / l;
               partition_start[d]  = model["partition_start"].GetArray()[d].GetDouble() / l;
               partition_end[d]  = model["partition_end"].GetArray()[d].GetDouble() / l;
-              inter_a[d]  = model["inter_a"].GetArray()[d].GetDouble() / l;
-              inter_b[d]  = model["inter_b"].GetArray()[d].GetDouble() / l;
+              //inter_a[d]  = model["inter_a"].GetArray()[d].GetDouble() / l;
+              //inter_b[d]  = model["inter_b"].GetArray()[d].GetDouble() / l;
+              inter_a[d] = -1; // TODO : Deprecate inter_a/b for JSON "subtract" in "geometry"
+              inter_b[d] = -1;
             }
             for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
-            track_particle_id = model["track_particle_id"].GetInt();
+            track_particle_id = model["track_particle_id"].GetArray()[0].GetInt();
             for (int d = 0; d < 1; ++d) track_attribs.emplace_back(model["track_attribs"].GetArray()[d].GetString());
             std::cout <<"Track particle ID: " << track_particle_id << " for Attributes: [ " << track_attribs[0] <<" ]"<<'\n';
             for (int d = 0; d < 1; ++d) target_attribs.emplace_back(model["target_attribs"].GetArray()[d].GetString());
             std::cout <<"Target Attributes: [ " << target_attribs[0] <<" ]"<<'\n';
             
-
-            // Signed-Distance-Field MPM particle input (make with SDFGen or SideFX Houdini)
-            if (p.extension() == ".sdf") {
-              if (model["partition"].GetInt()){
-                auto positions = mn::read_sdf(
-                    model["file"].GetString(), model["ppc"].GetFloat(),
-                    mn::config::g_dx, mn::config::g_domain_size, offset, span,
-                    partition_start, partition_end, inter_a, inter_b);
-                mn::IO::insert_job([&]() {
-                  mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                            positions);
-                });              
-                mn::IO::flush();
-                initModel(positions, velocity);
-              } else {
-                auto positions = mn::read_sdf(
-                    model["file"].GetString(), model["ppc"].GetFloat(),
-                    mn::config::g_dx, mn::config::g_domain_size, offset, span);
-                mn::IO::insert_job([&]() {
-                  mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                            positions);
-                });              
-                mn::IO::flush();
-                initModel(positions, velocity);
-              }
-            }
-            // CSV MPM particle input (Make with Excel, Notepad, etc.)
-            if (p.extension() == ".csv") {
-              load_csv_particles(model["file"].GetString(), ',', 
-                                  models[model["gpu"].GetInt()], 
-                                  offset);
-              auto positions = models[model["gpu"].GetInt()];
-              mn::IO::insert_job([&]() {
-                mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                          positions);
-              });              
-              mn::IO::flush();
-              initModel(positions, velocity);
-            }
-            // Auto-generate MPM particles in specified box dimensions. Must use *.box suffix in "file"
-            if (p.extension() == ".box") {
-              make_box(models[model["gpu"].GetInt()], 
-                        span, offset, model["ppc"].GetFloat());
-              auto positions = models[model["gpu"].GetInt()];
-              mn::IO::insert_job([&]() {
-                mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                          positions);
-              });              
-              mn::IO::flush();
-              initModel(positions, velocity);
-            }
-            if (p.extension() == ".cylinder") {
-              make_cylinder(models[model["gpu"].GetInt()], 
-                        span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble(), model["axis"].GetString());
-              auto positions = models[model["gpu"].GetInt()];
-              mn::IO::insert_job([&]() {
-                mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                          positions);
-              });              
-              mn::IO::flush();
-              initModel(positions, velocity);
-            }
-            if (p.extension() == ".sphere") {
-
-              make_sphere(models[model["gpu"].GetInt()], 
-                        span, offset, model["ppc"].GetFloat(), model["radius"].GetDouble());
-              auto positions = models[model["gpu"].GetInt()];
-              mn::IO::insert_job([&]() {
-                mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                          positions);
-              });              
-              mn::IO::flush();
-              initModel(positions, velocity);
-            }
-            
-            //if (p.extension() == ".geometry") 
             auto geo = model.FindMember("geometry");
             if (geo != model.MemberEnd()) {
               if (geo->value.IsArray()) {
@@ -876,10 +787,10 @@ void parse_scene(std::string fn,
                       make_box(models[model["gpu"].GetInt()], 
                           geometry_span, geometry_offset_updated, model["ppc"].GetFloat());
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {}
-                    else if (operation == "Union" || operation == "union") {}
-                    else if (operation == "Intersect" || operation == "intersect") {}
-                    else if (operation == "Difference" || operation == "difference") {}
+                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
                       fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
@@ -892,10 +803,10 @@ void parse_scene(std::string fn,
                       make_cylinder(models[model["gpu"].GetInt()], 
                               geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString());
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {}
-                    else if (operation == "Union" || operation == "union") {}
-                    else if (operation == "Intersect" || operation == "intersect") {}
-                    else if (operation == "Difference" || operation == "difference") {}
+                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
                       fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
@@ -908,10 +819,10 @@ void parse_scene(std::string fn,
                       make_sphere(models[model["gpu"].GetInt()], 
                               geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble());
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {}
-                    else if (operation == "Union" || operation == "union") {}
-                    else if (operation == "Intersect" || operation == "intersect") {}
-                    else if (operation == "Difference" || operation == "difference") {}
+                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
                       fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
@@ -924,10 +835,10 @@ void parse_scene(std::string fn,
                       make_OSU_LWF(models[model["gpu"].GetInt()], 
                             geometry_span, geometry_offset_updated, model["ppc"].GetFloat());
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {}
-                    else if (operation == "Union" || operation == "union") {}
-                    else if (operation == "Intersect" || operation == "intersect") {}
-                    else if (operation == "Difference" || operation == "difference") {}
+                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
                       fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
@@ -936,31 +847,41 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "File" || type == "file") 
                   {
-                    fs::path geometry_file_path{geometry["file"].GetString()};
+                    // * NOTE : Assumes geometry "file" specified by scene.json is in AssetDirPath/MpmParticles, i.e. ~/claymore/Data/MpmParticles/file
+                    std::string geometry_fn = std::string(AssetDirPath) + "MpmParticles/" + geometry["file"].GetString();
+                    fs::path geometry_file_path{geometry_fn};
+                    if (geometry_file_path.empty()) fmt::print(fg(fmt::color::red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
+                    else {
+                      std::ifstream istrm(geometry_fn);
+                      if (!istrm.is_open())  fmt::print(fg(fmt::color::red), "ERROR: Cannot open file[{}]\n", geometry_fn);
+                      istrm.close();
+                    }
                     if (operation == "Add" || operation == "add") {
+                      // TODO : Reimplement signed-distance-field (*.sdf) particle input files to match current scene set-up (e.g. appropiate offset and scale).
                       if (geometry_file_path.extension() == ".sdf") 
                       {
                         if (model["partition"].GetInt()){
                           auto sdf_particles = mn::read_sdf(
-                              model["file"].GetString(), model["ppc"].GetFloat(),
-                              mn::config::g_dx, mn::config::g_domain_size, offset, span,
+                              geometry_fn, model["ppc"].GetFloat(),
+                              mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span,
                               partition_start, partition_end, inter_a, inter_b);
                         } else {
                           auto sdf_particles = mn::read_sdf(
-                              model["file"].GetString(), model["ppc"].GetFloat(),
-                              mn::config::g_dx, mn::config::g_domain_size, offset, span);
+                              geometry_fn, model["ppc"].GetFloat(),
+                              mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span);
                         }
                       }
                       if (geometry_file_path.extension() == ".csv") 
                       {
-                        load_csv_particles(model["file"].GetString(), ',', 
-                                            models[model["gpu"].GetInt()], offset);
+                        load_csv_particles(geometry_fn, ',', 
+                                            models[model["gpu"].GetInt()], geometry_offset_updated);
                       }
+                      // TODO : Include particle file input for ".bgeo", ".bin", ".pdb", ".ptc", ".vtk" using PartIO readers
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {}
-                    else if (operation == "Union" || operation == "union") {}
-                    else if (operation == "Intersect" || operation == "intersect") {}
-                    else if (operation == "Difference" || operation == "difference") {}
+                    else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(fmt::color::red),"Operation not implemented...\n"); }
+                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
                       fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
@@ -970,7 +891,7 @@ void parse_scene(std::string fn,
                   }
                   else 
                   {
-                    fmt::print(fg(fmt::color::red), "GPU[{}] ERROR: Geometry object[{}] does not exist!\n", model["gou"].GetInt(), type);
+                    fmt::print(fg(fmt::color::red), "GPU[{}] ERROR: Geometry object[{}] does not exist!\n", model["gpu"].GetInt(), type);
                     fmt::print(fg(fmt::color::red), "Press Enter...\n");
                     getchar();
                   } 
@@ -1020,49 +941,71 @@ void parse_scene(std::string fn,
                                                             std::array<PREC_G, mn::config::g_target_attribs>{0.f,0.f,0.f,
                                                             0.f,0.f,0.f,
                                                             0.f,0.f,0.f,0.f});
-            // Load and scale target domain
-            mn::vec<PREC_G, 7> target;
-            std::string type{model["type"].GetString()};
-            if      (type == "X"  || type == "x")  target[0] = 0;
-            else if (type == "X-" || type == "x-") target[0] = 1;
-            else if (type == "X+" || type == "x+") target[0] = 2;
-            else if (type == "Y"  || type == "y")  target[0] = 3;
-            else if (type == "Y-" || type == "y-") target[0] = 4;
-            else if (type == "Y+" || type == "y+") target[0] = 5;
-            else if (type == "X"  || type == "x")  target[0] = 6;
-            else if (type == "Z-" || type == "z-") target[0] = 7;
-            else if (type == "Z+" || type == "z+") target[0] = 8;
+            mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
+            
+
+            if (0) // TODO : Implement attribute selection for grid-target
+            {
+              std::string attribute{model["attribute"].GetString()};
+              if      (attribute == "Force"  || attribute == "force")  target[0] = 0;
+              else if (attribute == "Velocity" || attribute == "velocity") target[0] = 1;
+              else if (attribute == "Momentum" || attribute == "momentum") target[0] = 2;
+              else if (attribute == "Mass"  || attribute == "mass")  target[0] = 3;
+              else if (attribute == "JBar" || attribute == "J Bar") target[0] = 4;
+              else if (attribute == "Volume" || attribute == "volume") target[0] = 5;
+              else if (attribute == "X"  || attribute == "x")  target[0] = 6;
+              else if (attribute == "Z-" || attribute == "z-") target[0] = 7;
+              else if (attribute == "Z+" || attribute == "z+") target[0] = 8;
+              else {
+                target[0] = -1;
+                fmt::print(fg(fmt::color::red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
+              }
+            }
+
+            std::string direction{model["direction"].GetString()};
+            if      (direction == "X"  || direction == "x")  target[0] = 0;
+            else if (direction == "X-" || direction == "x-") target[0] = 1;
+            else if (direction == "X+" || direction == "x+") target[0] = 2;
+            else if (direction == "Y"  || direction == "y")  target[0] = 3;
+            else if (direction == "Y-" || direction == "y-") target[0] = 4;
+            else if (direction == "Y+" || direction == "y+") target[0] = 5;
+            else if (direction == "X"  || direction == "x")  target[0] = 6;
+            else if (direction == "Z-" || direction == "z-") target[0] = 7;
+            else if (direction == "Z+" || direction == "z+") target[0] = 8;
             else {
               target[0] = -1;
-              fmt::print(fg(fmt::color::red), "ERROR: gridTarget[{}] has invalid type[{}].\n", target_ID, type);
+              fmt::print(fg(fmt::color::red), "ERROR: gridTarget[{}] has invalid direction[{}].\n", target_ID, direction);
+              getchar();
             }
+            // * Load and scale target domain
             for (int d = 0; d < 3; ++d) 
             {
               target[d+1] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
               target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
 
-            // Check for thin target domain, grow 1 grid-cell if so
+            // * NOTE: Checks for zero length target dimensions, grows by 1 grid-cell if so
             for (int d=0; d < 3; ++d)
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
 
-            // ----------------
-            /// Loop through GPU devices
+            //GridTargetConfigs new_target;
+
+            // * Loop through GPU devices to initialzie
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               benchmark->initGridTarget(did, h_gridTarget, target, 
-                model["output_frequency"].GetFloat());
+                model["output_frequency"].GetFloat()); // TODO : Allow more than one frequency for grid-targets
             fmt::print(fg(fmt::color::green), "GPU[{}] gridTarget[{}] Initialized.\n", did, target_ID);
             }
             target_ID += 1;
           }
         }
       }
-    } ///< end grid-target parsing
+    } ///< End grid-target parsing
     {
       auto it = doc.FindMember("particle-targets");
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
-          fmt::print(fg(fmt::color::cyan),"Scene has {} particle-targets\n", it->value.Size());
+          fmt::print(fg(fmt::color::cyan),"Scene has [{}] particle-targets.\n", it->value.Size());
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
@@ -1070,23 +1013,22 @@ void parse_scene(std::string fn,
                                                             std::array<PREC, mn::config::g_particle_target_attribs>{0.f,0.f,0.f,
                                                             0.f,0.f,0.f,
                                                             0.f,0.f,0.f,0.f});
-          
-            // Load and scale target domain
-            mn::vec<PREC, 7> target;
-            //target[0] = model["type"].GetFloat();
-            std::string type{model["type"].GetString()};
-            if      (type == "Maximum" || type == "maximum" || type == "Max" || type == "max") target[0] = 0;
-            else if (type == "Minimum" || type == "minimum" || type == "Min" || type == "min") target[0] = 1;
-            else if (type == "Add" || type == "add" || type == "Sum" || type == "sum") target[0] = 2;
-            else if (type == "Subtract" || type == "subtract") target[0] = 3;
-            else if (type == "Average" || type == "average" ||  type == "Mean" || type == "mean") target[0] = 4;
-            else if (type == "Variance" || type == "variance") target[0] = 5;
-            else if (type == "Standard Deviation" || type == "stdev") target[0] = 6;
+            mn::vec<PREC, 7> target; // TODO : Make structure for particle-target data
+            // TODO : Implement attribute selection for particle-targets (only elevation currently)
+            std::string operation{model["operation"].GetString()};
+            if      (operation == "Maximum" || operation == "maximum" || operation == "Max" || operation == "max") target[0] = 0;
+            else if (operation == "Minimum" || operation == "minimum" || operation == "Min" || operation == "min") target[0] = 1;
+            else if (operation == "Add" || operation == "add" || operation == "Sum" || operation == "sum") target[0] = 2;
+            else if (operation == "Subtract" || operation == "subtract") target[0] = 3;
+            else if (operation == "Average" || operation == "average" ||  operation == "Mean" || operation == "mean") target[0] = 4;
+            else if (operation == "Variance" || operation == "variance") target[0] = 5;
+            else if (operation == "Standard Deviation" || operation == "stdev") target[0] = 6;
             else {
               target[0] = -1;
-              fmt::print(fg(fmt::color::red), "ERROR: particleTarget[{}] has invalid type[{}].\n", target_ID, type);
+              fmt::print(fg(fmt::color::red), "ERROR: particleTarget[{}] has invalid operation[{}].\n", target_ID, operation);
+              getchar();
             }
-            // Load and scale target domain
+            // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
             for (int d = 0; d < 3; ++d) 
             {
               target[d+1] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
@@ -1099,11 +1041,11 @@ void parse_scene(std::string fn,
                 model["output_frequency"].GetFloat());
               fmt::print(fg(fmt::color::green), "GPU[{}] particleTarget[{}] Initialized.\n", did, target_ID);
             }
-            target_ID += 1;
+            target_ID += 1; // TODO : Count targets using static variable in a structure
           }
         }
       }
-    } ///< end particle-target parsing
+    } ///< End particle-target parsing
     {
       auto it = doc.FindMember("grid-boundaries");
       if (it != doc.MemberEnd()) {
@@ -1112,9 +1054,6 @@ void parse_scene(std::string fn,
           int boundary_ID = 0;
           for (auto &model : it->value.GetArray()) {
 
-
-
-
             mn::vec<float, 7> h_boundary;
             for (int d = 0; d < 3; ++d) {
               h_boundary[d] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
@@ -1122,45 +1061,45 @@ void parse_scene(std::string fn,
             for (int d = 0; d < 3; ++d) {
               h_boundary[d+3] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
-            std::string type{model["type"].GetString()};
+            std::string object{model["object"].GetString()};
             std::string contact{model["contact"].GetString()};
 
-            if (type == "Wall" || type == "wall")
+            if (object == "Wall" || object == "wall")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 0;
               else if (contact == "Slip") h_boundary[6] = 1;
               else if (contact == "Separable") h_boundary[6] = 2;
               else h_boundary[6] = -1;
             }
-            else if (type == "Box" || type == "box")
+            else if (object == "Box" || object == "box")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 3;
               else if (contact == "Slip") h_boundary[6] = 4;
               else if (contact == "Separable") h_boundary[6] = 5;
               else h_boundary[6] = -1;
             }
-            else if (type == "Sphere" || type == "sphere")
+            else if (object == "Sphere" || object == "sphere")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 6;
               else if (contact == "Slip") h_boundary[6] = 7;
               else if (contact == "Separable") h_boundary[6] = 8;
               else h_boundary[6] = -1;
             }
-            else if (type == "OSU LWF" || type == "OSU Flume" || type == "OSU")
+            else if (object == "OSU LWF" || object == "OSU Flume" || object == "OSU")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 9;
               else if (contact == "Slip") h_boundary[6] = 9;
               else if (contact == "Separable") h_boundary[6] = 9;
               else h_boundary[6] = -1;
             }
-            else if (type == "OSU Paddle" || type == "OSU Wave Maker")
+            else if (object == "OSU Paddle" || object == "OSU Wave Maker")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 12;
               else if (contact == "Slip") h_boundary[6] = 12;
               else if (contact == "Separable") h_boundary[6] = 12;
               else h_boundary[6] = -1;
             }            
-            else if (type == "Cylinder" || type == "cylinder")
+            else if (object == "Cylinder" || object == "cylinder")
             {
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 15;
               else if (contact == "Slip") h_boundary[6] = 16;
@@ -1169,7 +1108,7 @@ void parse_scene(std::string fn,
             }
             else 
             {
-              fmt::print(fg(fmt::color::red), "ERROR: gridBoundary[{}] type[{}] or contact[{}] is not valid! \n", boundary_ID, type, contact);
+              fmt::print(fg(fmt::color::red), "ERROR: gridBoundary[{}] object[{}] or contact[{}] is not valid! \n", boundary_ID, object, contact);
               h_boundary[6] = -1;
             }
 
@@ -1179,15 +1118,24 @@ void parse_scene(std::string fn,
             if (motion_file != model.MemberEnd()) 
             {
               fmt::print(fg(fmt::color::blue),"Found motion file for grid-boundary[{}]. Loading... \n", boundary_ID);
-              WaveHolder waveMaker;
-              load_waveMaker(model["file"].GetString(), ',', waveMaker);
+              MotionHolder motionPath;
+              std::string motion_fn = std::string(AssetDirPath) + model["file"].GetString();
+              fs::path motion_file_path{motion_fn};
+              if (motion_file_path.empty()) fmt::print(fg(fmt::color::red), "ERROR: Input file[{}] does not exist.\n", motion_fn);
+              else {
+                std::ifstream istrm(motion_fn);
+                if (!istrm.is_open())  fmt::print(fg(fmt::color::red), "ERROR: Cannot open file[{}]\n", motion_fn);
+                istrm.close();
+              }
+
+              load_motionPath(motion_fn, ',', motionPath);
               
               PREC_G gb_freq = 1;
               auto motion_freq = model.FindMember("output_frequency");
               if (motion_freq != model.MemberEnd()) gb_freq = model["output_frequency"].GetFloat();
 
               for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-                benchmark->initWaveMaker(did, waveMaker, gb_freq);
+                benchmark->initMotionPath(did, motionPath, gb_freq);
                 fmt::print(fg(fmt::color::green),"GPU[{}] gridBoundary[{}] motion file[{}] initialized with frequency[{}].\n", did, boundary_ID, model["file"].GetString(), gb_freq);
               }
             }
@@ -1202,74 +1150,26 @@ void parse_scene(std::string fn,
             
             // ----------------  Initialize grid-boundaries ---------------- 
             benchmark->initGridBoundaries(0, h_boundary, boundary_ID);
-            fmt::print(fg(fmt::color::green), "Initialized gridBoundary[{}]: type[{}], contact[{}].\n", boundary_ID, type, contact);
+            fmt::print(fg(fmt::color::green), "Initialized gridBoundary[{}]: object[{}], contact[{}].\n", boundary_ID, object, contact);
             boundary_ID += 1;
           }
         }
       }
-    } ///< end grid-boundary parsing
-    // {
-    //   auto it = doc.FindMember("motion");
-    //   if (it != doc.MemberEnd()) {
-    //     if (it->value.IsArray()) {
-    //       fmt::print(fg(fmt::color::green), "Has [{}] motion files.\n", it->value.Size());
-    //       for (auto &model : it->value.GetArray()) {
-          
-    //         WaveHolder waveMaker;
-    //         load_waveMaker(model["file"].GetString(), ',', waveMaker);
-
-    //         for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-    //           fmt::print("GPU[{}] motion initialized using file[{}].\n", did, model["file"].GetString());
-    //           benchmark->initWaveMaker(did, waveMaker,  model["output_frequency"].GetFloat());
-    //         }
-    //       }
-    //     }
-    //   }
-    // } ///< End grid-boundary motion parsing
+    }
   }
 } ///< End scene file parsing
 
 
 
-// load from analytic levelset
-// init models
-// void init_models(
-//     std::vector<std::array<float, 3>> models[mn::config::g_device_cnt],
-//     int opt = 0) {
-//   using namespace mn;
-//   using namespace config;
-//   switch (opt) {
-//   case 0: {
-//     constexpr auto LEN = 54;
-//     constexpr auto STRIDE = 56;
-//     constexpr auto MODEL_CNT = 1;
-//     for (int did = 0; did < g_device_cnt; ++did) {
-//       models[did].clear();
-//       std::vector<std::array<float, 3>> model;
-//       for (int i = 0; i < MODEL_CNT; ++i) {
-//         auto idx = (did * MODEL_CNT + i);
-//         model = sample_uniform_box(
-//             g_dx, ivec3{18 + (idx & 1 ? STRIDE : 0), 18, 18},
-//             ivec3{18 + (idx & 1 ? STRIDE : 0) + LEN, 18 + LEN, 18 + LEN});
-//         models[did].insert(models[did].end(), model.begin(), model.end());
-//       }
-//     }
-//   } break;
-//   default:
-//     break;
-//   }
-// }
 
-/// Multi-GPU MPM for Engineers - Justin Bonus, University of Washington
-/// Builds on the open-source Claymore project
+/// @brief Multi-GPU MPM for Engineers. Builds on the original, open-source Claymore MPM, all rights reserved. Claymore MPM for Engineers: https://github.com/penn-graphics-research/claymore . Original Claymore MPM : https://github.com/penn-graphics-research/claymore . For an executable [test] with scene file [scene_test.json]
+/// @param argv  For an executable [test] with desired scene file [scene_test.json], use Command-line: ./test --file = scene_test.json  (NOTE : defaults to scene.json if not specified)
 int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
-  Cuda::startup(); //< Start CUDA GPU
+  Cuda::startup(); //< Start CUDA GPUs if available.
 
   // ---------------- Read JSON input file for simulation ---------------- 
-  // For an executable [test] with scene file [scene_test.json]
-  // Command-line: ./test --file = scene_test.json
   cxxopts::Options options("Scene_Loader", "Read simulation scene");
   options.add_options()("f,file", "Scene Configuration File",
       cxxopts::value<std::string>()->default_value("scene.json")); //< scene.json is default
@@ -1287,13 +1187,18 @@ int main(int argc, char *argv[]) {
     fmt::print(fg(fmt::color::green),"Finished scene initialization.\n");
 
     // ---------------- Run Simulation
-    fmt::print(fg(fmt::color::green),"Run simulation...\n");
     if (g_log_level > 1) {
       fmt::print(fg(fmt::color::blue),"Press ENTER to start simulation... (Disable via g_log_level < 2). \n");
       getchar();
     }
+
+    fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
+    // CppTimer sim_timer{};
+    // sim_timer.tick();
     benchmark->main_loop();
-    fmt::print(fg(fmt::color::green), "Finished main loop of simulation.\n");
+    // sim_timer.tock(
+    //       fmt::format("Finished simulation in [{}] minutes. Average of [{}] seconds per frame.", did, curStep));
+    fmt::print(fg(fmt::color::green), "Finished simulation.\n");
     // ---------------- Clear
     IO::flush();
     fmt::print(fg(fmt::color::green),"Cleared I/O.\n");

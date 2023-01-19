@@ -15,7 +15,6 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "use.geometry",
 			"color": "yellow",
 			"constitutive": "DruckerPrager",
 			"output_attribs": ["VonMisesStress", "Velocity_X", "Pressure"],
@@ -31,21 +30,16 @@
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": false,
-			"alpha": 0,
+			"alpha": 1,
 			"beta_min": 0,
 			"beta_max": 0,
 			"FBAR_ratio": 0,
-			"offset": [0.0, 0.0, 0.0],
-			"span": [3.2, 3.2, 0.0125],
 			"velocity": [0, 0, 0],
 			"partition": 0,
 			"partition_start": [0,0,0],
 			"partition_end": [0,0,0],
 			"inter_a": [0,0,0],
 			"inter_b": [0,0,0],
-			"track_particle_id": 0,
-			"track_attribs": ["Velocity_X"],
-			"target_attribs": ["Position_Y"],
 			"geometry": [
 				{
 					"object": "Box",
@@ -55,12 +49,15 @@
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
 				}
-			]
+			],
+			"track_particle_id": [0],
+			"track_attribs": ["Velocity_X"],
+			"target_attribs": ["Position_Y"]
 		}
 	],
 	"grid-boundaries": [
 		{
-			"type": "Wall",
+			"Object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
 			"domain_end": [9.6, 6.4, 0.025],
@@ -69,22 +66,25 @@
 	],
 	"grid-targets": [
 		{
-			"type": "X+",
 			"attribute": "Force",
+			"direction": "X+",
+			"operation": "Sum",
 			"output_frequency": 120,
 			"domain_start": [9.59, 0, -0.1],
 			"domain_end": [9.7, 4, 0.1]
 		},
 		{
-			"type": "X-",
 			"attribute": "Force",
+			"direction": "X-",
+			"operation": "Sum",
 			"output_frequency": 120,
 			"domain_start": [-0.1, 0, -0.1],
 			"domain_end": [0.0, 4, 0.1]
 		},	
 		{
-			"type": "Y-",
 			"attribute": "Force",
+			"direction": "Y-",
+			"operation": "Sum",
 			"output_frequency": 120,
 			"domain_start": [-0.1, -0.1, -0.1],
 			"domain_end": [9.7, 0, 0.1]
@@ -92,8 +92,8 @@
 	],
 	"particle-targets": [
 		{
-			"type": "Max",
 			"attribute": "Elevation",
+			"operation": "Max",
 			"output_frequency": 120,
 			"domain_start": [3.2, 0, 0.0],
 			"domain_end":   [3.25, 3.3, 0.1]

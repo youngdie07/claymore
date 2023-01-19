@@ -94,6 +94,7 @@ template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin13_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin16_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin18_f_ {};
+template <> struct particle_bin_<material_e::NeoHookean_ASFLIP_FBAR> : particle_bin18_f_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin17_f_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin17_f_ {};
 template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
@@ -211,9 +212,9 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
     int i = 0;
     for (auto n : names)
     {
-    track_labels.emplace_back(n);
-        track_attribs[i] = mapAttributeStringToIndex(n);
-        i = i+1;
+      track_labels.emplace_back(n);
+      track_attribs[i] = mapAttributeStringToIndex(n);
+      i = i+1;
     }
   }
 
@@ -265,19 +266,36 @@ struct ParticleBuffer<material_e::JFluid>
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v,
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+                        config::AlgoConfigs algoConfigs) {
     length = l;
     rho = density;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                     (1 << DOMAIN_BITS) / ppc);
     mass = volume * density;
     bulk = b;
     gamma = g;
     visco = v;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+    use_ASFLIP = algoConfigs.use_ASFLIP;
+    use_FEM = algoConfigs.use_FEM;
+    use_FBAR = algoConfigs.use_FBAR;
   }
+
+  template<typename T = PREC>
+  __forceinline__ __device__ void
+  getJ(T& J){
+  J = this->ch(_0, bin).val(_0, pidib);
+  }
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getPressure(T J, T& pressure){
+    compute_pressure_jfluid(volume, bulk, gamma, J, pressure);
+  }
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getStrainEnergy(T J, T& strain_energy){
+    compute_energy_jfluid(volume, bulk, gamma, J, strain_energy);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -346,8 +364,7 @@ struct ParticleBuffer<material_e::JBarFluid>
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
 
   void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
-                        PREC a, PREC bmin, PREC bmax, PREC fbar_ratio,
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+                        config::AlgoConfigs algoConfigs) {
     length = l;
     rho = density;
     volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
@@ -356,13 +373,13 @@ struct ParticleBuffer<material_e::JBarFluid>
     bulk = b;
     gamma = g;
     visco = v;
-    alpha = a;
-    beta_min = bmin;
-    beta_max = bmax;
-    FBAR_ratio = fbar_ratio;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+    alpha = algoConfigs.ASFLIP_alpha;
+    beta_min = algoConfigs.ASFLIP_beta_min;
+    beta_max = algoConfigs.ASFLIP_beta_max;
+    FBAR_ratio = algoConfigs.FBAR_ratio;
+    use_ASFLIP = algoConfigs.use_ASFLIP;
+    use_FEM = algoConfigs.use_FEM;
+    use_FBAR = algoConfigs.use_FBAR;
   }  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -453,6 +470,50 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
     : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR>;
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
+                        PREC a, PREC bmin, PREC bmax, PREC fbar_ratio,
+                        PREC ASFLIP=false, bool FEM=false, bool FBAR=false) {
+    length = l;
+    rho = density;
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / ppc);
+    mass = volume * density;
+    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
+    mu = E / (2 * (1 + nu));
+    alpha = a;
+    beta_min = bmin;
+    beta_max = bmax;
+    FBAR_ratio = fbar_ratio;
+    use_ASFLIP = ASFLIP;
+    use_FEM = FEM;
+    use_FBAR = FBAR;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+
+template <>
+struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
+    : ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR> {
+  using base_t = ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR>;
   PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
   PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
@@ -662,6 +723,7 @@ using particle_buffer_t =
             ParticleBuffer<material_e::FixedCorotated>,
             ParticleBuffer<material_e::FixedCorotated_ASFLIP>,
             ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>,
+            ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>,
             ParticleBuffer<material_e::Sand>, 
             ParticleBuffer<material_e::NACC>,
             ParticleBuffer<material_e::Meshed>>;

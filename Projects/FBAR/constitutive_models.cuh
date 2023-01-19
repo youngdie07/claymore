@@ -72,7 +72,7 @@ compute_energy_fixedcorotated(T volume, T mu, T lambda, const vec<T, 9> &F,
 }
 
 
-template <typename T = float>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
                              vec<T, 9> &PF)
@@ -82,7 +82,7 @@ compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
   vec<T, 9> Finv;
   matrixInverse(F.data(), Finv.data());
 
-  T J = matrixDeterminant3D(F.data());
+  T J = matrixDeterminant3d(F.data());
   T logJ = log(J);
 
   // P  = mu * (F - F^-T) + lambda * log(J) * F^-T
@@ -109,14 +109,14 @@ compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
   PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8]) * volume;
 }
 
-template <typename T = float>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
                              T &strain_energy)
 {
   // Neo-hooken strain potential energy. Page 90 UCLA MPM course Jiang et al.
   // ABAQUS uses a slightly different formulation.
-  T J = matrixDeterminant3D(F.data());
+  T J = matrixDeterminant3d(F.data());
   T logJ = log(J);
 
   T C[3]; //< Left Cauchy Green Diagonal, F^T F
@@ -127,9 +127,9 @@ compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
   strain_energy = (mu * (0.5*((C[0] + C[1] + C[2]) - 3) - logJ) + 0.5*lambda*logJ*logJ) * volume;
 }
 
-template <typename T>
+template <typename T = double>
 __forceinline__ __device__ void
-compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, vec<T, 1> &strain_energy)
+compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, T& strain_energy)
 {
   // Based on Pradhana 2017 Multi-Species MPM paper. Modified pressure constant term for gamma
   // Energy(J) = -(bulk/bulk_wrt_pressure) * ( ( J^(1 - bulk_wrt_pressure)  / (1 - bulk_wrt_pressure) ) - J) * volume?
@@ -145,24 +145,37 @@ compute_energy_jfluid( T volume, T bulk, T bulk_wrt_pressure, T J, vec<T, 1> &st
 //   strain_energy = - volume * (bulk / bulk_wrt_pressure) * 
                     // ( ( pow(J, (1.0 - bulk_wrt_pressure))  / (1.0 - bulk_wrt_pressure) ) - J );
   T one_minus_bwp = 1.0 - bulk_wrt_pressure;
-  strain_energy[0] = volume * bulk * 
+  strain_energy = volume * bulk * 
                     ((1.0/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * pow(J, one_minus_bwp) + (1.0/bulk_wrt_pressure)*J - (1.0/(bulk_wrt_pressure-1.0)));
+}
 
+template <>
+__forceinline__ __device__ void
+compute_energy_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float& strain_energy)
+{
+  float one_minus_bwp = 1.f - bulk_wrt_pressure;
+  strain_energy = volume * bulk * 
+                    ((1.f/(bulk_wrt_pressure*(bulk_wrt_pressure-1.0))) * powf(J, one_minus_bwp) + (1.f/bulk_wrt_pressure)*J - (1.f/(bulk_wrt_pressure-1.f)));
 }
 
 
-template <typename T = float>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T J, T &pressure)
 {
   pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
 }
-
+template <>
+__forceinline__ __device__ void
+compute_pressure_jfluid(float volume, float bulk, float bulk_wrt_pressure, float J, float &pressure)
+{
+  pressure =  (bulk / bulk_wrt_pressure) * (  powf(J, -bulk_wrt_pressure) - 1.f );
+}
 
 template <typename T = float>
 __forceinline__ __device__ void
 compute_energy_sand(T volume, T mu, T lambda, T cohesion, T beta,
-                    T yieldSurface, bool volCorrection, T &logJp, vec<T, 9> &F, T &strain_energy) {
+                    T yieldSurface, bool volCorrection, T logJp, vec<T, 9> &F, T &strain_energy) {
   T U[9], S[3], V[9];
   // ψs(Fs) = ψ˜s (ϵ) = µtr(ϵ^2) + λ/2 tr(ϵ) 
   // Modified code from stress graphics version, need to recheck it
@@ -472,7 +485,7 @@ compute_stress_nacc(double volume, double mu, double lambda, double bm, double x
   PF[8] = (dev_b_coeff * b_dev[8] + i_coeff) * volume;
 }
 
-template <typename T = float>
+template <typename T = double>
 __forceinline__ __device__ void
 compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
                     T yieldSurface, bool volCorrection, T &logJp, vec<T, 9> &F,

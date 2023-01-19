@@ -28,7 +28,7 @@ template <> struct HaloPartition<1> {
   void copy_to(HaloPartition &other, std::size_t blockCnt,
                cudaStream_t stream) {
     other.h_count = h_count;
-      //fmt::print(fg(fmt::color::green), "h_count: {}\n", h_count) ;
+    //fmt::print(fg(fmt::color::green), "h_count: {}\n", h_count) ;
 
     checkCudaErrors(cudaMemcpyAsync(other._haloMarks, _haloMarks,
                                     sizeof(char) * blockCnt, cudaMemcpyDefault,
@@ -62,9 +62,9 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(&h_count, _count, sizeof(int),
                                     cudaMemcpyDefault, stream));
   }
-  int *_count, h_count; //< 
-  char *_haloMarks; ///< Halo particle blocks
-  int *_overlapMarks; //< 
+  int *_count, h_count; //< Count
+  char *_haloMarks; ///< Halo particle block marks
+  int *_overlapMarks; //< Overlapping marks
   ivec3 *_haloBlocks; //< IDs of Halo Blocks
 };
 
@@ -75,12 +75,8 @@ using block_partition_ =
                          structural_padding_policy::compact>,
                GridDomain, attrib_layout::aos, empty_>; // GridDomain in grid_buffer.cuh
 
-// Template for Partitions (organizes interaction of Particles and Grids)
-// Manages: particles-per-cells, particles-per-blocks
-//          Cell-Buckets (particle IDs within Cell), Block-Buckets (particle IDs within Block),
-//          Particle Bins
-// Uses a ton of memory, can be optimized
-// Inherit from Halo Partition (organizes Multi-GPU interaction)
+/// @brief Template for Partitions (organizes interaction of Particles and Grids). Manages particles-per-cells, particles-per-blocks, Cell-Buckets (particle IDs within Cell), Block-Buckets (particle IDs within Block),  Particle Bins
+/// Uses a ton of memory, can be optimized. Inherits from Halo Partition (organizes Multi-GPU interaction)
 template <int Opt = 1>
 struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   using base_t = Instance<block_partition_>;
@@ -171,7 +167,9 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
                                     sizeof(int) * blockCnt, cudaMemcpyDefault,
                                     stream));
   }
-  // Insert new key for Block in Partition Index-Table
+  /// @brief Insert new key for Block in Partition Index-Table
+  /// @param key 
+  /// @return New index for inserted key. Returns -1 if error occurs.
   __forceinline__ __device__ value_t insert(key_t key) noexcept {
     // Set &this->index(key) = 0 if (&this->index(key) == sentinel_v), sentinel_v = -1 basically 
     // Return old value of this->index(key) as tag
@@ -184,16 +182,21 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     }
     return -1; //< Return -1 as error flag
   }
-  // Query key for block in Partition Index-Table
+  /// @brief Query index of block in Partition Index-Table.
+  /// @param key
+  /// @return Index of key in partition.
   __forceinline__ __device__ value_t query(key_t key) const noexcept {
     return this->index(key);
   }
-  // Reinsert key for Block in Partition Index-Table
+  /// @brief Reinsert the key for Block index in Partition Index-Table
+  /// @param index Index of block 
   __forceinline__ __device__ void reinsert(value_t index) {
     this->index(this->_activeKeys[index]) = index;
   }
-  // Advect particle ID in a Block to a new Cell in Partition
-  // Done because particles move during Grid-to-Particle-to-Grid
+  /// @brief Advect particle ID in a Block to a new Cell in Partition. Done because particles move during Grid-to-Particle-to-Grid
+  /// @param cellid Grid-cell ID
+  /// @param dirtag Direction tag
+  /// @param pidib Particle-ID-in-block
   __forceinline__ __device__ void add_advection(key_t cellid, int dirtag,
                                                 int pidib) noexcept {
     using namespace config;
