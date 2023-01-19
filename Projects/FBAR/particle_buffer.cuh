@@ -280,11 +280,11 @@ struct ParticleBuffer<material_e::JFluid>
     use_FBAR = algoConfigs.use_FBAR;
   }
 
-  template<typename T = PREC>
-  __forceinline__ __device__ void
-  getJ(T& J){
-  J = this->ch(_0, bin).val(_0, pidib);
-  }
+  // template<typename T = PREC>
+  // __forceinline__ __device__ void
+  // getJ(T& J){
+  // J = this->ch(_0, bin).val(_0, pidib);
+  // }
   template <typename T = PREC>
   __forceinline__ __device__ void
   getPressure(T J, T& pressure){
