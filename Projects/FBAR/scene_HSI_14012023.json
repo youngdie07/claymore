@@ -5,7 +5,7 @@
 		"fps": 20,
 		"frames": 60,
 		"CFL": 0.5,
-		"default_dt": 1.5e-4,
+		"default_dt": 3e-5,
 		"default_dx": 0.05,
 		"domain": [6.4, 6.4, 0.4],
 		"save_path": "./",
@@ -15,39 +15,35 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"file": "use.geometry",
 			"color": "blue",
 			"constitutive": "JFluid",
-			"output_attribs": ["ID", "Velocity_X", "Pressure"],
+			"output_attribs": ["J", "JBar", "Pressure"],
 			"ppc": 8,
 			"CFL": 0.5,
 			"rho": 1000,
-			"bulk_modulus": 2.2e7,
+			"bulk_modulus": 2.2e8,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"use_ASFLIP": true,
+			"use_ASFLIP": false,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.9,
-			"offset": [2.0, 0.0, 0.0],
-			"span": [88.1, 2, 0.025],
+			"FBAR_ratio": 0.5,
 			"velocity": [0, 0, 0],
-			"partition": 0,
 			"partition_start": [0,0,0],
-			"partition_end": [0,0,0],
+			"partition_end": [3.2,3.2,0.05],
 			"inter_a": [0,0,0],
 			"inter_b": [0,0,0],
-			"track_particle_id": 0,
+			"track_particle_id": [0],
 			"track_attribs": ["Velocity_X"],
 			"target_attribs": ["Position_Y"],
 			"geometry": [
 				{
 					"object": "Box",
 					"operation": "Add",
-					"span": [3.2, 3.2, 0.025],
+					"span": [3.2, 3.2, 0.05],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
@@ -57,7 +53,7 @@
 	],
 	"grid-boundaries": [
 		{
-			"type": "Wall",
+			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
 			"domain_end": [3.2, 6.4, 0.05],
@@ -66,22 +62,25 @@
 	],
 	"grid-targets": [
 		{
-			"type": "X+",
 			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
 			"output_frequency": 120,
 			"domain_start": [3.19, 0, -0.1],
 			"domain_end": [3.3, 4, 0.4]
 		},
 		{
-			"type": "X-",
 			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X-",
 			"output_frequency": 120,
 			"domain_start": [-0.1, 0, -0.1],
 			"domain_end": [0.0, 4, 0.4]
 		},	
 		{
-			"type": "Y-",
 			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "Y-",
 			"output_frequency": 120,
 			"domain_start": [-0.1, -0.1, -0.1],
 			"domain_end": [3.3, 0, 0.4]
@@ -89,8 +88,8 @@
 	],
 	"particle-targets": [
 		{
-			"type": "Max",
 			"attribute": "Elevation",
+			"operation": "Max",
 			"output_frequency": 120,
 			"domain_start": [1.575, 3, 0.0],
 			"domain_end":   [1.625, 3.3, 0.4]

@@ -15,6 +15,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <array>
 
 #if 0
 #include <ghc/filesystem.hpp>
@@ -45,42 +46,86 @@ std::string save_suffix; //< File-format to save particles with
 //__device__ __constant__ PREC length;
 
 
+template <typename T>
+bool inside_partition(std::array<T,3> arr, mn::vec<T,3> partition_start, mn::vec<T,3> partition_end) {
+  if (arr[0] >= partition_start[0] && arr[0] < partition_end[0])
+    if (arr[1] >= partition_start[1] && arr[1] < partition_end[1])
+      if (arr[2] >= partition_start[2] && arr[2] < partition_end[2])
+        return true;
+  return false;
+}
 
-decltype(auto) load_model(std::size_t pcnt, std::string filename) {
-  std::vector<std::array<float, 3>> rawpos(pcnt);
+template <typename T>
+decltype(auto) load_binary_particles(std::size_t pcnt, std::string filename) {
+  std::vector<std::array<T, 3>> rawpos(pcnt);
   auto f = fopen(filename.c_str(), "rb");
-  auto res = std::fread((float *)rawpos.data(), sizeof(float), rawpos.size() * 3, f);
+  auto res = std::fread((T *)rawpos.data(), sizeof(T), rawpos.size() * 3, f);
   std::fclose(f);
   return rawpos;
 }
 
 void load_csv_particles(const std::string& filename, char sep, 
                         std::vector<std::array<PREC, 3>>& fields, 
-                        mn::vec<PREC, 3> offset, const std::string& addr=std::string{"TetMesh/"}){
+                        mn::vec<PREC, 3> offset, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
   std::ifstream in(filename.c_str());
   if (in) {
-      std::string line;
-      while (getline(in, line)) {
-          std::stringstream sep(line);
-          std::string field;
-          const int el = 3; // x, y, z - Default
-          int col = 0;
-          std::array<PREC, 3> arr;
-          while (getline(sep, field, ',')) {
-              if (col >= el) break;
-              arr[col] = stof(field) / l + offset[col];
-              col++;
-          }
-          fields.push_back(arr);
+    std::string line;
+    while (getline(in, line)) {
+      std::stringstream sep(line);
+      std::string field;
+      const int el = 3; // 3 = x, y, z - Default,
+      int col = 0;
+      std::array<PREC, 3> arr;
+      while (getline(sep, field, ',')) 
+      {
+        if (col >= el) break;
+        arr[col] = stod(field) / l + offset[col];
+        col++;
       }
+      if (inside_partition(arr, partition_start, partition_end))
+        fields.push_back(arr);
+    }
+  }
+  int i = 0;
+  for (auto row : fields) {
+    for (auto field : row) std::cout << "Row["<< i << "] : " << field << ' ' << '\n';
+    if (i > 4) break;
+    i++;
+  }
+}
+
+void load_csv_particles(const std::string& filename, char sep, 
+                        std::vector<std::array<PREC, 3>>& fields, 
+                        mn::vec<PREC, 3> offset) {
+  std::ifstream in(filename.c_str());
+  if (in) {
+    std::string line;
+    while (getline(in, line)) {
+      std::stringstream sep(line);
+      std::string field;
+      const int el = 3; // 3 = x, y, z - Default,
+      int col = 0;
+      std::array<PREC, 3> arr;
+      while (getline(sep, field, ',')) 
+      {
+        if (col >= el) break;
+        arr[col] = stod(field) / l + offset[col];
+        col++;
+      }
+      fields.push_back(arr);
+    }
   }
   if (verbose) {
-    for (auto row : fields) for (auto field : row) std::cout << field << ' ' << '\n';
+    int i = 0;
+    for (auto row : fields) {
+      for (auto field : row) std::cout << "Row["<< i << "] : " << field << ' ' << '\n';
+      i++;
+    }
   }
 }
 
 void make_box(std::vector<std::array<PREC, 3>>& fields, 
-                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset, PREC ppc) {
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset, PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
   // Make a rectangular prism of particles, write to fields
   // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
   // Assumes span and offset are pre-adjusted to 1x1x1 domain with 8*g_dx offset
@@ -111,7 +156,8 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
               surf =  m * x + b;
               
               if (y <= surf)
-              fields.push_back(arr);
+                if (inside_partition(arr, partition_start, partition_end))
+                  fields.push_back(arr);
             }  
             else if (0)
             {
@@ -125,22 +171,99 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
               surf_two =  m * (x) + b;
 
               if (z >= surf_one && z <= surf_two)
-                fields.push_back(arr);
+                if (inside_partition(arr, partition_start, partition_end))
+                  fields.push_back(arr);
             }
             else 
             {
+            if (inside_partition(arr, partition_start, partition_end))
               fields.push_back(arr);
-            }
+          }
         }
       }
     }
   } 
 }
 
+template <typename T>
+bool inside_box(std::array<T,3>& arr, mn::vec<T,3> span, mn::vec<T,3> offset) 
+{
+  if (arr[0] >= offset[0] && arr[0] < span[0] + offset[0])
+    if (arr[1] >= offset[1] && arr[1] < span[1] + offset[1])
+      if (arr[2] >= offset[2] && arr[2] < span[2] + offset[2])
+        return true;
+  return false;
+}
+
+template <typename T>
+bool inside_cylinder(std::array<T,3>& arr, T radius, std::string axis, mn::vec<T,3> span, mn::vec<T,3> offset) 
+{
+  std::array<T,3> center;
+  for (int d=0; d<3; d++) center[d] = offset[d] + radius;
+
+  if (axis == "X" || axis == "x")
+  { 
+    PREC r = std::sqrt((arr[1]-center[1])*(arr[1]-center[1]) + (arr[2]-center[2])*(arr[2]-center[2]));
+    if (r <= radius)
+       if (arr[0] >= offset[0] && arr[0] < offset[0] + span[0])
+          return true;
+  }
+  else if (axis == "Y" || axis == "Y")
+  { 
+    PREC r = std::sqrt((arr[0]-center[0])*(arr[0]-center[0]) + (arr[2]-center[2])*(arr[2]-center[2]));
+    if (r <= radius)
+       if (arr[1] >= offset[1] && arr[1] < offset[1] + span[1])
+          return true;
+  }
+  else if (axis == "Z" || axis == "z")
+  { 
+    PREC r = std::sqrt((arr[1]-center[1])*(arr[1]-center[1]) + (arr[0]-center[0])*(arr[0]-center[0]));
+    if (r <= radius)
+       if (arr[2] >= offset[2] && arr[2] < offset[2] + span[2])
+          return true;
+  }
+  return false;
+}
+
+template <typename T>
+bool inside_sphere(std::array<T,3>& arr, T radius, mn::vec<T,3> offset) 
+{
+  std::array<T,3> center;
+  for (int d=0; d<3; d++) center[d] = offset[d] + radius;
+  PREC r = std::sqrt((arr[0]-center[0])*(arr[0]-center[0]) + (arr[1]-center[1])*(arr[1]-center[1]) + (arr[2]-center[2])*(arr[2]-center[2]));
+  if (r <= radius)
+      return true;
+  return false;
+}
+
+template <typename T>
+void subtract_box(std::vector<std::array<T,3>>& particles, mn::vec<T,3> span, mn::vec<T,3> offset) {
+  fmt::print("Previous particle count: {}\n", particles.size());
+  particles.erase(std::remove_if(particles.begin(), particles.end(),
+                              [&](std::array<T,3> x){ return inside_box(x, span, offset); }), particles.end());
+  fmt::print("Updated particle count: {}\n", particles.size());
+}
+
+template <typename T>
+void subtract_cylinder(std::vector<std::array<T,3>>& particles, T radius, std::string axis, mn::vec<T,3> span, mn::vec<T,3> offset) {
+  fmt::print("Previous particle count: {}\n", particles.size());
+  particles.erase(std::remove_if(particles.begin(), particles.end(),
+                              [&](std::array<T,3> x){ return inside_cylinder(x, radius / l, axis, span, offset); }), particles.end());
+  fmt::print("Updated particle count: {}\n", particles.size());
+}
+
+
+template <typename T>
+void subtract_sphere(std::vector<std::array<T,3>>& particles, T radius, mn::vec<T,3> offset) {
+  fmt::print("Previous particle count: {}\n", particles.size());
+  particles.erase(std::remove_if(particles.begin(), particles.end(),
+                              [&](std::array<T,3> x){ return inside_sphere(x, radius / l, offset); }), particles.end());
+  fmt::print("Updated particle count: {}\n", particles.size());
+}
 
 void make_cylinder(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, PREC radius, std::string axis) {
+                        PREC ppc, PREC radius, std::string axis, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
   // Make a cylinder of particles, write to fields
   // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
   // Assumes span and offset are pre-adjusted to 1x1x1 domain with 8*g_dx offset
@@ -177,7 +300,9 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
               r = 0;
               fmt::print(fg(fmt::color::red), "ERROR: Value of axis[{}] is not applicable for a Cylinder. Use X, Y, or Z.", axis);
             }
-            if (r <= radius) fields.push_back(arr);
+            if (r <= radius)
+              if (inside_partition(arr, partition_start, partition_end))
+                fields.push_back(arr);
         }
       }
     }
@@ -186,7 +311,7 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
 
 void make_sphere(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, PREC radius) {
+                        PREC ppc, PREC radius, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
   // Make a sphere of particles, write to fields
   // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
   // Assumes span and offset are pre-adjusted to 1x1x1 box with 8*g_dx offset
@@ -208,12 +333,13 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
           y = ((arr[1] - offset[1]) * l);
           z = ((arr[2] - offset[2]) * l);
           if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
-            PREC xo = radius; 
-            PREC yo = radius;
-            PREC zo = radius;
+            PREC xo, yo, zo;
+            xo = yo = zo = radius; 
             PREC r;
             r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo) + (z-zo)*(z-zo));
-            if (r <= radius) fields.push_back(arr);
+            if (r <= radius) 
+              if (inside_partition(arr, partition_start, partition_end))
+                fields.push_back(arr);
         }
       }
     }
@@ -222,7 +348,7 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
 
 void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc) {
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
   // Make OSU LWF flume fluid as particles, write to fields
   // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
   // Assumes span and offset are pre-adjusted to 1x1x1 box with 8*g_dx offset
@@ -281,7 +407,8 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
             {
               if (y >= ( bath_slope[d] * (x - bathx[d-1]) + bathy[d-1]) )
               {
-                fields.push_back(arr);
+                if (inside_partition(arr, partition_start, partition_end))
+                  fields.push_back(arr);
                 break;
               }
               else break;
@@ -570,12 +697,12 @@ void parse_scene(std::string fn,
               fmt::print(fg(fmt::color::red),
                        "ERROR! Particle model gpu[{}] exceeds GPUs reserved by g_device_cnt (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", 
                        model["gpu"].GetInt());
-              break;
+              continue;
             } 
             else if (model["gpu"].GetInt() < 0) {
               fmt::print(fg(fmt::color::red),
                        "ERROR! GPU ID[{}] cannot be negative. \n", model["gpu"].GetInt());
-              break;
+              continue;
             }
             //fs::path p{model["file"].GetString()};
             std::string constitutive{model["constitutive"].GetString()};
@@ -744,13 +871,9 @@ void parse_scene(std::string fn,
             };
             mn::vec<PREC, 3> velocity, partition_start, partition_end, inter_a, inter_b;
             for (int d = 0; d < 3; ++d) {
-              //offset[d]   = model["offset"].GetArray()[d].GetDouble() / l + o;
-              //span[d]     = model["span"].GetArray()[d].GetDouble() / l;
               velocity[d] = model["velocity"].GetArray()[d].GetDouble() / l;
-              partition_start[d]  = model["partition_start"].GetArray()[d].GetDouble() / l;
-              partition_end[d]  = model["partition_end"].GetArray()[d].GetDouble() / l;
-              //inter_a[d]  = model["inter_a"].GetArray()[d].GetDouble() / l;
-              //inter_b[d]  = model["inter_b"].GetArray()[d].GetDouble() / l;
+              partition_start[d]  = model["partition_start"].GetArray()[d].GetDouble() / l + o;
+              partition_end[d]  = model["partition_end"].GetArray()[d].GetDouble() / l + o;
               inter_a[d] = -1; // TODO : Deprecate inter_a/b for JSON "subtract" in "geometry"
               inter_b[d] = -1;
             }
@@ -794,9 +917,11 @@ void parse_scene(std::string fn,
                   {
                     if (operation == "Add" || operation == "add") {
                       make_box(models[model["gpu"].GetInt()], 
-                          geometry_span, geometry_offset_updated, model["ppc"].GetFloat());
+                          geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Subtract" || operation == "subtract") {
+                      subtract_box(models[model["gpu"].GetInt()], geometry_span, geometry_offset_updated);
+                    }
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
@@ -810,9 +935,9 @@ void parse_scene(std::string fn,
                   {
                     if (operation == "Add" || operation == "add") {
                       make_cylinder(models[model["gpu"].GetInt()], 
-                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString());
+                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString(), partition_start, partition_end);
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[model["gpu"].GetInt()], geometry["radius"].GetDouble(), geometry["axis"].GetString(), geometry_span, geometry_offset_updated);}
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
@@ -826,9 +951,11 @@ void parse_scene(std::string fn,
                   {
                     if (operation == "Add" || operation == "add") {
                       make_sphere(models[model["gpu"].GetInt()], 
-                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble());
+                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), partition_start, partition_end);
                     }
-                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                    else if (operation == "Subtract" || operation == "subtract") {
+                      subtract_sphere(models[model["gpu"].GetInt()], geometry["radius"].GetDouble(), geometry_offset_updated);
+                    }
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
@@ -842,7 +969,7 @@ void parse_scene(std::string fn,
                   {
                     if (operation == "Add" || operation == "add") {
                       make_OSU_LWF(models[model["gpu"].GetInt()], 
-                            geometry_span, geometry_offset_updated, model["ppc"].GetFloat());
+                            geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
                     }
                     else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
@@ -869,21 +996,16 @@ void parse_scene(std::string fn,
                       // TODO : Reimplement signed-distance-field (*.sdf) particle input files to match current scene set-up (e.g. appropiate offset and scale).
                       if (geometry_file_path.extension() == ".sdf") 
                       {
-                        if (model["partition"].GetInt()){
-                          auto sdf_particles = mn::read_sdf(
-                              geometry_fn, model["ppc"].GetFloat(),
-                              mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span,
-                              partition_start, partition_end, inter_a, inter_b);
-                        } else {
-                          auto sdf_particles = mn::read_sdf(
-                              geometry_fn, model["ppc"].GetFloat(),
-                              mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span);
-                        }
+                        auto sdf_particles = mn::read_sdf(
+                            geometry_fn, model["ppc"].GetFloat(),
+                            mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span,
+                            partition_start, partition_end, inter_a, inter_b);
                       }
                       if (geometry_file_path.extension() == ".csv") 
                       {
                         load_csv_particles(geometry_fn, ',', 
-                                            models[model["gpu"].GetInt()], geometry_offset_updated);
+                                            models[model["gpu"].GetInt()], geometry_offset_updated, 
+                                            partition_start, partition_end);
                       }
                       // TODO : Include particle file input for ".bgeo", ".bin", ".pdb", ".ptc", ".vtk" using PartIO readers
                     }
@@ -921,6 +1043,7 @@ void parse_scene(std::string fn,
             }
               
             auto positions = models[model["gpu"].GetInt()];
+
             mn::IO::insert_job([&]() {
               mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
                                         positions);});              
@@ -1046,7 +1169,7 @@ void parse_scene(std::string fn,
 
             PREC freq = model["output_frequency"].GetDouble();
 
-            mn::config::ParticleTargetConfigs particleTargetConfigs(target[6], target[6], target[6], {target[1], target[2], target[3]}, {target[4], target[5], target[6]}, freq);
+            mn::config::ParticleTargetConfigs particleTargetConfigs(target[6], target[6], target[6], {(float)target[1], (float)target[2], (float)target[3]}, {target[4], (float)target[5], (float)target[6]}, freq);
 
 
             // Initialize on GPUs

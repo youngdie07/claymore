@@ -4,7 +4,7 @@
 		"gravity": -9.81,
 		"fps": 10,
 		"frames": 320,
-		"default_dt": 1.6e-4,
+		"default_dt": 5e-5,
 		"default_dx": 0.05,
 		"domain": [90, 4.6, 3.75],
 		"save_path": "./",
@@ -20,7 +20,7 @@
 			"ppc": 8,
 			"CFL": 0.5,
 			"rho": 1000,
-			"bulk_modulus": 2.2e7,
+			"bulk_modulus": 2.2e8,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"use_ASFLIP": false,
@@ -126,7 +126,7 @@
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 120,
-			"domain_start": [45.790, 2.049, 0],
+			"domain_start": [45.790, 2.049, -0.2],
 			"domain_end": [45.85, 2.615, 2.338]
 		}
 	],

@@ -69,7 +69,7 @@ enum class fem_e {  Tetrahedron = 0,
 namespace config 
 {
 // GPU devices for simulation
-constexpr int g_device_cnt = 1; //< IMPORTANT. Number of GPUs to compile for.
+constexpr int g_device_cnt = 4; //< IMPORTANT. Number of GPUs to compile for.
 
 // Run-time animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames
@@ -99,7 +99,7 @@ constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
 
 // Grid set-up
 #define BLOCK_BITS 2 //< Bits for grid block resolution. 2 -> 4x4x4 grid-nodes. 
-#define DOMAIN_BITS 11 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
+#define DOMAIN_BITS 10 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
@@ -123,15 +123,15 @@ constexpr float g_offset = g_dx * 8; //<
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 32.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 128.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 16.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
 constexpr double g_grid_ratio_z = g_length_z / g_length + 0.0 * g_dx; //< Domain z ratio
-constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) + 4; //< Domain x grid-blocks
-constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) + 4; //< Domain y grid-blocks
-constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) + 4; //< Domain z grid-blocks
+constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) + 3; //< Domain x grid-blocks
+constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) + 3; //< Domain y grid-blocks
+constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) + 3; //< Domain z grid-blocks
 // constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
 // constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
 // constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
@@ -145,12 +145,12 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) + 4; //< Doma
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 10000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 5000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
-#define MAX_PPC 16 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 200000; //< Max no. particles. Preallocated, can resize.
+#define MAX_PPC 32 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
+constexpr int g_max_particle_num = 300000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 128;
@@ -163,26 +163,26 @@ constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexc
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
 
 // * Finite Elements
-constexpr int g_max_fem_vertice_num = 5445;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 20480; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 1000;  // Max no. of vertice on FEM mesh
+constexpr int g_max_fem_element_num = 1000; // Max no. of element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1; //< Finite elements per bin in elementBins
 constexpr int g_max_fem_element_bin = 
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 // * Grid-Targets
-constexpr int g_target_cells = 1000; //< Max grid-nodes per gridTarget
-constexpr int g_max_grid_target_nodes = 1000; //< Max grid-nodes per gridTarget
+constexpr int g_target_cells = 4000; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 4000; //< Max grid-nodes per gridTarget
 constexpr int g_target_attribs = 10; //< No. of values per gridTarget node
 
 // * Particle-Targets
-constexpr int g_particle_target_cells = 2000; //< Max grid-nodes per gridTarget
-constexpr int g_max_particle_target_nodes = 2000; //< Max particless per particleTarget
+constexpr int g_particle_target_cells = 4000; //< Max grid-nodes per gridTarget
+constexpr int g_max_particle_target_nodes = 4000; //< Max particless per particleTarget
 constexpr int g_particle_target_attribs = 10; //< No. of values per gridTarget node
 constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
 std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
 
 // * Halo Blocks
-constexpr std::size_t g_max_halo_block = 0;  //< Max active halo blocks. Preallocated, can resize.
+constexpr std::size_t g_max_halo_block = 500;  //< Max active halo blocks. Preallocated, can resize.
 
 
 // * Grid Boundaries

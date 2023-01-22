@@ -291,7 +291,7 @@ compute_energy_sand(T volume, T mu, T lambda, T cohesion, T beta,
     epsilon[i] = log(abs_S) - cohesion;
   }
   T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
-  T sum_epsilon_squared = epsilon[0]*epsilon[0] + epsilon[1]*epsilon[1] + epsilon[2]*epsilon[2];
+  //T sum_epsilon_squared = epsilon[0]*epsilon[0] + epsilon[1]*epsilon[1] + epsilon[2]*epsilon[2];
   T trace_epsilon = sum_epsilon + logJp;
   T trace_epsilon_squared = sum_epsilon + logJp*logJp;
   strain_energy = (mu * trace_epsilon_squared + lambda * 0.5 * trace_epsilon) * volume;

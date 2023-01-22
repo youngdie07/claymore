@@ -117,11 +117,11 @@ struct mgsp_benchmark {
 
     {
       gridEnergyFile.open(std::string{"grid_energy_time_series.csv"}, std::ios::out | std::ios::trunc); 
-      gridEnergyFile << "Time" << "," << "Kinetic_FLIP" <<  "," << "Kinetic_PIC" << ",\n";
+      gridEnergyFile << "Time" << "," << "Kinetic_FLIP" <<  "," << "Kinetic_PIC" << "\n";
       gridEnergyFile.close();
 
       particleEnergyFile.open(std::string{"particle_energy_time_series.csv"}, std::ios::out | std::ios::trunc); 
-      particleEnergyFile << "Time" << "," << "Kinetic" << "," << "Gravity" << "," << "Strain" << ",\n";
+      particleEnergyFile << "Time" << "," << "Kinetic" << "," << "Gravity" << "," << "Strain" << "\n";
       particleEnergyFile.close();
     }
 
@@ -181,7 +181,7 @@ struct mgsp_benchmark {
     // Set-up particle ID tracker file
     std::string fn_track = std::string{"track_time_series"} + "_ID[0]_dev[" + std::to_string(GPU_ID) + "].csv";
     trackFile[GPU_ID].open (fn_track, std::ios::out | std::ios::trunc); 
-    trackFile[GPU_ID] << "Time" << "," << "Value" << ",\n";
+    trackFile[GPU_ID] << "Time" << "," << "Value" << "\n";
     trackFile[GPU_ID].close();
     // Output initial particle model
     std::string fn = std::string{"model"} + "_dev[" + std::to_string(GPU_ID) +
@@ -271,7 +271,7 @@ struct mgsp_benchmark {
     flag_gt = 1;
     std::string fn_force = std::string{"force_time_series"} + "_gridTarget["+ std::to_string(number_of_grid_targets)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
     forceFile[GPU_ID].open (fn_force, std::ios::out | std::ios::trunc); // Initialize *.csv
-    forceFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << ",\n";
+    forceFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << "\n";
     forceFile[GPU_ID].close();
     // Direction of load-cell measurement
     // {0,1,2,3,4,5,6,7,8,9} <- {x,x-,x+,y,y-,y+,z,z-,z+}
@@ -1456,7 +1456,7 @@ struct mgsp_benchmark {
         {
           std::string fn = std::string{"grid_energy_time_series.csv"};
           gridEnergyFile.open(fn, std::ios::out | std::ios::app);
-          gridEnergyFile << curTime << "," << sum_kinetic_energy_grid<< "," << sum_gravity_energy_grid << ",\n";
+          gridEnergyFile << curTime << "," << sum_kinetic_energy_grid<< "," << sum_gravity_energy_grid << "\n";
           gridEnergyFile.close();
         }
         
@@ -1518,7 +1518,7 @@ struct mgsp_benchmark {
           {
             std::string fn = std::string{"particle_energy_time_series.csv"};
             particleEnergyFile.open(fn, std::ios::out | std::ios::app);
-            particleEnergyFile << curTime << "," << sum_kinetic_energy_particles << "," << sum_gravity_energy_particles << "," << sum_strain_energy_particles << ",\n";
+            particleEnergyFile << curTime << "," << sum_kinetic_energy_particles << "," << sum_gravity_energy_particles << "," << sum_strain_energy_particles << "\n";
             particleEnergyFile.close();
           }
         } //< End of particle energy output
@@ -1666,7 +1666,7 @@ struct mgsp_benchmark {
     {
       std::string fn_track = std::string{"track_time_series"} + "_ID[" + std::to_string(0) + "]_dev[" + std::to_string(did) + "].csv";
       trackFile[did].open(fn_track, std::ios::out | std::ios::app);
-      trackFile[did] << curTime << "," << trackVal << ",\n";
+      trackFile[did] << curTime << "," << trackVal << "\n";
       trackFile[did].close();
     }      
     
@@ -1760,7 +1760,7 @@ struct mgsp_benchmark {
     // if (1) {
     //   std::string fn_track = std::string{"element_time_series"} + "_target[0]_dev[" + std::to_string(did) + "].csv";
     //   trackFile[did].open (fn_track, std::ios::out | std::ios::app);
-    //   trackFile[did] << curTime << "," << trackVal << ",\n";
+    //   trackFile[did] << curTime << "," << trackVal << "\n";
     //   trackFile[did].close();
     //   if (verb) fmt::print(fg(fmt::color::red), "GPU[{}] CSV write finished.\n", did);
     // }
@@ -1878,7 +1878,7 @@ struct mgsp_benchmark {
       {
         std::string fn = std::string{"force_time_series"} + "_gridTarget[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
         forceFile[did].open (fn, std::ios::out | std::ios::app);
-        forceFile[did] << curTime << "," << valAgg << ",\n";
+        forceFile[did] << curTime << "," << valAgg << "\n";
         forceFile[did].close();
       }
       if (curTime == 0){
@@ -1955,6 +1955,7 @@ struct mgsp_benchmark {
                             pb, particles[did], pattribs[did], device_trackVal, device_parcnt,
                             device_particleTarget[did], device_valAgg, device_particle_target[i],device_particle_target_cnt, true);
       });
+      cuDev.syncStream<streamIdx::Compute>();
 
       // checkCudaErrors(cudaMemcpyAsync(&trackVal, device_trackVal, sizeof(PREC),
       //                                 cudaMemcpyDefault,
@@ -1970,7 +1971,7 @@ struct mgsp_benchmark {
       // {
       //   std::string fn_track = std::string{"track_time_series"} + "_ID[" + std::to_string(0) + "]_dev[" + std::to_string(did) + "].csv";
       //   trackFile[did].open(fn_track, std::ios::out | std::ios::app);
-      //   trackFile[did] << curTime << "," << trackVal << ",\n";
+      //   trackFile[did] << curTime << "," << trackVal << "\n";
       //   trackFile[did].close();
       // }      
 
@@ -1994,7 +1995,7 @@ struct mgsp_benchmark {
         particleTargetFile[did] << curTime << "," << valAgg << "\n";
         particleTargetFile[did].close();
       }
-      if (curTime == 0)  IO::flush(); 
+      IO::flush(); 
     }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particle_targets", did,
                            curFrame, curStep));
@@ -2200,7 +2201,7 @@ struct mgsp_benchmark {
         {
           std::string fn = std::string{"particle_energy_time_series.csv"};
           particleEnergyFile.open(fn, std::ios::out | std::ios::app);
-          particleEnergyFile << curTime << "," << sum_kinetic_energy_particles << "," << sum_gravity_energy_particles << "," << sum_strain_energy_particles << ",\n";
+          particleEnergyFile << curTime << "," << sum_kinetic_energy_particles << "," << sum_gravity_energy_particles << "," << sum_strain_energy_particles << "\n";
           particleEnergyFile.close();
         }
 
