@@ -35,17 +35,17 @@
 			"FBAR_ratio": 0.99,
 			"velocity": [0, 0, 0],
 			"geometry": [
-				{
-					"object": "OSU LWF",
-					"operation": "Add",
-					"span": [88.1, 1.85, 1.825],
-					"offset": [2.0, 0.0, 0.0],
-					"array": [1, 1, 1],
-					"spacing": [0, 0, 0]
-				}
-			],
-			"partition_start": [0,0,0],
-			"partition_end": [12, 2, 1.825]
+					{
+						"object": "OSU LWF",
+						"operation": "Add",
+						"span": [88.1, 1.85, 1.8],
+						"offset": [2.0, 0.0, 0.0],
+						"array": [1, 1, 1],
+						"spacing": [0, 0, 0]
+					}
+				],
+				"partition_start": [0, 0, 0],
+				"partition_end": [12, 1.85, 1.825]
 		},
 		{
 			"gpu": 1,
@@ -74,7 +74,7 @@
 				{
 					"object": "OSU LWF",
 					"operation": "Add",
-					"span": [88.1, 1.85, 1.825],
+					"span": [88.1, 1.85, 1.8],
 					"offset": [2.0, 0.0, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
@@ -110,7 +110,7 @@
 				{
 					"object": "OSU LWF",
 					"operation": "Add",
-					"span": [88.1, 1.85, 1.825],
+					"span": [88.1, 1.85, 1.8],
 					"offset": [2.0, 0.0, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
@@ -151,7 +151,7 @@
 				}
 			],
 			"partition_start": [0,0,0],
-			"partition_end": [90,4.5,1.825]
+			"partition_end": [90,4.5,1.8]
 		}
 	],
 	"grid-boundaries": [
@@ -159,14 +159,14 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [90, 4.5, 1.825],
+			"domain_end": [90, 4.5, 1.8],
 			"time": [0, 180]
 		},
 		{
 			"object": "OSU LWF",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [90, 4.5, 1.825],
+			"domain_end": [90, 4.5, 1.8],
 			"time": [0, 180]
 		},	
 		{

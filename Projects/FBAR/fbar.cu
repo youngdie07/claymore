@@ -983,8 +983,8 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "File" || type == "file") 
                   {
-                    // * NOTE : Assumes geometry "file" specified by scene.json is in AssetDirPath/MpmParticles, i.e. ~/claymore/Data/MpmParticles/file
-                    std::string geometry_fn = std::string(AssetDirPath) + "MpmParticles/" + geometry["file"].GetString();
+                    // * NOTE : Assumes geometry "file" specified by scene.json is in AssetDirPath/, e.g. ~/claymore/Data/file
+                    std::string geometry_fn = std::string(AssetDirPath) + geometry["file"].GetString();
                     fs::path geometry_file_path{geometry_fn};
                     if (geometry_file_path.empty()) fmt::print(fg(fmt::color::red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
                     else {
@@ -996,12 +996,12 @@ void parse_scene(std::string fn,
                       // TODO : Reimplement signed-distance-field (*.sdf) particle input files to match current scene set-up (e.g. appropiate offset and scale).
                       if (geometry_file_path.extension() == ".sdf") 
                       {
-                        auto sdf_particles = mn::read_sdf(
-                            geometry_fn, model["ppc"].GetFloat(),
-                            mn::config::g_dx, mn::config::g_domain_size, geometry_offset_updated, geometry_span,
-                            partition_start, partition_end, inter_a, inter_b);
+                        mn::read_sdf(
+                            geometry_fn, models[model["gpu"].GetInt()], model["ppc"].GetDouble(),
+                            (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
+                            partition_start, partition_end, geometry["scaling_factor"].GetDouble(), geometry["padding"].GetInt());
                       }
-                      if (geometry_file_path.extension() == ".csv") 
+                      else if (geometry_file_path.extension() == ".csv") 
                       {
                         load_csv_particles(geometry_fn, ',', 
                                             models[model["gpu"].GetInt()], geometry_offset_updated, 

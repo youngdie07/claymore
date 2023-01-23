@@ -208,6 +208,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "StrainSmall_1") return 69;
         else if (n == "StrainSmall_2") return 70;
         else if (n == "StrainSmall_3") return 71;
+        else if (n == "lopJp") return 100;
         else return -1;
   }
 

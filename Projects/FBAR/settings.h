@@ -69,7 +69,7 @@ enum class fem_e {  Tetrahedron = 0,
 namespace config 
 {
 // GPU devices for simulation
-constexpr int g_device_cnt = 4; //< IMPORTANT. Number of GPUs to compile for.
+constexpr int g_device_cnt = 3; //< IMPORTANT. Number of GPUs to compile for.
 
 // Run-time animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames
@@ -123,8 +123,8 @@ constexpr float g_offset = g_dx * 8; //<
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 32.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 1; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
@@ -150,7 +150,7 @@ constexpr int g_max_active_block = 20000; //< Max active blocks in gridBlocks. P
 
 // * Particles
 #define MAX_PPC 32 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 2500000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 2600000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 128;

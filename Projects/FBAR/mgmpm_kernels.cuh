@@ -9780,6 +9780,8 @@ retrieve_particle_buffer_attributes(Partition partition,
         val = C_Principals[1]; // Cauchy Stress Principal 2 [Pa]
       else if (idx == 41)
         val = C_Principals[2]; // Cauchy Stress Principal 3 [Pa]
+      else if (idx == 100)
+        val = logJp; // Logarithm of J_p
       else
         val = -1; // Incorrect output attributes name
       
@@ -9919,6 +9921,8 @@ retrieve_particle_buffer_attributes(Partition partition,
         val = C_Principals[1]; // Cauchy Stress Principal 2 [Pa]
       else if (idx == 41)
         val = C_Principals[2]; // Cauchy Stress Principal 3 [Pa]
+      else if (idx == 100)
+        val = logJp; // Logarithm of J_p
       else
         val = -1; // Incorrect output attributes name
       
