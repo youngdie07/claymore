@@ -194,7 +194,7 @@ void write_partio_gridTarget(std::string filename,
   Partio::ParticlesDataMutable* parts = Partio::create();
   Partio::ParticleAttribute position  = parts->addAttribute("position", Partio::VECTOR, 3); /// Block ID
   Partio::ParticleAttribute mass      = parts->addAttribute("mass",     Partio::FLOAT, 1);  /// Mass
-  Partio::ParticleAttribute momentum  = parts->addAttribute("momentum", Partio::VECTOR, 3); /// Momentum
+  Partio::ParticleAttribute momentum  = parts->addAttribute("velocity", Partio::VECTOR, 3); /// Momentum
   Partio::ParticleAttribute force     = parts->addAttribute("force",    Partio::VECTOR, 3); /// Force
 
   /// Loop over grid-blocks, set values in Partio structure
@@ -292,249 +292,75 @@ auto read_sdf(std::string fn, float ppc, float dx, vec<float, 3> offset,
   return data;
 }
 
+
 // Read SDF file, cartesian/uniform sample position data into an array (JB)
-auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
-              vec<float, 3> offset, vec<float, 3> lengths) {
-  std::vector<std::array<float, 3>> data;
-  std::string fileName = std::string(AssetDirPath) + "MpmParticles/" + fn;
+template <typename T>
+auto read_sdf(std::string fn, std::vector<std::array<T,3>>& data, T ppc, T g_dx, int domainsize,
+              vec<T, 3> offset, T length, 
+              vec<T, 3> point_a, vec<T, 3> point_b, T scaling_factor=1.0, int pad=1) {
+  //std::vector<std::array<T, 3>> data;
+  std::string fileName = fn;
 
   // Create SampleGenerator class
   SampleGenerator pd;
-  int pad = 1;
-  float fpad = (float)pad;
-  float levelsetDx;
+  //int pad = 1;
+  float fpad = (float)pad; //< Padding cells in a direction on SDF file 
+  float levelsetDx; //< dx in SDF file
+  float dx = length / domainsize; //< User-desired grid-dx for simulation
   std::vector<float> samples;
-  vec<float, 3> mins, maxs, scales;
+  vec<float, 3> mins, maxs;
   vec<float, 3> lengthRatios;
   vec<int, 3> maxns;
 
   // Load sdf into pd, update levelsetDx, mins, maxns
   pd.LoadSDF(fileName, levelsetDx, mins[0], mins[1], mins[2], maxns[0],
              maxns[1], maxns[2]);
+  levelsetDx *= (float)scaling_factor;
   maxs = maxns.cast<float>() * levelsetDx;
 
   // Adjust *.sdf extents to simulation domainsize, select smallest ratio
   float ppl;
   ppl = 1.f / cbrtf(ppc);
+  //ppl = ppl * dx; //
+  //float samplePerLevelsetCell = 1.f / (ppl*ppl*ppl);
+  float samplePerLevelsetCell = (levelsetDx / dx)*(levelsetDx / dx)*(levelsetDx / dx) * ppc;
 
-  lengthRatios[0] = lengths[0] / (maxs[0] - fpad*levelsetDx);
-  lengthRatios[1] = lengths[1] / (maxs[1] - fpad*levelsetDx);
-  lengthRatios[2] = lengths[2] / (maxs[2] - fpad*levelsetDx);
-  lengthRatios[0] = lengths[0] / ((float)maxns[0] - fpad);
-  lengthRatios[1] = lengths[1] / ((float)maxns[1] - fpad);
-  lengthRatios[2] = lengths[2] / ((float)maxns[2] - fpad);
+  lengthRatios[0] = 1.0 / ((float)maxns[0] - fpad);
+  lengthRatios[1] = 1.0 / ((float)maxns[1] - fpad);
+  lengthRatios[2] = 1.0 / ((float)maxns[2] - fpad);
   float lengthRatio = lengthRatios[0] > lengthRatios[1] ? lengthRatios[0] : lengthRatios[1];
   lengthRatio = lengthRatios[2] > lengthRatio ? lengthRatios[2] : lengthRatio;
-
-  scales[0] = powf((dx / lengthRatios[0]), 3.f);
-  scales[1] = powf((dx / lengthRatios[1]), 3.f);
-  scales[2] = powf((dx / lengthRatios[2]), 3.f);
-  float scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
-  printf("scale %f lengthRatio %f %f %f %f %f %f %f %f\n", scale, lengthRatio, lengths[0],lengths[1],lengths[2],(float)maxns[0],(float)maxns[1],(float)maxns[2], (float)domainsize);
-
-  ppl = ppl * g_dx / lengthRatio;
-
-  float samplePerLevelsetCell;
-  if (1) samplePerLevelsetCell = 1.f / powf(ppl, 3.f);
-  if (0) samplePerLevelsetCell = 1.f * (int)(ppc * scale + 0.5f);
 
 
   // Output uniformly sampled sdf into samples
   if (0) pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
   if (1) pd.GenerateCartesianSamples(samplePerLevelsetCell, samples);
 
-  // Adjust lengths to extents of the *.sdf, select smallest ratio
-  scales[0] = lengths[0] / ((float)maxns[0] - fpad);
-  scales[1] = lengths[1] / ((float)maxns[1] - fpad);
-  scales[2] = lengths[2] / ((float)maxns[2] - fpad);
-  scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
+  printf("SDF Samples: %f , lengthRatio %f %f %f %f Max-Cells: %f %f %f PPL: %f , samplePerLevelsetCell: %f \n", (float)(samples.size()/3.0), lengthRatio, lengthRatios[0],lengthRatios[1],lengthRatios[2], (float)maxns[0], (float)maxns[1], (float)maxns[2], ppl, samplePerLevelsetCell);
 
   // Loop through samples
   for (int i = 0, size = samples.size() / 3; i < size; i++) {
     // Group x,y,z position data
-    vec<float, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
+    vec<T, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
     
     // Scale positions, add-in offset from JSON
-    //p = (p - mins) * scale + offset;
-    p = (p - fpad) * scale + offset;
-
-    // Add (x,y,z) to data in order
-    data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
-  }
-  printf("[%f, %f, %f] - [%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
-         mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2], scale,
-         (int)data.size(), levelsetDx, dx);
-  return data;
-}
-
-// Read SDF file, cartesian/uniform sample position data into an array (JB)
-template<typename T>
-auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
-              vec<T, 3> offset, vec<T, 3> lengths) {
-  std::vector<std::array<T, 3>> data;
-  std::string fileName = std::string(AssetDirPath) + "MpmParticles/" + fn;
-
-  // Create SampleGenerator class
-  SampleGenerator pd;
-  int pad = 1;
-  float fpad = (float)pad;
-  float levelsetDx;
-  std::vector<float> samples;
-  vec<float, 3> mins, maxs, scales;
-  vec<float, 3> lengthRatios;
-  vec<int, 3> maxns;
-
-  // Load sdf into pd, update levelsetDx, mins, maxns
-  pd.LoadSDF(fileName, levelsetDx, mins[0], mins[1], mins[2], maxns[0],
-             maxns[1], maxns[2]);
-  maxs = maxns.cast<float>() * levelsetDx;
-
-  // Adjust *.sdf extents to simulation domainsize, select smallest ratio
-  float ppl;
-  ppl = rcbrtf(ppc);
-
-  lengthRatios[0] = lengths[0] / (maxs[0] - fpad*levelsetDx);
-  lengthRatios[1] = lengths[1] / (maxs[1] - fpad*levelsetDx);
-  lengthRatios[2] = lengths[2] / (maxs[2] - fpad*levelsetDx);
-  lengthRatios[0] = lengths[0] / ((float)maxns[0] - fpad);
-  lengthRatios[1] = lengths[1] / ((float)maxns[1] - fpad);
-  lengthRatios[2] = lengths[2] / ((float)maxns[2] - fpad);
-  float lengthRatio = lengthRatios[0] > lengthRatios[1] ? lengthRatios[0] : lengthRatios[1];
-  lengthRatio = lengthRatios[2] > lengthRatio ? lengthRatios[2] : lengthRatio;
-
-  scales[0] = powf((dx / lengthRatios[0]), 3);
-  scales[1] = powf((dx / lengthRatios[1]), 3);
-  scales[2] = powf((dx / lengthRatios[2]), 3);
-  float scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
-  printf("scale %f lengthRatio %f %f %f %f %f %f %f %f\n", scale, lengthRatio, lengths[0],lengths[1],lengths[2],(float)maxns[0],(float)maxns[1],(float)maxns[2], (float)domainsize);
-
-  ppl = ppl * g_dx / lengthRatio;
-
-  float samplePerLevelsetCell;
-  if (1) samplePerLevelsetCell = 1.0 / (ppl*ppl*ppl);
-  if (0) samplePerLevelsetCell = 1.f * (int)(ppc * scale + 0.5f);
-
-
-  // Output uniformly sampled sdf into samples
-  if (0) pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
-  if (1) pd.GenerateCartesianSamples(samplePerLevelsetCell, samples);
-
-  // Adjust lengths to extents of the *.sdf, select smallest ratio
-  scales[0] = lengths[0] / ((T)maxns[0] - fpad);
-  scales[1] = lengths[1] / ((T)maxns[1] - fpad);
-  scales[2] = lengths[2] / ((T)maxns[2] - fpad);
-  scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
-
-  // Loop through samples
-  for (int i = 0, size = samples.size() / 3; i < size; i++) {
-    // Group x,y,z position data
-    vec<T, 3> p{(T)samples[i * 3 + 0], (T)samples[i * 3 + 1], (T)samples[i * 3 + 2]};
-    
-    // Scale positions, add-in offset from JSON
-    //p = (p - mins) * scale + offset;
-    p = (p - fpad) * scale + offset;
-
-    // Add (x,y,z) to data in order
-    data.push_back(std::array<T, 3>{p[0], p[1], p[2]});
-  }
-  printf("[%f, %f, %f] - [%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
-         mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2], scale,
-         (int)data.size(), levelsetDx, dx);
-  return data;
-}
-
-// Read SDF file, cartesian/uniform sample position data into an array (JB)
-auto read_sdf(std::string fn, float ppc, float dx, int domainsize,
-              vec<float, 3> offset, vec<float, 3> lengths, 
-              vec<float, 3> point_a, vec<float, 3> point_b,
-              vec<float, 3> inter_a, vec<float, 3> inter_b) {
-  std::vector<std::array<float, 3>> data;
-  std::string fileName = std::string(AssetDirPath) + "MpmParticles/" + fn;
-
-  // Create SampleGenerator class
-  SampleGenerator pd;
-  int pad = 1;
-  float fpad = (float)pad;
-  float levelsetDx;
-  std::vector<float> samples;
-  vec<float, 3> mins, maxs, scales;
-  vec<float, 3> lengthRatios;
-  vec<int, 3> maxns;
-
-  // Load sdf into pd, update levelsetDx, mins, maxns
-  pd.LoadSDF(fileName, levelsetDx, mins[0], mins[1], mins[2], maxns[0],
-             maxns[1], maxns[2]);
-  maxs = maxns.cast<float>() * levelsetDx;
-
-  // Adjust *.sdf extents to simulation domainsize, select smallest ratio
-  float ppl;
-  ppl = 1.f / cbrtf(ppc);
-
-  lengthRatios[0] = lengths[0] / (maxs[0] - fpad*levelsetDx);
-  lengthRatios[1] = lengths[1] / (maxs[1] - fpad*levelsetDx);
-  lengthRatios[2] = lengths[2] / (maxs[2] - fpad*levelsetDx);
-  lengthRatios[0] = lengths[0] / ((float)maxns[0] - fpad);
-  lengthRatios[1] = lengths[1] / ((float)maxns[1] - fpad);
-  lengthRatios[2] = lengths[2] / ((float)maxns[2] - fpad);
-  float lengthRatio = lengthRatios[0] > lengthRatios[1] ? lengthRatios[0] : lengthRatios[1];
-  lengthRatio = lengthRatios[2] > lengthRatio ? lengthRatios[2] : lengthRatio;
-
-  scales[0] = powf((dx / lengthRatios[0]), 3.f);
-  scales[1] = powf((dx / lengthRatios[1]), 3.f);
-  scales[2] = powf((dx / lengthRatios[2]), 3.f);
-  float scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
-  printf("scale %f lengthRatio %f %f %f %f %f %f %f %f\n", scale, lengthRatio, lengths[0],lengths[1],lengths[2],(float)maxns[0],(float)maxns[1],(float)maxns[2], (float)domainsize);
-
-  ppl = ppl * g_dx / lengthRatio;
-
-  float samplePerLevelsetCell;
-  if (1) samplePerLevelsetCell = 1.f / powf(ppl, 3.f);
-  if (0) samplePerLevelsetCell = 1.f * (int)(ppc * scale + 0.5f);
-
-
-  // Output uniformly sampled sdf into samples
-  if (0) pd.GenerateUniformSamples(samplePerLevelsetCell, samples);
-  if (1) pd.GenerateCartesianSamples(samplePerLevelsetCell, samples);
-
-  // Adjust lengths to extents of the *.sdf, select smallest ratio
-  scales[0] = lengths[0] / ((float)maxns[0] - fpad);
-  scales[1] = lengths[1] / ((float)maxns[1] - fpad);
-  scales[2] = lengths[2] / ((float)maxns[2] - fpad);
-  scale = scales[0] > scales[1] ? scales[0] : scales[1];
-  scale = scales[2] > scale ? scales[2] : scale;
-
-  // Loop through samples
-  for (int i = 0, size = samples.size() / 3; i < size; i++) {
-    // Group x,y,z position data
-    vec<float, 3> p{samples[i * 3 + 0], samples[i * 3 + 1], samples[i * 3 + 2]};
-    
-    // Scale positions, add-in offset from JSON
-    //p = (p - mins) * scale + offset;
-    p = (p - fpad) * scale; //+ offset;
-
+    //for (int d = 0; d<3; d++) p[d] = ((p[d] - fpad) * levelsetDx - mins[d]) / length + offset[d]; 
+    for (int d = 0; d<3; d++) p[d] = ((p[d] - fpad) * levelsetDx) / length + offset[d]; 
 
     if (p[0] >= point_a[0] && p[0] < point_b[0]) {
       if (p[1] >= point_a[1] && p[1] < point_b[1]) {
         if (p[2] >= point_a[2] && p[2] < point_b[2]) {
+            //for (int d = 0; d<3; d++) p[d] = p[d] + offset[d];
 
-          if (p[0] > inter_b[0] || p[0] < inter_a[0] || p[1] > inter_b[1] || p[1] < inter_a[1] || p[2] > inter_b[2] || p[2] < inter_a[2]) {
-            p = p + offset;
             // Add (x,y,z) to data in order
-            data.push_back(std::array<float, 3>{p[0], p[1], p[2]});
-          }
+            data.push_back(std::array<T, 3>{p[0], p[1], p[2]});
         }
       }
     }
   }
   printf("[%f, %f, %f] - [%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
-         mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2], scale,
-         (int)data.size(), levelsetDx, dx);
-  return data;
+         (float)mins[0], (float)mins[1], (float)mins[2], (float)maxs[0], (float)maxs[1], (float)maxs[2], (float)scaling_factor,
+         (int)data.size(), (float)levelsetDx, (float)dx);
 }
 
 
