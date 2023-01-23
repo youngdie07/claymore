@@ -2,7 +2,9 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <vector>
+#include <array>
 #include <time.h>
 #include <ctime>
 
@@ -70,15 +72,12 @@ SampleGenerator::~SampleGenerator()
 
 void SampleGenerator::LoadSDF(std::string filename, float& pDx, float& minx, float& miny, float& minz, int& ni, int& nj, int& nk)
 {
-	std::ifstream infile(filename);
-	infile >> m_ni >> m_nj >> m_nk;
-	infile >> m_minBox[0] >> m_minBox[1] >> m_minBox[2];
-	infile >> m_dx;
-
-	//std::cout << m_dx << std::endl;
+	std::ifstream in(filename, std::ifstream::in);
+	in >> m_ni >> m_nj >> m_nk;
+	in >> m_minBox[0] >> m_minBox[1] >> m_minBox[2];
+	in >> m_dx;
 
 	pDx = m_dx;
-
 	ni = m_ni;
 	nj = m_nj;
 	nk = m_nk;
@@ -86,14 +85,14 @@ void SampleGenerator::LoadSDF(std::string filename, float& pDx, float& minx, flo
 	miny = m_minBox[1];
 	minz = m_minBox[2];
 
-	std::cout << "load grid size " << m_ni << ", " << m_nj << ", " << m_nk << std::endl;
+	std::cout << "Load SDF grid size: " << m_ni << ", " << m_nj << ", " << m_nk << std::endl;
 
 	int gridSize = m_ni * m_nj * m_nk;
 	m_phiGrid.resize(gridSize);
 	for (int i = 0; i < gridSize; ++i) {
-		infile >> m_phiGrid[i];
+		in >> m_phiGrid[i];
 	}
-	infile.close();
+	in.close();
 }
 
 void SampleGenerator::GeneratePoissonSamples(int length, int width, int height, float scale, int outputSamplesNumber, std::vector<float>& outputSamples, int inputScale)
@@ -202,6 +201,7 @@ int SampleGenerator::GenerateUniformSamples(float samplesPerCell, std::vector<fl
 #if 1
 int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<float>& outputSamples)
 {
+	std::cout << "Generate Cartesian SDF samples..." << std::endl;
 	// get total sample number
 	int validCellNum = 0;
 	for (int i = 0; i < m_ni - 1; i++)
@@ -238,7 +238,10 @@ int SampleGenerator::GenerateCartesianSamples(float samplesPerCell, std::vector<
 	for (int i = 0; i < i_lim; i++){
 		for (int j = 0; j < j_lim; j++){
 			for (int k = 0; k < k_lim; k++){
-				if (iter > maxIter) break;
+				if (iter > maxIter) {
+					std::cout << "ERROR: Exceeded max iteration of 1234567890 during SDF generation. Skipping remainder.\n";
+					break;
+				}
 				//float sf = (float)iter * (samplesPerLength);
 				cyPoint3f tmpPoint;
 				float buff = 0.5f;
