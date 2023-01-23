@@ -4935,6 +4935,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   static constexpr uint64_t numViPerBlock = g_blockvolume * 3;
   static constexpr uint64_t numViInArena = numViPerBlock << 3;
   static constexpr uint64_t shmem_offset = (g_blockvolume * 3) << 3;
+
   static constexpr uint64_t numMViPerBlock = g_blockvolume * 2;
   static constexpr uint64_t numMViInArena = numMViPerBlock << 3;
 
@@ -5728,7 +5729,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     char z = loc & arenamask;
     char y = (loc >>= arenabits) & arenamask;
     char x = (loc >>= arenabits) & arenamask;
-    p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
+    p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
@@ -5755,7 +5756,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       pos[1] = source_particle_bin.val(_1, source_pidib % g_bin_capacity);  //< y
       pos[2] = source_particle_bin.val(_2, source_pidib % g_bin_capacity);  //< z
       sJ =  source_particle_bin.val(_3, source_pidib % g_bin_capacity);       //< Vo/V
-      sJBar = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< JBar tn
+      //sJBar = source_particle_bin.val(_4, source_pidib % g_bin_capacity); //< JBar tn
       ID  = source_particle_bin.val(_5, source_pidib % g_bin_capacity); //< Volume tn
     }
 
@@ -5879,6 +5880,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 //           sJBar_new += sJBar_i * W;
 //         }
 /// END
+
     pos += dt * vel; //< Advect paricle positions
 
     // FBar_n+1 = (JBar_n+1 / J_n+1)^(1/3) * F_n+1
@@ -5911,8 +5913,8 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
-        particle_bin.val(_3, pidib % g_bin_capacity) = (sJBar_new + sJ) / 2;// + (sJBar_new - sJBar) / 2; //< V/Vo
-        particle_bin.val(_4, pidib % g_bin_capacity) = sJBar; //< JBar [ ]
+        particle_bin.val(_3, pidib % g_bin_capacity) = sJ;// + (sJBar_new - sJBar) / 2; //< V/Vo
+        particle_bin.val(_4, pidib % g_bin_capacity) = sJBar_new; //< JBar [ ]
         particle_bin.val(_5, pidib % g_bin_capacity) = ID;   //< ID
       }
     }

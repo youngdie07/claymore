@@ -1601,23 +1601,23 @@ struct mgsp_benchmark {
     cuDev.syncStream<streamIdx::Compute>();
 
     int i = 0;
-    int particleID = 0;
-    if (curTime == 0)
-    {
-      particleID += 1;
-      host_particleTarget[did].resize(particle_tarcnt[i][did]);
+    // int particleID = 0;
+    // if (curTime == 0)
+    // {
+    //   particleID += 1;
+    //   host_particleTarget[did].resize(particle_tarcnt[i][did]);
 
-      checkCudaErrors(
-          cudaMemsetAsync((void *)&device_particleTarget[did].val_1d(_0, 0), 0,
-                          sizeof(std::array<PREC, config::g_particle_target_attribs>) * (config::g_particle_target_cells),
-                          cuDev.stream_compute()));
+    //   checkCudaErrors(
+    //       cudaMemsetAsync((void *)&device_particleTarget[did].val_1d(_0, 0), 0,
+    //                       sizeof(std::array<PREC, config::g_particle_target_attribs>) * (config::g_particle_target_cells),
+    //                       cuDev.stream_compute()));
 
-      checkCudaErrors(
-          cudaMemcpyAsync(host_particleTarget[did].data(), (void *)&device_particleTarget[did].val_1d(_0, 0),
-                          sizeof(std::array<PREC, config::g_particle_target_attribs>) * (particle_tarcnt[i][did]),
-                          cudaMemcpyDefault, cuDev.stream_compute()));
-      cuDev.syncStream<streamIdx::Compute>();
-    }
+    //   checkCudaErrors(
+    //       cudaMemcpyAsync(host_particleTarget[did].data(), (void *)&device_particleTarget[did].val_1d(_0, 0),
+    //                       sizeof(std::array<PREC, config::g_particle_target_attribs>) * (particle_tarcnt[i][did]),
+    //                       cudaMemcpyDefault, cuDev.stream_compute()));
+    //   cuDev.syncStream<streamIdx::Compute>();
+    // }
 
     int particle_target_cnt, *device_particle_target_cnt = (int *)cuDev.borrow(sizeof(int));
     particle_target_cnt = 0;
@@ -1632,11 +1632,11 @@ struct mgsp_benchmark {
         cudaMemsetAsync(device_valAgg, 0, sizeof(PREC), cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
     // Zero-out particleTarget
-    checkCudaErrors(
-        cudaMemsetAsync((void *)&device_particleTarget[did].val_1d(_0, 0), 0,
-                        sizeof(std::array<PREC, config::g_particle_target_attribs>) * (config::g_particle_target_cells),
-                        cuDev.stream_compute()));
-    cuDev.syncStream<streamIdx::Compute>();
+    // checkCudaErrors(
+    //     cudaMemsetAsync((void *)&device_particleTarget[did].val_1d(_0, 0), 0,
+    //                     sizeof(std::array<PREC, config::g_particle_target_attribs>) * (config::g_particle_target_cells),
+    //                     cuDev.stream_compute()));
+    // cuDev.syncStream<streamIdx::Compute>();
 
     fmt::print(fg(fmt::color::red), "GPU[{}] Launch retrieve_selected_grid_cells\n", did);
     match(particleBins[rollid][did])([&](const auto &pb) {
@@ -1656,7 +1656,7 @@ struct mgsp_benchmark {
     checkCudaErrors(cudaMemcpyAsync(&valAgg, device_valAgg, sizeof(PREC),
                                     cudaMemcpyDefault, cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
-    particle_tarcnt[i][did] = particle_target_cnt;
+    // particle_tarcnt[i][did] = particle_target_cnt;
 
     fmt::print(fg(fmt::color::red), "GPU[{}] Total number of particles: {}\n", did, parcnt);
     fmt::print(fg(fmt::color::red), "GPU[{}] Tracked value of particle ID {} in model: {} \n", did, g_track_ID, trackVal);
@@ -1674,10 +1674,10 @@ struct mgsp_benchmark {
     host_particleTarget[did].resize(particle_tarcnt[i][did]);
   
     // Asynchronously copy data from target (device) to target (host)
-    checkCudaErrors(
-        cudaMemcpyAsync(host_particleTarget[did].data(), (void *)&device_particleTarget[did].val_1d(_0, 0),
-                        sizeof(std::array<PREC, config::g_particle_target_attribs>) * (particle_tarcnt[i][did]),
-                        cudaMemcpyDefault, cuDev.stream_compute()));
+    // checkCudaErrors(
+    //     cudaMemcpyAsync(host_particleTarget[did].data(), (void *)&device_particleTarget[did].val_1d(_0, 0),
+    //                     sizeof(std::array<PREC, config::g_particle_target_attribs>) * (particle_tarcnt[i][did]),
+    //                     cudaMemcpyDefault, cuDev.stream_compute()));
 
     models[did].resize(parcnt);
     checkCudaErrors(cudaMemcpyAsync(models[did].data(),
@@ -1795,7 +1795,7 @@ struct mgsp_benchmark {
 
     for (int i = 0; i < number_of_grid_targets; i++)
     {
-      IO::flush();    // Clear IO
+      // * IO::flush();    // Clear IO
       int gridID = 0;
       if (curTime == 0){
         gridID += 1;
@@ -1900,7 +1900,7 @@ struct mgsp_benchmark {
     timer.tick();
     for (int i = 0; i < number_of_particle_targets; i++)
     {
-      IO::flush();    // Clear IO
+      // * IO::flush();    // Clear IO
       int particleID = rollid^1;
       if (curTime == 0)
       {
@@ -1995,7 +1995,7 @@ struct mgsp_benchmark {
         particleTargetFile[did] << curTime << "," << valAgg << "\n";
         particleTargetFile[did].close();
       }
-      IO::flush(); 
+      // * IO::flush(); 
     }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particle_targets", did,
                            curFrame, curStep));
