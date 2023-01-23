@@ -172,7 +172,7 @@
 		{
 			"object": "Box",
 			"contact": "Separable",
-			"domain_start": [45.79, 2.049, 1.317],
+			"domain_start": [45.79, 2.0, 1.317],
 			"domain_end": [46.86, 2.615, 2.333],
 			"time": [0, 180]
 		},
