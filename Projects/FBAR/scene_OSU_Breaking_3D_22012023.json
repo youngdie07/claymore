@@ -159,7 +159,7 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [12, 4.5, 1.825],
+			"domain_end": [90, 4.5, 1.825],
 			"time": [0, 180]
 		},
 		{

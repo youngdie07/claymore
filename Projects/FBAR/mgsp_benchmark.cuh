@@ -267,15 +267,6 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initGridTarget in mgsp_benchmark.cuh!\n");
-    host_gt_freq = freq; // Set output frequency [Hz] for target (host)
-    flag_gt = 1;
-    std::string fn_force = std::string{"force_time_series"} + "_gridTarget["+ std::to_string(number_of_grid_targets)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
-    forceFile[GPU_ID].open (fn_force, std::ios::out | std::ios::trunc); // Initialize *.csv
-    forceFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << "\n";
-    forceFile[GPU_ID].close();
-    // Direction of load-cell measurement
-    // {0,1,2,3,4,5,6,7,8,9} <- {x,x-,x+,y,y-,y+,z,z-,z+}
-
     // Set points a/b (device) for grid-target volume using (host, from JSON)
     if (GPU_ID == 0) 
     {
@@ -285,8 +276,17 @@ struct mgsp_benchmark {
       for (int d = 0; d < 7; d++)
         device_grid_target.back()[d] = host_target[d];
     }
-    grid_tarcnt.back()[GPU_ID] = input_gridTarget.size(); // Set size
     int target_ID = number_of_grid_targets-1;
+    host_gt_freq = freq; // Set output frequency [Hz] for target (host)
+    flag_gt = 1;
+    std::string fn_force = std::string{"force_time_series"} + "_gridTarget["+ std::to_string(target_ID)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
+    forceFile[GPU_ID].open (fn_force, std::ios::out | std::ios::trunc); // Initialize *.csv
+    forceFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << "\n";
+    forceFile[GPU_ID].close();
+    // Direction of load-cell measurement
+    // {0,1,2,3,4,5,6,7,8,9} <- {x,x-,x+,y,y-,y+,z,z-,z+}
+
+    grid_tarcnt.back()[GPU_ID] = input_gridTarget.size(); // Set size
     //printf("GPU[%d] Number of targets: %d \n", GPU_ID, number_of_grid_targets);
     printf("GPU[%d] Target[%d] node count: %d \n", GPU_ID, target_ID, grid_tarcnt[target_ID][GPU_ID]);
 
@@ -312,13 +312,6 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initParticleTarget in mgsp_benchmark.cuh.\n");
-    flag_pt = 1;
-    host_pt_freq = freq; // Set output frequency [Hz] for particle-target aggregate value
-    std::string fn_particle_target = std::string{"aggregate_time_series"} + "_particleTarget["+ std::to_string(number_of_particle_targets)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
-    particleTargetFile[GPU_ID].open (fn_particle_target, std::ios::out | std::ios::trunc); 
-    particleTargetFile[GPU_ID] << "Time" << "," << "Aggregate" << "\n";
-    particleTargetFile[GPU_ID].close();
-
     // Set points a/b (device) for particle-target volume using (host, from JSON)
     if (GPU_ID == 0) 
     {
@@ -328,8 +321,15 @@ struct mgsp_benchmark {
       for (int d = 0; d < 7; d++)
         device_particle_target.back()[d] = host_target[d];
     }
-    particle_tarcnt.back()[GPU_ID] = input_particleTarget.size(); // Set size
+    flag_pt = 1;
+    host_pt_freq = freq; // Set output frequency [Hz] for particle-target aggregate value
     int particle_target_ID = number_of_particle_targets-1;
+    std::string fn_particle_target = std::string{"aggregate_time_series"} + "_particleTarget["+ std::to_string(particle_target_ID)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
+    particleTargetFile[GPU_ID].open (fn_particle_target, std::ios::out | std::ios::trunc); 
+    particleTargetFile[GPU_ID] << "Time" << "," << "Aggregate" << "\n";
+    particleTargetFile[GPU_ID].close();
+
+    particle_tarcnt.back()[GPU_ID] = input_particleTarget.size(); // Set size
     fmt::print("GPU[{}] particleTarget[{}] particle count: {} \n", GPU_ID, particle_target_ID, particle_tarcnt[particle_target_ID][GPU_ID]);
 
     /// Populate target (device) with data from target (host) (JB)
