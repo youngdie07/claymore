@@ -251,6 +251,30 @@ compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
 
 template <typename T = double>
 __forceinline__ __device__ void
+compute_stress_PK1_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
+                             vec<T, 9> &P)
+{
+  // Neo-hooken Cauchy stress. Page 90 UCLA MPM course Jiang et al.
+  vec<T, 9> Finv;
+  matrixInverse(F.data(), Finv.data());
+
+  T J = matrixDeterminant3d(F.data());
+  T logJ = log(J);
+
+  // P  = mu * (F - F^-T) + lambda * log(J) * F^-T
+  P[0] = mu * (F[0] - Finv[0]) + lambda * logJ * Finv[0] * volume;
+  P[1] = mu * (F[1] - Finv[3]) + lambda * logJ * Finv[3] * volume;
+  P[2] = mu * (F[2] - Finv[6]) + lambda * logJ * Finv[6] * volume;
+  P[3] = mu * (F[3] - Finv[1]) + lambda * logJ * Finv[1] * volume;
+  P[4] = mu * (F[4] - Finv[4]) + lambda * logJ * Finv[4] * volume;
+  P[5] = mu * (F[5] - Finv[7]) + lambda * logJ * Finv[7] * volume;
+  P[6] = mu * (F[6] - Finv[2]) + lambda * logJ * Finv[2] * volume;
+  P[7] = mu * (F[7] - Finv[5]) + lambda * logJ * Finv[5] * volume;
+  P[8] = mu * (F[8] - Finv[8]) + lambda * logJ * Finv[8] * volume;
+}
+
+template <typename T = double>
+__forceinline__ __device__ void
 compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
                              T &strain_energy)
 {
@@ -261,7 +285,7 @@ compute_energy_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
 
   T C[3]; //< Left Cauchy Green Diagonal, F^T F
   // tr(F'F)
-  C[0] = (F[0] - F[0] + F[1] * F[1] + F[2] * F[2]) ;
+  C[0] = (F[0] * F[0] + F[1] * F[1] + F[2] * F[2]) ;
   C[1] = (F[3] * F[3] + F[4] * F[4] + F[5] * F[5]) ;
   C[2] = (F[6] * F[6] + F[7] * F[7] + F[8] * F[8]) ;
   strain_energy = (mu * (0.5*((C[0] + C[1] + C[2]) - 3) - logJ) + 0.5*lambda*logJ*logJ) * volume;

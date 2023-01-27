@@ -1,6 +1,7 @@
 #ifndef __PARTICLE_BUFFER_CUH_
 #define __PARTICLE_BUFFER_CUH_
 #include "settings.h"
+#include "constitutive_models.cuh"
 #include <MnBase/Meta/Polymorphism.h>
 namespace mn {
 
@@ -211,7 +212,17 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "lopJp") return 100;
         else return -1;
   }
-
+ int queryAttributeIndex(int idx) {
+        switch(idx)
+        {
+          case -1:
+              break;
+          case 0:
+              break;
+          default:
+              break;
+        } 
+ }
   int track_ID = 0;
   vec<int, 1> track_attribs;
   std::vector<std::string> track_labels;   
@@ -298,6 +309,7 @@ struct ParticleBuffer<material_e::JFluid>
   getPressure(T J, T& pressure){
     compute_pressure_jfluid(volume, bulk, gamma, J, pressure);
   }
+
   template <typename T = PREC>
   __forceinline__ __device__ void
   getStrainEnergy(T J, T& strain_energy){
@@ -600,6 +612,31 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
+    compute_stress_neohookean(volume, mu, lambda, F, PF);
+  }
+  
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
+    compute_stress_PK1_neohookean(volume, mu, lambda, F, P);
+  }
+
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
+    compute_energy_neohookean(volume, mu, lambda, F, strain_energy);
+  }
+
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getEnergy_Kinetic(const vec<T,3>& velocity, T &kinetic_energy){  
+    kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
+    }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };

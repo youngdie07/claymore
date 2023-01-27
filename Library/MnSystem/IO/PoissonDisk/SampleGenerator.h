@@ -133,7 +133,7 @@ void SampleGenerator::GeneratePoissonSamples(float samplesPerVol, std::vector<fl
 		inputPoints[i].y = (float)rand() / RAND_MAX * (m_nj - 1);
 		inputPoints[i].z = (float)rand() / RAND_MAX * (m_nk - 1);
 	}
-	std::cout << "done\n";
+	std::cout << "Done.\n";
 
 	std::cout << "Eliminate samples...";
 	std::vector<cy::Point3f> tmpPoints;

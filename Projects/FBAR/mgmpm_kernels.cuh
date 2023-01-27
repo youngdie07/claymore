@@ -80,7 +80,7 @@ template <typename Grid> __global__ void clear_grid(Grid grid) {
   auto gridblock = grid.ch(_0, blockIdx.x);
   for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) {
     // Mass, Mass*(vel + dt * fint)
-    gridblock.val_1d(_0, cidib) = 0.0;
+    gridblock.val_1d(std::integral_constant<unsigned, 0>{}, cidib) = 0.0;
     gridblock.val_1d(_1, cidib) = 0.0;
     gridblock.val_1d(_2, cidib) = 0.0;
     gridblock.val_1d(_3, cidib) = 0.0;
@@ -90,7 +90,7 @@ template <typename Grid> __global__ void clear_grid(Grid grid) {
     gridblock.val_1d(_6, cidib) = 0.0;
     // Vol, JBar [Simple FBar]
     gridblock.val_1d(_7, cidib) = 0.0;
-    gridblock.val_1d(_8, cidib) = 0.0;
+    gridblock.val_1d(_8, cidib) = 0.0; 
   }
 }
 template <typename Grid> __global__ void clear_grid_FBar(Grid grid) {
@@ -1847,7 +1847,7 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
   PREC_G thread_strain_energy = (PREC_G)0;
-  PREC_G vel[3];
+  pvec3 vel;
   PREC o = g_offset;
   PREC l = pbuffer.length;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
@@ -1878,11 +1878,16 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     vel[2] = source_bin.val(_14, _source_pidib) * l;
     PREC voln = source_bin.val(_15, _source_pidib);
     PREC JBar = 1.0 - source_bin.val(_16, _source_pidib);
+    PREC J = matrixDeterminant3d(F.data());
+    for (int d=0; d < 9; d++) F[d] = cbrt(JBar / J) * F[d];
 
-    PREC particle_kinetic_energy = 0.5 * pbuffer.mass * (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]);
+    PREC particle_kinetic_energy = 0.0;    
+    pbuffer.getEnergy_Kinetic(vel, particle_kinetic_energy);
+
     PREC particle_gravity_energy = pbuffer.mass * (grav / l) * elevation; //< E_gravity = mgh
     PREC particle_strain_energy = 0.0;
-    compute_energy_neohookean(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, particle_strain_energy);
+    // compute_energy_neohookean(pbuffer.volume, pbuffer.mu, pbuffer.lambda, F, particle_strain_energy);
+    pbuffer.getEnergy_Strain(F, particle_strain_energy);
 
     thread_strain_energy  += (PREC_G)particle_strain_energy;
     thread_gravity_energy += (PREC_G)particle_gravity_energy;
@@ -10481,61 +10486,6 @@ __global__ void retrieve_selected_grid_cells(
   }
 }
 
-/// Retrieve wave-gauge surface elevation between points a & b from grid-buffer to waveMax (JB)
-template <typename Partition, typename Grid>
-__global__ void retrieve_wave_gauge(
-    uint32_t blockCount, const Partition partition,
-    Grid prev_grid,
-    float dt, float *waveMax, vec3 point_a, vec3 point_b, PREC length) {
-
-  auto blockno = blockIdx.x;  //< Block number in partition
-  if (blockno < blockCount) {
-
-  //if (blockno == -1) return;
-  auto blockid = partition._activeKeys[blockno];
-
-  // Check if gridblock contains part of the point_a to point_b region
-  // End all threads in block if not
-  if ((4*blockid[0] + 3)*g_dx < point_a[0] || (4*blockid[0])*g_dx > point_b[0]) return;
-  if ((4*blockid[1] + 3)*g_dx < point_a[1] || (4*blockid[1])*g_dx > point_b[1]) return;
-  if ((4*blockid[2] + 3)*g_dx < point_a[2] || (4*blockid[2])*g_dx > point_b[2]) return;
-  
-
-  //auto blockid = prev_blockids[blockno]; //< 3D grid-block index
-    auto sourceblock = prev_grid.ch(_0, blockno); //< Set grid-block by block index
-
-    // Tolerance layer thickness around wg space
-    float tol = g_dx * 0.0f;
-    float o = g_offset;
-    float l = length;
-    // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
-    for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
-
-      // Grid node coordinate [i,j,k] in grid-block
-      int i = (cidib >> (g_blockbits << 1)) & g_blockmask;
-      int j = (cidib >> g_blockbits) & g_blockmask;
-      int k = cidib & g_blockmask;
-
-      // Grid node position [x,y,z] in entire domain 
-      float xc = (4*blockid[0]*g_dx) + (i*g_dx);
-      float yc = (4*blockid[1]*g_dx) + (j*g_dx);
-      float zc = (4*blockid[2]*g_dx) + (k*g_dx);
-
-      // Exit thread if cell is not inside wave-gauge domain +/- tol
-      if (xc < point_a[0] - tol || xc > point_b[0] + tol) continue;
-      if (yc < point_a[1] - tol || yc > point_b[1] + tol) continue;
-      if (zc < point_a[2] - tol || zc > point_b[2] + tol) continue;
-
-      /// Set values of cell (mass, momentum) from grid-buffer
-      float mass = sourceblock.val(_0, i, j, k); // Mass [kg]
-      if (mass <= 0.f) continue;
-      float elev = (yc - o) * l; // Elevation [m]
-
-      // Check for mass (material in cell, i.e wave surface)
-      atomicMax(waveMax, elev);
-    }
-  }
-}
                       
 } // namespace mn
 
