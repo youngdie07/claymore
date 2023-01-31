@@ -65,6 +65,60 @@ void write_partio_general(std::string filename,
   parts->release();
 }
 
+template <typename T, std::size_t dim>
+void read_partio_general(std::string filename,
+                  std::vector<std::array<T, 3>>  &positions, 
+                  std::vector<std::array<T,dim>> &attributes,
+                  const std::vector<std::string> &labels) {
+  Partio::ParticlesData *parts = Partio::read(filename.c_str());
+  if(!parts) printf("ERROR: Failed to open file with PartIO.");
+
+  std::cout<<"PartIO reading number of particles: "<<parts->numParticles()<<std::endl;
+  for(int i=0;i<parts->numAttributes();i++){
+      Partio::ParticleAttribute attr;
+      parts->attributeInfo(i,attr);
+      std::cout<<"Attribute["<<i<<"] is "<<attr.name<<std::endl;
+  }
+
+  // Position processing
+  Partio::ParticleAttribute posAttr;
+  if(!parts->attributeInfo("position",posAttr) || posAttr.type != Partio::VECTOR || posAttr.count != 3)
+      printf("ERROR: PartIO failed to get position as VECTOR of size 3");
+
+  // Generic attribute processing
+  Partio::ParticleAttribute genericAttr[dim];
+  int d = 0;
+  for (auto label : labels) {
+    if(!parts->attributeInfo(label.c_str(), genericAttr[d]) || genericAttr[d].type !=  Partio::FLOAT || genericAttr[d].count != 1)
+        printf("ERROR: PartIO failed to read value as FLOAT of size 1");
+    d++;
+  }
+
+  // Read particle position
+  std::array<T,3> pos = {0,0,0};
+  for(int i=0; i < parts->numParticles(); i++) {
+    auto val= parts->data<float>(posAttr, i);
+    for(int k=0; k < 3; k++) 
+        pos[k] = (T)val[k];
+    positions.push_back(pos);
+  }
+
+  // Read particle generic attirbutes
+  for(int i=0; i < parts->numParticles(); i++) {   
+    std::array<T,dim> generics;
+    int d = 0;
+    for (auto label : labels) {
+      if (d >= dim) break;
+      auto val = parts->data<float>(genericAttr[d], i);
+      generics[d] = (T)val[0];
+      d++;
+    }
+    attributes.push_back(generics);
+  }
+  parts->release();
+}
+
+
 // Write combined particle position (x,y,z) and attribute (...) data (JB)
 template <typename T, std::size_t dim>
 void write_partio_particles(std::string filename,
@@ -83,28 +137,19 @@ void write_partio_particles(std::string filename,
   for (int d = 0; d < dim; d++){
     attrib[d] = parts->addAttribute(labels[d].c_str(), Partio::FLOAT, (int)1);
   }
-  //Partio::ParticleAttribute attrib  = parts->addAttribute("attributes", Partio::FLOAT, (int)dim);
 
-  for(int i=0; i < (int)positions.size(); ++i)
-  {
+  for(int i=0; i < (int)positions.size(); ++i) {
     // Create new particle with two write-input vectors/arrays
     int idx  = parts->addParticle();
     float* p = parts->dataWrite<float>(pos,    idx);
-    
-    //float* a = parts->dataWrite<float>(attrib, idx);
-
     // Add position data for particle
-    for(int k=0; k<3; ++k)
-    {
+    for(int k=0; k<3; ++k) {
       p[k] = positions[i][k];
     }
 
     // Add extra attributes for particle
-    for(int k=0; k<(int)dim; ++k)
-    {
+    for(int k=0; k<(int)dim; ++k) {
       float* a = parts->dataWrite<float>(attrib[k], idx);
-      //a[k] = attributes[i][k];
-
       a[0] = attributes[i][k];
     }
   }

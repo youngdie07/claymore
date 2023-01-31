@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "constitutive_models.cuh"
 #include <MnBase/Meta/Polymorphism.h>
+#include "MnBase/Meta/TypeMeta.h"
 namespace mn {
 
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
@@ -10,6 +11,43 @@ using ParticleBufferDomain = compact_domain<int, config::g_max_particle_bin>;
 using ParticleArrayDomain = compact_domain<int, config::g_max_particle_num>;
 using ParticleTargetDomain = compact_domain<int, config::g_max_particle_target_nodes>;
 
+// * All  particle attributes available for ouput.
+// * Not all materials will support every output.
+enum class particle_output_attribs_e : int {
+        START=0,
+        ID = 0, Mass, Volume,
+        Position_X, Position_Y, Position_Z,
+        Velocity_X, Velocity_Y, Velocity_Z,
+        DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+        DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+        DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+        J, DefGrad_Determinant=J, JBar, DefGrad_Determinant_FBAR=JBar, 
+        StressCauchy_XX, StressCauchy_XY, StressCauchy_XZ,
+        StressCauchy_YX, StressCauchy_YY, StressCauchy_YZ,
+        StressCauchy_ZX, StressCauchy_ZY, StressCauchy_ZZ,
+        Pressure, VonMisesStress,
+        DefGrad_Invariant1, DefGrad_Invariant2, DefGrad_Invariant3,
+        DefGrad_1, DefGrad_2, DefGrad_3,
+        StressCauchy_Invariant1, StressCauchy_Invariant2, StressCauchy_Invariant3,
+        StressCauchy_1, StressCauchy_2, StressCauchy_3,
+        StressPK1_XX, StressPK1_XY, StressPK1_XZ,
+        StressPK1_YX, StressPK1_YY, StressPK1_YZ,
+        StressPK1_ZX, StressPK1_ZY, StressPK1_ZZ,
+        StressPK1_Invariant1, StressPK1_Invariant2, StressPK1_Invariant3,
+        StressPK1_1, StressPK1_2, StressPK1_3,
+        StressPK2_XX, StressPK2_XY, StressPK2_XZ,
+        StressPK2_YX, StressPK2_YY, StressPK2_YZ,
+        StressPK2_ZX, StressPK2_ZY, StressPK2_ZZ,
+        StressPK2_Invariant1, StressPK2_Invariant2, StressPK2_Invariant3,
+        StressPK2_1, StressPK2_2, StressPK2_3,
+        StrainSmall_XX, StrainSmall_XY, StrainSmall_XZ,
+        StrainSmall_YX, StrainSmall_YY, StrainSmall_YZ,
+        StrainSmall_ZX, StrainSmall_ZY, StrainSmall_ZZ,
+        StrainSmall_Invariant1, StrainSmall_Invariant2, StrainSmall_Invariant3,
+        StrainSmall_1,  StrainSmall_2, StrainSmall_3,
+        logJp=100,
+        END
+};
 
 using particle_bin4_ =
     structural<structural_type::dense,
@@ -103,8 +141,8 @@ template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin13_f_
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin16_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin18_f_ {};
 template <> struct particle_bin_<material_e::NeoHookean_ASFLIP_FBAR> : particle_bin18_f_ {};
-template <> struct particle_bin_<material_e::Sand> : particle_bin17_f_ {};
-template <> struct particle_bin_<material_e::NACC> : particle_bin17_f_ {};
+template <> struct particle_bin_<material_e::Sand> : particle_bin18_f_ {};
+template <> struct particle_bin_<material_e::NACC> : particle_bin18_f_ {};
 template <> struct particle_bin_<material_e::Meshed> : particle_bin11_f_ {};
 
 
@@ -142,8 +180,8 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "Position_X") return 3; 
         else if (n == "Position_Y") return 4;
         else if (n == "Position_Z") return 5;
-        else if (n == "Velocity_Y") return 7;
         else if (n == "Velocity_X") return 6;
+        else if (n == "Velocity_Y") return 7;
         else if (n == "Velocity_Z") return 8;
         else if (n == "DefGrad_XX") return 9;
         else if (n == "DefGrad_XY") return 10;
@@ -209,7 +247,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "StrainSmall_1") return 69;
         else if (n == "StrainSmall_2") return 70;
         else if (n == "StrainSmall_3") return 71;
-        else if (n == "lopJp") return 100;
+        else if (n == "logJp") return 100;
         else return -1;
   }
  int queryAttributeIndex(int idx) {
@@ -284,19 +322,23 @@ struct ParticleBuffer<material_e::JFluid>
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v,
-                        config::AlgoConfigs algoConfigs) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    bulk = b;
-    gamma = g;
-    visco = v;
-    use_ASFLIP = algoConfigs.use_ASFLIP;
-    use_FEM = algoConfigs.use_FEM;
-    use_FBAR = algoConfigs.use_FBAR;
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    bulk = mat.bulk;
+    gamma = mat.gamma;
+    visco = mat.visco;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }
 
   // template<typename T = PREC>
@@ -339,23 +381,23 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
-                        PREC a, PREC bmin, PREC bmax, 
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    bulk = b;
-    gamma = g;
-    visco = v;
-    alpha = a;
-    beta_min = bmin;
-    beta_max = bmax;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    bulk = mat.bulk;
+    gamma = mat.gamma;
+    visco = mat.visco;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -383,23 +425,23 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
-                        config::AlgoConfigs algoConfigs) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS)) / ppc;
-    mass = volume * density;
-    bulk = b;
-    gamma = g;
-    visco = v;
-    alpha = algoConfigs.ASFLIP_alpha;
-    beta_min = algoConfigs.ASFLIP_beta_min;
-    beta_max = algoConfigs.ASFLIP_beta_max;
-    FBAR_ratio = algoConfigs.FBAR_ratio;
-    use_ASFLIP = algoConfigs.use_ASFLIP;
-    use_FEM = algoConfigs.use_FEM;
-    use_FBAR = algoConfigs.use_FBAR;
+                    (1 << DOMAIN_BITS)) / mat.ppc;
+    mass = volume * mat.rho;
+    bulk = mat.bulk;
+    gamma = mat.gamma;
+    visco = mat.visco;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -427,23 +469,23 @@ struct ParticleBuffer<material_e::JBarFluid>
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC b, PREC g, PREC v, 
-                        config::AlgoConfigs algoConfigs) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
     volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS)) / ppc;
-    mass = volume * density;
-    bulk = b;
-    gamma = g;
-    visco = v;
-    alpha = algoConfigs.ASFLIP_alpha;
-    beta_min = algoConfigs.ASFLIP_beta_min;
-    beta_max = algoConfigs.ASFLIP_beta_max;
-    FBAR_ratio = algoConfigs.FBAR_ratio;
-    use_ASFLIP = algoConfigs.use_ASFLIP;
-    use_FEM = algoConfigs.use_FEM;
-    use_FBAR = algoConfigs.use_FBAR;
+                    (1 << DOMAIN_BITS)) / mat.ppc;
+    rho = mat.rho;
+    mass = volume * mat.rho;
+    bulk = mat.bulk;
+    gamma = mat.gamma;
+    visco = mat.visco;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -456,131 +498,6 @@ struct ParticleBuffer<material_e::FixedCorotated>
   PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
   PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
-  PREC mass = (volume * DENSITY);
-  PREC E = YOUNGS_MODULUS;
-  PREC nu = POISSON_RATIO;
-  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
-                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu,
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
-    length = l;
-    rho = density;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
-  }
-  template <typename Allocator>
-  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
-};
-
-template <>
-struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
-    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP> {
-  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
-  PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
-  PREC mass = (volume * DENSITY);
-  PREC E = YOUNGS_MODULUS;
-  PREC nu = POISSON_RATIO;
-  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
-                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
-                        PREC a, PREC bmin, PREC bmax,
-                        PREC ASFLIP=false, bool FEM=false, bool FBAR=false) {
-    length = l;
-    rho = density;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    alpha = a;
-    beta_min = bmin;
-    beta_max = bmax;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
-  }
-  template <typename Allocator>
-  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
-};
-
-
-template <>
-struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
-    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR> {
-  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
-  PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
-  PREC mass = (volume * DENSITY);
-  PREC E = YOUNGS_MODULUS;
-  PREC nu = POISSON_RATIO;
-  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
-                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
-  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
-                        PREC a, PREC bmin, PREC bmax, PREC fbar_ratio,
-                        PREC ASFLIP=false, bool FEM=false, bool FBAR=false) {
-    length = l;
-    rho = density;
-    volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    alpha = a;
-    beta_min = bmin;
-    beta_max = bmax;
-    FBAR_ratio = fbar_ratio;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
-  }
-  template <typename Allocator>
-  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
-};
-
-
-template <>
-struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
-    : ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR> {
-  using base_t = ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
-  PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
@@ -612,11 +529,221 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+template <>
+struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
+    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP> {
+  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP>;
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
+    length = l;
+    rho = mat.rho;
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+
+template <>
+struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
+    : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR> {
+  using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR>;
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
+    length = l;
+    rho = mat.rho;
+    volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
+  }
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+};
+
+
+template <>
+struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
+    : ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR> {
+  using base_t = ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR>;
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC rho = DENSITY;
+  PREC volume = DOMAIN_VOLUME * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC);
+  PREC mass = (volume * DENSITY);
+  PREC E = YOUNGS_MODULUS;
+  PREC nu = POISSON_RATIO;
+  PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
+                 ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
+  PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
+    length = l;
+    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    rho = mat.rho;
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
+  }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          INVALID_CT=-3, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-2, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          EMPTY=-1, // Empty attribute request 
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          Volume_FBAR, DefGrad_Determinant_FBAR, ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant, logJp
+  };
+
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    // TODO : Change if/else statement to case/switch. may require compile-time min-max
+    //auto attribute = (ATTRIBUTE > END) ? attribs_e::END : ATTRIBUTE;  
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
+  // template <typename T>
+  // __forceinline__ __device__ PREC
+  // getID(const T bin, const T particle_id_in_bin){
+  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e:ID>{}, particle_id_in_bin);
+  // }
+
+  // template <typename T>
+  // __forceinline__ __device__ PREC
+  // getVelocityX(const T bin, const T particle_id_in_bin){
+  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin);
+  // }
+  // template <typename T>
+  // __forceinline__ __device__ PREC
+  // getVelocityY(const T bin, const T particle_id_in_bin){
+  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Y>{}, particle_id_in_bin);
+  // }
+  // template <typename T>
+  // __forceinline__ __device__ PREC
+  // getVelocityZ(const T bin, const T particle_id_in_bin){
+  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Z>{}, particle_id_in_bin);
+  // }
+  template <typename T>
+  __forceinline__ __device__ void
+  getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity){
+    velocity = {this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 12>{}, particle_id_in_bin),
+    this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 13>{}, particle_id_in_bin),
+    this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 14>{}, particle_id_in_bin)};
+  }
+
+  template <typename T>
+  __forceinline__ __device__ void
+  getDefGrad(const T bin, const T particle_id_in_bin, PREC * DefGrad){
+
+    DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 3>{}, particle_id_in_bin);
+    DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 4>{}, particle_id_in_bin);
+    DefGrad[2] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 5>{}, particle_id_in_bin);
+    DefGrad[3] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 6>{}, particle_id_in_bin);
+    DefGrad[4] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 7>{}, particle_id_in_bin);
+    DefGrad[5] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 8>{}, particle_id_in_bin);
+    DefGrad[6] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 9>{}, particle_id_in_bin);
+    DefGrad[7] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 10>{}, particle_id_in_bin);
+    DefGrad[8] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 11>{}, particle_id_in_bin);
+  }
+
+
 
   template <typename T = PREC>
   __forceinline__ __device__ void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_neohookean(volume, mu, lambda, F, PF);
+  }
+  template <typename T = PREC>
+  __forceinline__ __device__ void
+  getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
+    compute_stress_neohookean(vol, mu, lambda, F, PF);
   }
   
   template <typename T = PREC>
@@ -674,25 +801,28 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu,
-                        PREC logJ, PREC friction_angle, PREC c, PREC b, bool volCorrection=true, 
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    logJp0 = logJ;
-    frictionAngle = friction_angle;
-    yieldSurface = 0.816496580927726 * 2.0 * std::sin(frictionAngle / 180.0 * 3.141592741) / (3.0 - std::sin(frictionAngle / 180.0 * 3.141592741));
-    cohesion = c;
-    beta = b;
-    volumeCorrection = volCorrection;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    logJp0 = mat.logJp0;
+    frictionAngle = mat.frictionAngle;
+    yieldSurface = 0.816496580927726 * 2.0 * std::sin(mat.frictionAngle / 180.0 * 3.141592741) / (3.0 - std::sin(mat.frictionAngle / 180.0 * 3.141592741));
+    cohesion = mat.cohesion;
+    beta = mat.beta;
+    volumeCorrection = mat.volumeCorrection;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -718,7 +848,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
               ((1 + POISSON_RATIO) *
                (1 - 2 * POISSON_RATIO))); ///< bulk modulus, kappa
   PREC xi = 0.8f;                        ///< hardening factor
-  static constexpr PREC logJp0 = -0.01f;
+  PREC logJp0 = -0.01f;
   PREC beta = 0.5f;
   static constexpr PREC mohrColumbFriction =
       0.503599787772409; //< sqrt((T)2 / (T)3) * (T)2 * sin_phi / ((T)3 -
@@ -727,7 +857,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
       1.850343771924453; ///< mohrColumbFriction * (T)dim / sqrt((T)2 / ((T)6
                          ///< - dim));
   static constexpr PREC Msqr = 3.423772074299613;
-  static constexpr bool hardeningOn = true;
+  bool hardeningOn = true;
   bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
   PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
   PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
@@ -735,23 +865,29 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC E, PREC nu, 
-                        PREC be, PREC x,
-                        bool ASFLIP=false, bool FEM=false, bool FBAR=false) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
     bm =
-        2.f / 3.f * (E / (2 * (1 + nu))) + (E * nu / ((1 + nu) * (1 - 2 * nu)));
-    beta = be;
-    xi = x;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+        2.f / 3.f * (mat.E / (2 * (1 + mat.nu))) + (mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu)));
+    logJp0 = mat.logJp0;
+    frictionAngle = mat.frictionAngle;
+    beta = mat.beta;
+    xi = mat.xi;
+    hardeningOn = mat.hardeningOn;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -778,25 +914,24 @@ struct ParticleBuffer<material_e::Meshed>
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr, PREC a,
-                        PREC bmin, PREC bmax, PREC fbar_ratio,
-                        bool ASFLIP=false, bool FEM=false, bool FBAR = false) {
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    E = ym;
-    nu = pr;
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    alpha = a;
-    beta_min = bmin;
-    beta_max = bmax;
-    FBAR_ratio = fbar_ratio;
-    use_ASFLIP = ASFLIP;
-    use_FEM = FEM;
-    use_FBAR = FBAR;
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    E = mat.E;
+    nu = mat.nu;
+    mass = volume * mat.rho;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max;
+    FBAR_ratio = algo.FBAR_ratio;
+    use_ASFLIP = algo.use_ASFLIP;
+    use_FEM = algo.use_FEM;
+    use_FBAR = algo.use_FBAR;
   }
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
@@ -822,6 +957,16 @@ using particle_array_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
+using particle_array_1_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_>;
+using particle_array_2_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_>;
 using particle_array_3_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
@@ -837,6 +982,33 @@ using particle_array_9_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+using particle_array_12_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_>;
+using particle_array_15_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+using particle_array_24_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, f_>;
+using particle_array_32_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_, f_, 
+               f_, f_, f_, f_, f_, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, f_,
+               f_, f_, f_, f_, f_, f_, f_, f_, f_>;
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;
@@ -846,15 +1018,77 @@ struct ParticleArray : Instance<particle_array_> {
   }
 };
 
-//template<int N=3>
-struct ParticleAttrib: Instance<particle_array_> {
-  using base_t = Instance<particle_array_>;
+template <int N> struct particle_attrib_;
+template <> struct particle_attrib_<3> : particle_array_3_ {};
+// template <> struct particle_attrib_<4> : particle_array_6_ {}; //
+// template <> struct particle_attrib_<5> : particle_array_6_ {}; //
+template <> struct particle_attrib_<6> : particle_array_6_ {};
+// template <> struct particle_attrib_<7> : particle_array_9_ {}; //
+// template <> struct particle_attrib_<8> : particle_array_9_ {}; //
+template <> struct particle_attrib_<9> : particle_array_9_ {};
+template <> struct particle_attrib_<10> : particle_array_12_ {}; //
+template <> struct particle_attrib_<11> : particle_array_12_ {}; //
+template <> struct particle_attrib_<12> : particle_array_12_ {};
+template <> struct particle_attrib_<15> : particle_array_15_ {};
+template <> struct particle_attrib_<24> : particle_array_24_ {};
+
+template<int N=3>
+struct ParticleAttrib: Instance<particle_attrib_<N>> {
+  static constexpr unsigned numAttributes = N;
+  using base_t = Instance<particle_attrib_<N>>;
   ParticleAttrib &operator=(base_t &&instance) {
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
-  //static constexpr int number_outputs = N;
+
+  // template <const unsigned INDEX, typename T>
+  // __forceinline__ __device__ void
+  // setAttribute(PREC val, const T particle_id){
+  //   this->val(std::integral_constant<unsigned, INDEX>{}, particle_id) = val;
+  // }
+
+  template <typename IDX_, typename T>
+  void setAttribute(IDX_ idx, const T particle_id, PREC val){
+    
+    if (idx == mn::placeholder::_0 && numAttributes < 1) return;
+    else if (idx == mn::placeholder::_1 && numAttributes < 2) return;
+    else if (idx == mn::placeholder::_2 && numAttributes < 3) return;
+    else if (idx == mn::placeholder::_3 && numAttributes < 4) return;
+    else if (idx == mn::placeholder::_4 && numAttributes < 5) return;
+    else if (idx == mn::placeholder::_5 && numAttributes < 6) return;
+    else if (idx == mn::placeholder::_6 && numAttributes < 7) return;
+    // if (idx == mn::placeholder::_7 && numAttributes > 8) return;
+    // if (idx == mn::placeholder::_8 && numAttributes > 9) return;
+    // if (idx == mn::placeholder::_9 && numAttributes > 10) return;
+    // if (idx == mn::placeholder::_10 && numAttributes > 11) return;
+    // if (idx == mn::placeholder::_11 && numAttributes > 12) return;
+    // if (idx == mn::placeholder::_12 && numAttributes > 13) return;
+    // if (idx == mn::placeholder::_13 && numAttributes > 14) return;
+    // if (idx == mn::placeholder::_14 && numAttributes > 15) return;
+    // if (idx == mn::placeholder::_15 && numAttributes > 16) return;
+    // if (idx == mn::placeholder::_16 && numAttributes > 17) return;
+    // if (idx == mn::placeholder::_17 && numAttributes > 18) return;
+    // if (idx == mn::placeholder::_18 && numAttributes > 19) return;
+    // if (idx == mn::placeholder::_19 && numAttributes > 20) return;
+    // if (idx == mn::placeholder::_20 && numAttributes > 21) return;
+    // if (idx == mn::placeholder::_21 && numAttributes > 22) return;
+    // if (idx == mn::placeholder::_22 && numAttributes > 23) return;
+    // if (idx == mn::placeholder::_23 && numAttributes > 24) return;
+
+    else this->val(idx, particle_id) = val;
+    return; 
+  }
+
 };
+
+
+// struct ParticleAttrib: Instance<particle_array_> {
+//   using base_t = Instance<particle_array_>;
+//   ParticleAttrib &operator=(base_t &&instance) {
+//     static_cast<base_t &>(*this) = instance;
+//     return *this;
+//   }
+// };
 
 using particle_target_ =
     structural<structural_type::dynamic,

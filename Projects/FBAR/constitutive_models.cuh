@@ -418,8 +418,8 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
 }
 
 
-/// * Non-Associateive Cam-Clay - Stress and Energy
-/// * Elasto-plastic model. Good for snow, clay, etc.
+/// * Non-Associative Cam-Clay - Stress and Energy
+/// * Elasto-plastic model. Good for snow, clay, concrete, etc.
 template <typename T = float>
 __forceinline__ __device__ void
 compute_stress_nacc(T volume, T mu, T lambda, T bm, T xi, T beta, T Msqr,

@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 #include <array>
-//#include <pthread>
+//#include <thread>
 
 #if 0
 #include <ghc/filesystem.hpp>
@@ -36,9 +36,9 @@ namespace rj = rapidjson;
 int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
-  Cuda::startup(); //< Start CUDA GPUs if available.
 
   {
+    Cuda::startup(); //< Start CUDA GPUs if available.
     // ---------------- Read JSON input file for simulation ---------------- 
     cxxopts::Options options("Scene_Loader", "Read simulation scene");
     options.add_options()("f,file", "Scene Configuration File",
@@ -49,7 +49,6 @@ int main(int argc, char *argv[]) {
     fmt::print(fg(fmt::color::green),"Loading scene file [{}].\n", fn);
     std::unique_ptr<mn::mgsp_benchmark> benchmark; //< Simulation object pointer
     std::vector<std::array<PREC, 3>> models[g_device_cnt]; //< Initial particle positions
-    //std::vector<mn::vec<PREC, 3>> v0(g_device_cnt, mn::vec<PREC, 3>{0.,0.,0.}); //< Initial velocities
 
     parse_scene(fn, benchmark, models); //< Initialize from input scene file  
     fmt::print(fg(fmt::color::green),"Finished scene initialization.\n");
@@ -61,11 +60,9 @@ int main(int argc, char *argv[]) {
     }
 
     fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
-    // CppTimer sim_timer{};
-    // sim_timer.tick();
+
     benchmark->main_loop();
-    // sim_timer.tock(
-    //       fmt::format("Finished simulation in [{}] minutes. Average of [{}] seconds per frame.", did, curStep));
+
     fmt::print(fg(fmt::color::green), "Finished simulation.\n");
     // ---------------- Clear
     IO::flush();
@@ -73,10 +70,10 @@ int main(int argc, char *argv[]) {
 
     benchmark.reset();
     fmt::print(fg(fmt::color::green),"Reset simulation structure.\n");
+    Cuda::shutdown();
+    // ---------------- Shutdown GPU / CUDA
+    fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
   }
-  // ---------------- Shutdown GPU / CUDA
-  Cuda::shutdown();
-  fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
   // ---------------- Finish
   return 0;
 }

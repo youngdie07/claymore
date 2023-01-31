@@ -22,8 +22,6 @@
 #include <fmt/core.h>
 #include <vector>
 
-//#include <thread>
-
 namespace mn {
 
 struct mgsp_benchmark {
@@ -145,7 +143,7 @@ struct mgsp_benchmark {
                   const mn::vec<PREC, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
-
+    flag_has_attributes[GPU_ID] = false;
     pcnt[GPU_ID] = model.size(); // Initial particle count
     for (int i = 0; i < 3; ++i) vel0[GPU_ID][i] = v0[i]; // Initial velocity
     for (int copyid = 0; copyid < 2; copyid++) {
@@ -157,7 +155,7 @@ struct mgsp_benchmark {
                match(particleBins[1][GPU_ID])([&](auto &pb) { return pb.size; }) / 1000 / 1000);    
 
     particles[GPU_ID] = spawn<particle_array_, orphan_signature>(device_allocator{});
-    pattribs[GPU_ID]  = spawn<particle_array_, orphan_signature>(device_allocator{}); 
+    pattribs[GPU_ID] = spawn<particle_attrib_<3>, orphan_signature>(device_allocator{}); 
     //particles.emplace_back(ParticleArray<3>(device_allocator{}));
     //pattribs.emplace_back(ParticleAttrib<3>(device_allocator{}));
     cuDev.syncStream<streamIdx::Compute>();
@@ -184,6 +182,54 @@ struct mgsp_benchmark {
     IO::flush();
   }
   
+
+
+  // Initialize particle models. Allow for varied materials on GPUs.
+  template <material_e m>
+  void initModel(int GPU_ID, const std::vector<std::array<PREC, 3>> &model, const std::vector<std::array<PREC, 3>>& model_attribs, const mn::vec<PREC, 3> &v0) {
+    auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
+    cuDev.setContext();
+
+    flag_has_attributes[GPU_ID] = true;
+
+    pcnt[GPU_ID] = model.size(); // Initial particle count
+    for (int i = 0; i < 3; ++i) vel0[GPU_ID][i] = v0[i]; // Initial velocity
+    for (int copyid = 0; copyid < 2; copyid++) {
+      particleBins[copyid].emplace_back(ParticleBuffer<m>(
+          device_allocator{}));
+    }
+    fmt::print("GPU[{}] Particle Bins with Padding: ParticleBin[0] and ParticleBin[1] size {} and {} megabytes.\n", GPU_ID,
+               match(particleBins[0][GPU_ID])([&](auto &pb) { return pb.size; }) / 1000 / 1000,
+               match(particleBins[1][GPU_ID])([&](auto &pb) { return pb.size; }) / 1000 / 1000);    
+
+    particles[GPU_ID] = spawn<particle_array_, orphan_signature>(device_allocator{});
+    pattribs[GPU_ID]  = spawn<particle_attrib_<3>, orphan_signature>(device_allocator{}); 
+    //particles.emplace_back(ParticleArray<3>(device_allocator{}));
+    //pattribs.emplace_back(ParticleAttrib<3>(device_allocator{}));
+    cuDev.syncStream<streamIdx::Compute>();
+
+
+    fmt::print(fg(fmt::color::blue), "GPU[{}] Initialized device array with {} particles.\n", GPU_ID, pcnt[GPU_ID]);
+    cudaMemcpyAsync((void *)&particles[GPU_ID].val_1d(_0, 0), model.data(),
+                    sizeof(std::array<PREC, 3>) * model.size(),
+                    cudaMemcpyDefault, cuDev.stream_compute());
+    cudaMemcpyAsync((void *)&pattribs[GPU_ID].val_1d(_0, 0), model_attribs.data(),
+                    sizeof(std::array<PREC, 3>) * model_attribs.size(),
+                    cudaMemcpyDefault, cuDev.stream_compute());
+    cuDev.syncStream<streamIdx::Compute>();
+
+    // Set-up particle ID tracker file
+    std::string fn_track = std::string{"track_time_series"} + "_ID[0]_dev[" + std::to_string(GPU_ID) + "].csv";
+    trackFile[GPU_ID].open (fn_track, std::ios::out | std::ios::trunc); 
+    trackFile[GPU_ID] << "Time" << "," << "Value" << "\n";
+    trackFile[GPU_ID].close();
+    // Output initial particle model
+    std::string fn = std::string{"model"} + "_dev[" + std::to_string(GPU_ID) +
+                     "]_frame[-1]" + save_suffix;
+    IO::insert_job([fn, model]() { write_partio<PREC, 3>(fn, model); });
+    IO::flush();
+  }
+
   // Initialize FEM vertices and elements
   template<fem_e f>
   void initFEM(int GPU_ID, const std::vector<std::array<PREC, 13>> &input_vertices,
@@ -391,9 +437,8 @@ template<material_e mt>
   {
     for (int copyid = 0; copyid<2; copyid++) {
       match(particleBins[copyid][did])([&](auto &pb) {},
-          [&](ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> &pb) {
-            pb.updateParameters(length, materialConfigs,
-                                algoConfigs);
+          [&](ParticleBuffer<mt> &pb) {
+            pb.updateParameters(length, materialConfigs, algoConfigs);
             pb.updateOutputs(names);
             pb.updateTrack(trackNames, trackID);
             pb.updateTargets(targetNames);
@@ -401,50 +446,50 @@ template<material_e mt>
     }
     return;
   }
-  void updateJFluidParameters(int did, PREC rho, PREC ppc, PREC bulk, PREC gamma,
-                              PREC visco,
-                              config::AlgoConfigs algoConfigs,
-                              std::vector<std::string> names) {
+  void updateJFluidParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])([&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco,
-                              algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])([&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco,
-                              algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
 
-  void updateJFluidASFLIPParameters(int did, PREC rho, PREC ppc, PREC bulk, PREC gamma,
-                              PREC visco,
-                              PREC a, PREC bmin, PREC bmax,
-                              bool ASFLIP, bool FEM, bool FBAR,
-                              std::vector<std::string> names) {
+  void updateJFluidASFLIPParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid_ASFLIP> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, a, bmin, bmax,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid_ASFLIP> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, a, bmin, bmax, 
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
-  void updateJFluidFBARParameters(int did, PREC rho, PREC ppc, PREC bulk, PREC gamma,
-                              PREC visco,
+  void updateJFluidFBARParameters(int did, config::MaterialConfigs materialConfigs,
                               config::AlgoConfigs algoConfigs, 
                               std::vector<std::string> names,
                               int trackID, std::vector<std::string> trackNames,
@@ -452,8 +497,7 @@ template<material_e mt>
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid_FBAR> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
@@ -461,8 +505,7 @@ template<material_e mt>
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JFluid_FBAR> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
@@ -470,8 +513,7 @@ template<material_e mt>
   }
 
 
-  void updateJBarFluidParameters(int did, PREC rho, PREC ppc, PREC bulk, PREC gamma,
-                              PREC visco,
+  void updateJBarFluidParameters(int did, config::MaterialConfigs materialConfigs,
                               config::AlgoConfigs algoConfigs, 
                               std::vector<std::string> names,
                               int trackID, std::vector<std::string> trackNames,
@@ -479,8 +521,7 @@ template<material_e mt>
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JBarFluid> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
@@ -488,63 +529,66 @@ template<material_e mt>
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::JBarFluid> &pb) {
-          pb.updateParameters(length, rho, ppc, bulk, gamma,
-                              visco, algoConfigs);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
         });
   }
 
-  void updateFRParameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                          bool ASFLIP, bool FEM, bool FBAR, 
-                          std::vector<std::string> names) {
+  void updateFRParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
-  void update_FR_ASFLIP_Parameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                                PREC a, PREC bmin, PREC bmax,
-                                bool ASFLIP, bool FEM, bool FBAR,
-                                std::vector<std::string> names) {
+  void update_FR_ASFLIP_Parameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, a, bmin, bmax,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, a, bmin, bmax,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
-  void update_FR_ASFLIP_FBAR_Parameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                                PREC a, PREC bmin, PREC bmax,
-                                bool ASFLIP, bool FEM, bool FBAR, PREC FBAR_ratio, 
-                                std::vector<std::string> names, 
-                                int trackID, std::vector<std::string> trackNames,
-                                std::vector<std::string> targetNames) {
+  void update_FR_ASFLIP_FBAR_Parameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax, FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
@@ -552,9 +596,7 @@ template<material_e mt>
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax,  FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
           pb.updateTrack(trackNames, trackID);
           pb.updateTargets(targetNames);
@@ -562,10 +604,10 @@ template<material_e mt>
   }
 
   void update_NH_ASFLIP_FBAR_Parameters(int did, config::MaterialConfigs materialConfigs,
-                                config::AlgoConfigs algoConfigs, 
-                                std::vector<std::string> names, 
-                                int trackID, std::vector<std::string> trackNames,
-                                std::vector<std::string> targetNames) {
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> &pb) {
@@ -583,102 +625,95 @@ template<material_e mt>
           pb.updateTargets(targetNames);
         });
   }
-  void updateSandParameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                            PREC logJ, PREC friction_angle, PREC c, PREC b, bool volCorrection,
-                            PREC a, PREC bmin, PREC bmax,
-                            bool ASFLIP, bool FEM, bool FBAR, PREC FBAR_ratio, 
-                            std::vector<std::string> names) {
+  void updateSandParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Sand> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr,
-                              logJ, friction_angle, c, b, volCorrection,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Sand> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr,
-                              logJ, friction_angle, c, b, volCorrection,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
-  void updateNACCParameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                            PREC beta, PREC xi,
-                            bool ASFLIP, bool FEM, bool FBAR, PREC FBAR_ratio, 
-                            std::vector<std::string> names) {
+  void updateNACCParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
+                              std::vector<std::string> names,
+                              int trackID, std::vector<std::string> trackNames,
+                              std::vector<std::string> targetNames) {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::NACC> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, beta, xi,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::NACC> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, beta, xi,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
+          pb.updateTrack(trackNames, trackID);
+          pb.updateTargets(targetNames);
         });
   }
 
-  void updateMeshedParameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                              PREC a, PREC bmin, PREC bmax,
-                              bool ASFLIP, bool FEM, bool FBAR, PREC FBAR_ratio,
+  void updateMeshedParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
                               std::vector<std::string> names) 
   {
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax, FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax, FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
         });
     match(elementBins[did])(
         [&](auto &eb) {},
         [&](ElementBuffer<fem_e::Tetrahedron> &eb) {
-          eb.updateParameters(length, rho, ppc, ym, pr);
+          eb.updateParameters(length, materialConfigs, algoConfigs);
         });   
     std::cout << "Update Meshed parameters." << '\n';
  
   }
-  void updateMeshedFBARParameters(int did, PREC rho, PREC ppc, PREC ym, PREC pr,
-                              PREC a, PREC bmin, PREC bmax,
-                              bool ASFLIP, bool FEM, bool FBAR, PREC FBAR_ratio, 
+  void updateMeshedFBARParameters(int did, config::MaterialConfigs materialConfigs,
+                              config::AlgoConfigs algoConfigs, 
                               std::vector<std::string> names) 
   {    
     match(particleBins[0][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax, FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
         });
     match(particleBins[1][did])(
         [&](auto &pb) {},
         [&](ParticleBuffer<material_e::Meshed> &pb) {
-          pb.updateParameters(length, rho, ppc, ym, pr, 
-                              a, bmin, bmax, FBAR_ratio,
-                              ASFLIP, FEM, FBAR);
+          pb.updateParameters(length, materialConfigs, algoConfigs);
           pb.updateOutputs(names);
         });
     match(elementBins[did])(
         [&](auto &eb) {},
         [&](ElementBuffer<fem_e::Tetrahedron_FBar> &eb) {
-          eb.updateParameters(length, rho, ppc, ym, pr, FBAR_ratio);
+          eb.updateParameters(length, materialConfigs, algoConfigs);
         });    
     std::cout << "Update Meshed FBAR parameters." << '\n';
 
@@ -1472,10 +1507,7 @@ template<material_e mt>
             get_particle_energy(did);
           });
           sync();
-          issue([this](int did) {
-            output_particle_energy(did);
-          });
-          sync();
+          output_particle_energy();
         } //< End of particle energy output
 
         // Check if end of frame or output frequency
@@ -1580,7 +1612,7 @@ template<material_e mt>
     cuDev.syncStream<streamIdx::Compute>();
   }
 
-  void output_particle_energy(int did) {
+  void output_particle_energy() {
           PREC_G sum_kinetic_energy_particles = 0.0;
           PREC_G sum_gravity_energy_particles = 0.0;
           PREC_G sum_strain_energy_particles = 0.0;
@@ -2028,9 +2060,16 @@ template<material_e mt>
       }
       // Copy GPU particle data from basic device arrays to Particle Buffer
       match(particleBins[rollid][did])([&](const auto &pb) {
-        cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did],
-                             pb, partitions[rollid ^ 1][did], vel0[did]);
+        if (flag_has_attributes[did]) {
+          cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did], pattribs[did],
+                              pb, partitions[rollid ^ 1][did], vel0[did]);
+        }
+        else {
+          cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did],
+                              pb, partitions[rollid ^ 1][did], vel0[did]);
+        }
       });
+
       // FEM Precompute
       match(particleBins[rollid][did])([&](const auto &pb) {
         if (pb.use_FEM == true) {
@@ -2358,7 +2397,7 @@ template<material_e mt>
   std::vector<std::string> grid_target_attribs[config::g_device_cnt];
 
   vec<ParticleArray, config::g_device_cnt> particles; //< Basic GPU vector for Particle positions
-  vec<ParticleAttrib, config::g_device_cnt> pattribs;  //< Basic GPU vector for Particle attributes
+  vec<ParticleAttrib<3>, config::g_device_cnt> pattribs;  //< Basic GPU vector for Particle attributes
   //vec<ParticleAttrib, config::g_device_cnt> pattribs;  //< Basic GPU vector for Particle attributes
   //std::vector<particle_array_> particles; //< Basic GPU vector for Particle positions
   //std::vector<particle_array_> pattribs;  //< Basic GPU vector for Particle attributes
@@ -2449,6 +2488,8 @@ template<material_e mt>
   bool flag_ti = false; // Toggle particle tracked ID 
   bool flat_pe = false; // Toggle particle energy output
   bool flag_ge = false; // Toggle grid energy output 
+  bool flag_has_attributes[config::g_device_cnt];
+
   PREC_G host_gt_freq = 60.f; // Frequency of grid-target output
   PREC_G host_pt_freq = 60.f; // Frequency of particle-target output
   PREC_G host_wg_freq = 60.f; // Frequency of wave-gauge output

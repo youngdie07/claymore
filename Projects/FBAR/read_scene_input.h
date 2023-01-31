@@ -78,7 +78,7 @@ decltype(auto) load_binary_particles(std::size_t pcnt, std::string filename) {
   for (auto row : fields) {
     if ((i >= 4) && (i < fields.size() - 4))  {i++; continue;}
     std::cout << "Particle["<< i << "] (x, y, z): ";
-    for (auto field : row) std::cout << ' '<< field << ', ';
+    for (auto field : row) std::cout << " "<< field << ", ";
     std::cout << '\n';
     i++;
   }
@@ -121,7 +121,7 @@ void load_csv_particles(const std::string& filename, char sep,
   for (auto row : fields) {
     if ((i >= 4) && (i < fields.size() - 4))  {i++; continue;}
     std::cout << "Particle["<< i << "] (x, y, z): ";
-    for (auto field : row) std::cout << ' '<< field << ', ';
+    for (auto field : row) std::cout << " "<< field << ", ";
     std::cout << '\n';
     i++;
   }
@@ -160,7 +160,7 @@ void load_csv_particles(const std::string& filename, char sep,
   for (auto row : fields) {
     if ((i >= 4) && (i < fields.size() - 4))  {i++; continue;}
     std::cout << "Particle["<< i << "] (x, y, z): ";
-    for (auto field : row) std::cout << ' '<< field << ', ';
+    for (auto field : row) std::cout << " " << field << ", ";
     std::cout << '\n';
     i++;
   }
@@ -725,10 +725,19 @@ void parse_scene(std::string fn,
             for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                       
+            mn::config::AlgoConfigs algoConfigs( model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),  model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(), model["FBAR_ratio"].GetDouble());
+
+            mn::config::MaterialConfigs materialConfigs;
+            materialConfigs.ppc = model["ppc"].GetDouble();
+            materialConfigs.rho = model["rho"].GetDouble();
+
             auto initModel = [&](auto &positions, auto &velocity, auto &vertices, auto &elements, auto &attribs)
             {
               if (constitutive == "Meshed") 
               {
+                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
+                materialConfigs.nu = model["poisson_ratio"].GetDouble();
+
                 // Initialize FEM model on GPU arrays
                 if (model["use_FBAR"].GetBool() == true)
                 {
@@ -739,11 +748,7 @@ void parse_scene(std::string fn,
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedFBARParameters(
                     model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    model["FBAR_ratio"].GetDouble(),
+                    materialConfigs, algoConfigs,
                     output_attribs); //< Update particle material with run-time inputs
                   fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
@@ -756,11 +761,7 @@ void parse_scene(std::string fn,
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedParameters(
                     model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    model["FBAR_ratio"].GetDouble(),
+                    materialConfigs, algoConfigs,
                     output_attribs); //< Update particle material with run-time inputs
                   fmt::print(fg(fmt::color::green),"GPU[{}] Mesh material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
                 }
@@ -835,167 +836,186 @@ void parse_scene(std::string fn,
                        "ERROR! GPU ID[{}] cannot be negative. \n", model["gpu"].GetInt());
               continue;
             }
+            int gpu_id = model["gpu"].GetInt();
+
             //fs::path p{model["file"].GetString()};
             std::string constitutive{model["constitutive"].GetString()};
             fmt::print(fg(fmt::color::green),
-                       "GPU[{}] Read model constitutive[{}].\n", model["gpu"].GetInt(), constitutive);
+                       "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
+            std::vector<std::string> input_attribs;
             std::vector<std::string> target_attribs;
             std::vector<std::string> track_attribs;
             int track_particle_id;
 
+            bool has_attributes = false;
+            std::vector<std::array<PREC, 3>> attributes; //< Initial attributes (not incl. position)
+
             mn::config::AlgoConfigs algoConfigs( model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),  model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(), model["FBAR_ratio"].GetDouble());
 
-            auto initModel = [&](auto &positions, auto &velocity) {
+            mn::config::MaterialConfigs materialConfigs;
+            materialConfigs.ppc = model["ppc"].GetDouble();
+            materialConfigs.rho = model["rho"].GetDouble();
+
+            auto initModel = [&](auto &positions, auto &attributes, auto &velocity) {
 
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
+                
+                materialConfigs.bulk = model["bulk_modulus"].GetDouble(); 
+                materialConfigs.gamma = model["gamma"].GetDouble(); 
+                materialConfigs.visco = model["viscosity"].GetDouble();
+
                 if(!model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::JFluid>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->updateJFluidParameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(),
-                      model["viscosity"].GetDouble(),
-                      algoConfigs,
-                      output_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  if (has_attributes) 
+                    benchmark->initModel<mn::material_e::JFluid>(gpu_id, positions, attributes, velocity);                    
+                  else
+                    benchmark->initModel<mn::material_e::JFluid>(gpu_id, positions, velocity);
+
+                  benchmark->updateParameters<mn::material_e::JFluid>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else if (model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->updateJFluidASFLIPParameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      output_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  if (has_attributes) 
+                    benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, positions, attributes, velocity);                    
+                  else
+                    benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, positions, velocity);
+
+                  benchmark->updateParameters<mn::material_e::JFluid_ASFLIP>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
-                else if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JBarFluid>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->updateJBarFluidParameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                      algoConfigs,
-                      output_attribs,
-                      track_particle_id, track_attribs, 
-                      target_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  if (has_attributes) 
+                    benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, positions, attributes, velocity);                    
+                  else
+                    benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::JBarFluid>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 } 
-                else if (!model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
+                else if (!algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_FBAR>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->updateJFluidFBARParameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["bulk_modulus"].GetDouble(), model["gamma"].GetDouble(), model["viscosity"].GetDouble(), 
-                      algoConfigs,
-                      output_attribs,
-                      track_particle_id, track_attribs, 
-                      target_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  if (has_attributes) 
+                    benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, positions, attributes, velocity);                    
+                  else
+                    benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, positions, velocity);
+
+                  benchmark->updateParameters<mn::material_e::JFluid_FBAR>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else 
                 {
                   fmt::print(fg(fmt::color::red),
                        "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       model["gpu"].GetInt(), constitutive,
+                       gpu_id, constitutive,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   getchar();
                 }
-              } else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
+              } 
+              else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
+
+                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
+                materialConfigs.nu = model["poisson_ratio"].GetDouble();
 
                 if(!model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->updateFRParameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      output_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::FixedCorotated>(
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else if (model["use_ASFLIP"].GetBool() && !model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->update_FR_ASFLIP_Parameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      output_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP>(
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->update_FR_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
-                      model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                      model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                      model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                      model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                      model["FBAR_ratio"].GetDouble(),
-                      output_attribs, 
-                      track_particle_id, track_attribs, 
-                      target_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP_FBAR>(
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else 
                 {
                   fmt::print(fg(fmt::color::red),
                        "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       model["gpu"].GetInt(), constitutive,
+                       gpu_id, constitutive,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   getchar();
                 }
-              } else if (constitutive == "NeoHookean" || constitutive == "neohookena" || constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
+              } 
+              else if (constitutive == "NeoHookean" || constitutive == "neohookean" || 
+                      constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
 
-                mn::config::MaterialConfigs materialConfigs(model["ppc"].GetDouble(), model["rho"].GetDouble(), 0, 0, 0, model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 0, 0, 0, 0, 0, 0);
-
+                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
+                materialConfigs.nu = model["poisson_ratio"].GetDouble();
+                  
                 if (model["use_ASFLIP"].GetBool() && model["use_FBAR"].GetBool() && !model["use_FEM"].GetBool())
                 {
-                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(model["gpu"].GetInt(), positions, velocity);
-                  benchmark->update_NH_ASFLIP_FBAR_Parameters( model["gpu"].GetInt(),
-                      materialConfigs, algoConfigs,
-                      output_attribs, 
-                      track_particle_id, track_attribs, 
-                      target_attribs);
-                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::NeoHookean_ASFLIP_FBAR>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                  fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
                 }
                 else 
                 {
                   fmt::print(fg(fmt::color::red),
                        "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       model["gpu"].GetInt(), constitutive,
+                       gpu_id, constitutive,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   getchar();
                 }
-              } else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
-                benchmark->initModel<mn::material_e::Sand>(model["gpu"].GetInt(), positions, velocity); 
-                benchmark->updateSandParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(),
-                    model["logJp0"].GetDouble(), model["friction_angle"].GetDouble(),model["cohesion"].GetDouble(),model["beta"].GetDouble(),model["Sand_volCorrection"].GetBool(),
-                    model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    model["FBAR_ratio"].GetDouble(),
-                    output_attribs);        
-                fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
-              } else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
-                benchmark->initModel<mn::material_e::NACC>(model["gpu"].GetInt(), positions, velocity);
-                benchmark->updateNACCParameters( model["gpu"].GetInt(),
-                    model["rho"].GetDouble(), model["ppc"].GetDouble(),
-                    model["youngs_modulus"].GetDouble(), model["poisson_ratio"].GetDouble(), 
-                    model["beta"].GetDouble(), model["xi"].GetDouble(),
-                    model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),
-                    model["FBAR_ratio"].GetDouble(),
-                    output_attribs);
-                fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", model["gpu"].GetInt(), constitutive);
+              } 
+              else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
+                benchmark->initModel<mn::material_e::Sand>(gpu_id, positions, velocity); 
+                
+                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
+                materialConfigs.nu = model["poisson_ratio"].GetDouble();
+                materialConfigs.logJp0 = model["logJp0"].GetDouble(); 
+                materialConfigs.frictionAngle = model["friction_angle"].GetDouble();
+                materialConfigs.cohesion = model["cohesion"].GetDouble(); 
+                materialConfigs.beta = model["beta"].GetDouble();
+                materialConfigs.volumeCorrection = model["Sand_volCorrection"].GetBool(); 
+
+                benchmark->updateParameters<mn::material_e::Sand>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+              } 
+              else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
+                benchmark->initModel<mn::material_e::NACC>(gpu_id, positions, velocity);
+                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
+                materialConfigs.nu = model["poisson_ratio"].GetDouble();
+                materialConfigs.logJp0 = model["logJp0"].GetDouble(); 
+                materialConfigs.frictionAngle = model["friction_angle"].GetDouble();
+                materialConfigs.beta = model["beta"].GetDouble();
+                materialConfigs.xi = model["xi"].GetDouble(); 
+                materialConfigs.hardeningOn = model["hardeningOn"].GetBool(); 
+
+                benchmark->updateParameters<mn::material_e::NACC>( 
+                      gpu_id, materialConfigs, algoConfigs,
+                      output_attribs, track_particle_id, track_attribs, target_attribs);
+                fmt::print(fg(fmt::color::green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
               } 
               else 
               {
-                fmt::print(fg(fmt::color::red),"ERROR: GPU[{}] particle model constititive[{}] does not exist! \n", 
-                      model["gpu"].GetInt(), constitutive);
+                fmt::print(fg(fmt::color::red),"ERROR: GPU[{}] constititive[{}] does not exist! \n",  gpu_id, constitutive);
                 fmt::print(fg(fmt::color::red), "Press Enter to continue...");                
                 getchar();
               }
@@ -1005,17 +1025,26 @@ void parse_scene(std::string fn,
               velocity[d] = model["velocity"].GetArray()[d].GetDouble() / l;
               partition_start[d]  = model["partition_start"].GetArray()[d].GetDouble() / l + o;
               partition_end[d]  = model["partition_end"].GetArray()[d].GetDouble() / l + o;
-              inter_a[d] = -1; // TODO : Deprecate inter_a/b for JSON "subtract" in "geometry"
-              inter_b[d] = -1;
             }
-            for (int d = 0; d < 3; ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-            std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
+            for (int d = 0; d < mn::config::g_particle_attribs; ++d) {
+              //if(!model["output_attribs"].IsArray()) { fmt::print("ERROR: Not an array."); break;}
+              //if (d >= model["output_attribs"].Size()) break;
+              output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
+            }
+            fmt::print("Output Attributes: [{}, {}, {}].\n", output_attribs[0],output_attribs[1],output_attribs[2]);
+
             track_particle_id = model["track_particle_id"].GetArray()[0].GetInt();
             for (int d = 0; d < 1; ++d) track_attribs.emplace_back(model["track_attribs"].GetArray()[d].GetString());
-            std::cout <<"Track particle ID: " << track_particle_id << " for Attributes: [ " << track_attribs[0] <<" ]"<<'\n';
-            for (int d = 0; d < 1; ++d) target_attribs.emplace_back(model["target_attribs"].GetArray()[d].GetString());
-            std::cout <<"Target Attributes: [ " << target_attribs[0] <<" ]"<<'\n';
-            
+            fmt::print("Track attributes [{}] on particle IDs [{}].\n", track_attribs[0], track_particle_id);
+
+            for (int d = 0; d < 1; ++d) {
+              // if(!model["target_attribs"].IsArray()) { fmt::print("ERROR: Not an array.\n"); break;}
+              // if (d >= model["target_attribs"].Size()) break;
+              target_attribs.emplace_back(model["target_attribs"].GetArray()[d].GetString());
+            }
+            fmt::print("Target Attributes: [{}].\n", target_attribs[0]);
+
+
             auto geo = model.FindMember("geometry");
             if (geo != model.MemberEnd()) {
               if (geo->value.IsArray()) {
@@ -1023,7 +1052,7 @@ void parse_scene(std::string fn,
                 for (auto &geometry : geo->value.GetArray()) {
                   std::string operation{geometry["operation"].GetString()};
                   std::string type{geometry["object"].GetString()};
-                  fmt::print("GPU[{}] Operation[{}] with object[{}]... \n", model["gpu"].GetInt(), operation, type);
+                  fmt::print("GPU[{}] Operation[{}] with object[{}]... \n", gpu_id, operation, type);
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
@@ -1047,68 +1076,57 @@ void parse_scene(std::string fn,
                   if (type == "Box" || type == "box")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_box(models[model["gpu"].GetInt()], 
+                      make_box(models[gpu_id], 
                           geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
                     }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_box(models[model["gpu"].GetInt()], geometry_span, geometry_offset_updated);
+                      subtract_box(models[gpu_id], geometry_span, geometry_offset_updated);
                     }
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
-                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
+                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
                       getchar(); 
                     }
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_cylinder(models[model["gpu"].GetInt()], 
-                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString(), partition_start, partition_end);
-                    }
-                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[model["gpu"].GetInt()], geometry["radius"].GetDouble(), geometry["axis"].GetString(), geometry_span, geometry_offset_updated);}
-                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                      make_cylinder(models[gpu_id], 
+                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString(), partition_start, partition_end); }
+                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry["radius"].GetDouble(), geometry["axis"].GetString(), geometry_span, geometry_offset_updated); }
                     else 
                     {
-                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
+                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
                       getchar(); 
                     }
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_sphere(models[model["gpu"].GetInt()], 
+                      make_sphere(models[gpu_id], 
                               geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), partition_start, partition_end);
                     }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_sphere(models[model["gpu"].GetInt()], geometry["radius"].GetDouble(), geometry_offset_updated);
-                    }
-                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
+                      subtract_sphere(models[gpu_id], geometry["radius"].GetDouble(), geometry_offset_updated); }
                     else 
                     {
-                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
+                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
                       getchar(); 
                     }
                   }
                   else if (type == "OSU LWF" || type == "OSU Water")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[model["gpu"].GetInt()], 
+                      make_OSU_LWF(models[gpu_id], 
                             geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
                     }
                     else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
-                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
-                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
+                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
                       getchar(); 
                     }
                   }
@@ -1124,21 +1142,54 @@ void parse_scene(std::string fn,
                       istrm.close();
                     }
                     if (operation == "Add" || operation == "add") {
-                      // TODO : Reimplement signed-distance-field (*.sdf) particle input files to match current scene set-up (e.g. appropiate offset and scale).
                       if (geometry_file_path.extension() == ".sdf") 
                       {
                         mn::read_sdf(
-                            geometry_fn, models[model["gpu"].GetInt()], model["ppc"].GetDouble(),
+                            geometry_fn, models[gpu_id], model["ppc"].GetDouble(),
                             (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
                             partition_start, partition_end, geometry["scaling_factor"].GetDouble(), geometry["padding"].GetInt());
                       }
                       else if (geometry_file_path.extension() == ".csv") 
                       {
                         load_csv_particles(geometry_fn, ',', 
-                                            models[model["gpu"].GetInt()], geometry_offset_updated, 
+                                            models[gpu_id], geometry_offset_updated, 
                                             partition_start, partition_end);
                       }
-                      // TODO : Include particle file input for ".bgeo", ".bin", ".pdb", ".ptc", ".vtk" using PartIO readers
+                      else if (geometry_file_path.extension() == ".bgeo" ||
+                          geometry_file_path.extension() == ".geo" ||
+                          geometry_file_path.extension() == ".pdb" ||
+                          geometry_file_path.extension() == ".ptc") 
+                      {
+                        auto check = geometry.FindMember("has_attributes");
+                        if (check != geometry.MemberEnd())
+                        {               
+                          if(!geometry["has_attributes"].IsBool()) { fmt::print("ERROR: Not a bool."); break;}
+                          has_attributes = geometry["has_attributes"].GetBool();
+                        }
+                        fmt::print("GPU[{}] Model has pre-existing particle attributes to read-into simulation[{}].\n", gpu_id, has_attributes);
+                        for (int d = 0; d < 32; ++d) {
+                          // if(!geometry["input_attribs"].IsArray()) { fmt::print("ERROR: Not an array."); break;}
+                          if (d >= geometry["input_attribs"].Size()) break;
+                          input_attribs.emplace_back(geometry["input_attribs"].GetArray()[d].GetString());
+                          fmt::print("Input Attributes: [{}]\n", input_attribs.back());
+                        }
+
+
+                        // mn::IO::insert_job([&]() {
+                        mn::read_partio_general<PREC, 3>(geometry_fn,
+                                                  models[gpu_id],
+                                                  attributes,
+                                                  input_attribs); 
+                        // });              
+                        // mn::IO::flush();
+                        for (int part=0; part < models[gpu_id].size(); part++) {
+                          for (int d = 0; d<3; d++) {
+                            models[gpu_id][part][d] = models[gpu_id][part][d] / l + o;
+                          }
+                        }
+
+                      }
+
                     }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(fmt::color::red),"Operation not implemented...\n"); }
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
@@ -1146,14 +1197,14 @@ void parse_scene(std::string fn,
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(fmt::color::red),"Operation not implemented...\n");}
                     else 
                     {
-                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", model["gpu"].GetInt(), operation); 
+                      fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
                       getchar(); 
                     }
 
                   }
                   else 
                   {
-                    fmt::print(fg(fmt::color::red), "GPU[{}] ERROR: Geometry object[{}] does not exist!\n", model["gpu"].GetInt(), type);
+                    fmt::print(fg(fmt::color::red), "GPU[{}] ERROR: Geometry object[{}] does not exist!\n", gpu_id, type);
                     fmt::print(fg(fmt::color::red), "Press Enter...\n");
                     getchar();
                   } 
@@ -1168,12 +1219,12 @@ void parse_scene(std::string fn,
               }
             } //< End geometry
             else {
-              fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] has no geometry object!\n", model["gpu"].GetInt());
+              fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] has no geometry object!\n", gpu_id);
               fmt::print(fg(fmt::color::red), "Press enter to continue...\n");
               getchar();
             }
               
-            auto positions = models[model["gpu"].GetInt()];
+            auto positions = models[gpu_id];
 
             mn::IO::insert_job([&]() {
               mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
@@ -1182,12 +1233,12 @@ void parse_scene(std::string fn,
             fmt::print(fg(fmt::color::green), "GPU[{}] Saved particle model to [{}].\n", model["gou"].GetInt(), std::string{p.stem()} + save_suffix);
             
             if (positions.size() > mn::config::g_max_particle_num) {
-              fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", model["gpu"].GetInt(), positions.size());
+              fmt::print(fg(fmt::color::red), "ERROR: GPU[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", gpu_id, positions.size());
               fmt::print(fg(fmt::color::red), "Press Enter to continue anyways... \n");
               getchar();
             }
 
-            initModel(positions, velocity);
+            initModel(positions, attributes, velocity);
           }
         }
       }
@@ -1200,10 +1251,7 @@ void parse_scene(std::string fn,
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
-            std::vector<std::array<PREC_G, mn::config::g_target_attribs>> h_gridTarget(mn::config::g_target_cells, 
-                                                            std::array<PREC_G, mn::config::g_target_attribs>{0.f,0.f,0.f,
-                                                            0.f,0.f,0.f,
-                                                            0.f,0.f,0.f,0.f});
+            std::vector<std::array<PREC_G, mn::config::g_target_attribs>> h_gridTarget(mn::config::g_target_cells, std::array<PREC_G, mn::config::g_target_attribs> {0,0,0,0,0,0,0,0,0,0});
             mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
 
             if (0) // TODO : Implement attribute selection for grid-target

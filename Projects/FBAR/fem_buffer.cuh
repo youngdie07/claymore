@@ -141,17 +141,18 @@ struct ElementBuffer<fem_e::Tetrahedron> : ElementBufferImpl<fem_e::Tetrahedron>
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr) 
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) 
   {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    E = ym;
-    nu = pr;
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    E = mat.E;
+    nu = mat.nu;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
   }
 
   template <typename Allocator>
@@ -173,18 +174,19 @@ struct ElementBuffer<fem_e::Tetrahedron_FBar> : ElementBufferImpl<fem_e::Tetrahe
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
   PREC FBAR_ratio = 0.0;
 
-  void updateParameters(PREC l, PREC density, PREC ppc, PREC ym, PREC pr, PREC fbar_ratio) 
+  void updateParameters(PREC l, config::MaterialConfigs mat, 
+                        config::AlgoConfigs algo) 
   {
     length = l;
-    rho = density;
+    rho = mat.rho;
     volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / ppc);
-    E = ym;
-    nu = pr;
-    mass = volume * density;
-    lambda = E * nu / ((1 + nu) * (1 - 2 * nu));
-    mu = E / (2 * (1 + nu));
-    FBAR_ratio = fbar_ratio;
+                    (1 << DOMAIN_BITS) / mat.ppc);
+    mass = volume * mat.rho;
+    E = mat.E;
+    nu = mat.nu;
+    lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
+    mu = mat.E / (2 * (1 + mat.nu));
+    FBAR_ratio = algo.FBAR_ratio;
   }
 
   template <typename Allocator>

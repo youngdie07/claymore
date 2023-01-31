@@ -3,9 +3,9 @@
 		"gpuid": 0,
 		"gravity": -9.81,
 		"fps": 20,
-		"frames": 1,
+		"frames": 180,
 		"default_dt": 7.5e-5,
-		"default_dx": 0.1,
+		"default_dx": 0.04,
 		"domain": [8, 8, 8],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
@@ -14,15 +14,15 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"constitutive": "NeoHookean",
-			"output_attribs": ["logJp", "VonMisesStress", "J"],
+			"constitutive": "NACC",
+			"output_attribs": ["Pressure", "VonMisesStress", "logJp"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
-			"ppc": 8.0,
+			"ppc": 27.0,
 			"CFL": 0.5,
 			"rho": 2240,
-			"youngs_modulus": 2e7,
+			"youngs_modulus": 2e8,
 			"poisson_ratio": 0.2,
 			"friction_angle": 40,
 			"cohesion": 0.0005,
@@ -45,12 +45,12 @@
 					"object": "file",
 					"operation": "Add",
 					"file": "MpmParticles/Misc/MarcEberhard_0.05_dx0.0125_pad1.sdf",
-					"scaling_factor": 1,
-					"padding": 1,
 					"span": [88.1, 1.85, 1.825],
 					"offset": [0.625, 0.0, 6.4],
 					"array": [1, 1, 1],
-					"spacing": [0, 0, 0]
+					"spacing": [0, 0, 0],
+					"scaling_factor": 1,
+					"padding": 1
 				}
 			],
 			"partition_start": [0, 0, 0],
@@ -87,12 +87,12 @@
 					"object": "file",
 					"operation": "Add",
 					"file": "MpmParticles/Misc/PedroArduino_0.05_dx0.0125_pad1.sdf",
-					"scaling_factor": 1,
-					"padding": 1,
 					"span": [88.1, 1.85, 1.825],
 					"offset": [0.625, 1.6, 2.5],
 					"array": [1, 1, 1],
-					"spacing": [0, 0, 0]
+					"spacing": [0, 0, 0],
+					"scaling_factor": 1,
+					"padding": 1
 				}
 			],
 			"partition_start": [0, 0, 0],
@@ -102,7 +102,7 @@
 			"gpu": 2,
 			"type": "particles",
 			"constitutive": "JFluid",
-			"output_attribs": ["J", "JBar", "ID"],
+			"output_attribs": ["ID", "Velocity_Z", "Pressure"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
@@ -112,7 +112,7 @@
 			"bulk_modulus": 6e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"use_ASFLIP": false,
+			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"alpha": 0,
@@ -124,14 +124,19 @@
 				{
 					"object": "file",
 					"operation": "Add",
-					"file2": "MpmParticles/Misc/MikeMotley_0.05_dx0.0125_pad1.sdf",
-					"file": "MpmParticles/CheckPoints/Mike_k6e7_FBAR0.95_PPC8_res0.1_T0.025_27012023.bgeo",
-					"has_attributes": true,
-					"input_attribs": ["J", "JBar", "ID"],
+					"file": "MpmParticles/Misc/MikeMotley_0.05_dx0.0125_pad1.sdf",
 					"scaling_factor": 1,
 					"padding": 1,
 					"span": [6, 1, 0.1],
 					"offset": [1.25, 4.2, 0.0],
+					"array": [1, 1, 1],
+					"spacing": [0.0, 0, 0.0]
+				},
+				{
+					"object": "Box",
+					"operation": "Add",
+					"span": [8, 2.4, 0.8],
+					"offset": [0.0, 1.6, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0.0, 0, 0.0]
 				}
@@ -146,14 +151,14 @@
 			"contact": "Separable",
 			"domain_start":[0,0,0],
 			"domain_end": [8,8,8],
-			"duration":[0,180]
+			"time":[0,180]
 		},
 		{
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [-0.2, -0.2, -0.2],
 			"domain_end": [8.2, 1.6, 3.2],
-			"duration": [0, 180]
+			"time": [0, 180]
 		}
 	],
 	"grid-targets": [
