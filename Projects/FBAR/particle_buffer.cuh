@@ -14,6 +14,9 @@ using ParticleTargetDomain = compact_domain<int, config::g_max_particle_target_n
 // * All  particle attributes available for ouput.
 // * Not all materials will support every output.
 enum class particle_output_attribs_e : int {
+        EMPTY=-3, // Empty attribute request 
+        INVALID_CT=-2, // Invalid compile-time request, e.g. deprecated variable (below END)
+        INVALID_RT=-1, // Invalid run-time request e.g. "vel X" instead of "Velocity_X"
         START=0,
         ID = 0, Mass, Volume,
         Position_X, Position_Y, Position_Z,
@@ -44,9 +47,11 @@ enum class particle_output_attribs_e : int {
         StrainSmall_YX, StrainSmall_YY, StrainSmall_YZ,
         StrainSmall_ZX, StrainSmall_ZY, StrainSmall_ZZ,
         StrainSmall_Invariant1, StrainSmall_Invariant2, StrainSmall_Invariant3,
+        Dilation = StrainSmall_Invariant1, StrainSmall_Determinant = StrainSmall_Invariant3,
         StrainSmall_1,  StrainSmall_2, StrainSmall_3,
         logJp=100,
-        END
+        END,
+        ExampleDeprecatedVariable //< Will give INVALID_CT output of -2
 };
 
 using particle_bin4_ =
@@ -276,13 +281,16 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   }
 
   vec<int, 3> output_attribs;
+  vec<int, mn::config::g_max_particle_attribs> output_attribs_dyn;
   std::vector<std::string> output_labels;   
   void updateOutputs(std::vector<std::string> names) {
     int i = 0;
     for (auto n : names)
     {
+      if (i>=mn::config::g_max_particle_attribs) continue;
       output_labels.emplace_back(n);
-      output_attribs[i] = mapAttributeStringToIndex(n);
+      output_attribs_dyn[i] = mapAttributeStringToIndex(n);
+      if (i < 3) output_attribs[i] = mapAttributeStringToIndex(n);
       i++;
     }
   }
@@ -341,11 +349,40 @@ struct ParticleBuffer<material_e::JFluid>
     use_FBAR = algo.use_FBAR;
   }
 
-  // template<typename T = PREC>
-  // __forceinline__ __device__ void
-  // getJ(T& J){
-  // J = this->ch(_0, bin).val(_0, pidib);
-  // }
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          J, DefGrad_Determinant=J, 
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          Volume_FBAR, 
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
+          logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename T = PREC>
   __forceinline__ __device__ void
   getPressure(T J, T& pressure){
@@ -399,6 +436,41 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          J, DefGrad_Determinant=J, 
+          Velocity_X, Velocity_Y, Velocity_Z,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Volume_FBAR, 
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
+          logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -443,6 +515,41 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }  
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          J, DefGrad_Determinant=J, 
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          Volume_FBAR, 
+          logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -487,6 +594,40 @@ struct ParticleBuffer<material_e::JBarFluid>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }  
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          J, DefGrad_Determinant=J, 
+          Velocity_X, Velocity_Y, Velocity_Z,
+          ID,
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Volume_FBAR, 
+          logJp
+  };
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -529,6 +670,40 @@ struct ParticleBuffer<material_e::FixedCorotated>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant=J, 
+          Velocity_X, Velocity_Y, Velocity_Z,
+          Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, 
+          logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -571,6 +746,38 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant=J, Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+  
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -614,6 +821,38 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant=J, logJp
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -664,73 +903,53 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
   // * REQUIRED : Define material's unused base variables after END to avoid errors.
   // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
   enum attribs_e : int {
-          INVALID_CT=-3, // Invalid compile-time request, e.g. asking for variable after END
-          INVALID_RT=-2, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
-          EMPTY=-1, // Empty attribute request 
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
           START=0, // Values less than or equal to START not held on particle
           Position_X=0, Position_Y=1, Position_Z=2,
           DefGrad_XX, DefGrad_XY, DefGrad_XZ,
           DefGrad_YX, DefGrad_YY, DefGrad_YZ,
           DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
           Velocity_X, Velocity_Y, Velocity_Z,
-          Volume_FBAR, DefGrad_Determinant_FBAR, ID,
+          Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, ID,
           END, // Values greater than or equal to END not held on particle
           // REQUIRED: Put N/A variables for specific material below END
-          J, DefGrad_Determinant, logJp
+          J, DefGrad_Determinant=J, logJp
   };
 
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
   __forceinline__ __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
-    // TODO : Change if/else statement to case/switch. may require compile-time min-max
-    //auto attribute = (ATTRIBUTE > END) ? attribs_e::END : ATTRIBUTE;  
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
-  // template <typename T>
-  // __forceinline__ __device__ PREC
-  // getID(const T bin, const T particle_id_in_bin){
-  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e:ID>{}, particle_id_in_bin);
-  // }
-
-  // template <typename T>
-  // __forceinline__ __device__ PREC
-  // getVelocityX(const T bin, const T particle_id_in_bin){
-  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin);
-  // }
-  // template <typename T>
-  // __forceinline__ __device__ PREC
-  // getVelocityY(const T bin, const T particle_id_in_bin){
-  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Y>{}, particle_id_in_bin);
-  // }
-  // template <typename T>
-  // __forceinline__ __device__ PREC
-  // getVelocityZ(const T bin, const T particle_id_in_bin){
-  //   return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Z>{}, particle_id_in_bin);
-  // }
-  template <typename T>
+  template <typename T = PREC>
   __forceinline__ __device__ void
-  getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity){
-    velocity = {this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 12>{}, particle_id_in_bin),
-    this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 13>{}, particle_id_in_bin),
-    this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 14>{}, particle_id_in_bin)};
+  getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
+    velocity = {
+      this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
+      this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Y>{}, particle_id_in_bin),
+      this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_Z>{}, particle_id_in_bin)
+    };
   }
 
-  template <typename T>
+  template <typename T = PREC>
   __forceinline__ __device__ void
-  getDefGrad(const T bin, const T particle_id_in_bin, PREC * DefGrad){
-
-    DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 3>{}, particle_id_in_bin);
-    DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 4>{}, particle_id_in_bin);
-    DefGrad[2] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 5>{}, particle_id_in_bin);
-    DefGrad[3] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 6>{}, particle_id_in_bin);
-    DefGrad[4] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 7>{}, particle_id_in_bin);
-    DefGrad[5] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 8>{}, particle_id_in_bin);
-    DefGrad[6] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 9>{}, particle_id_in_bin);
-    DefGrad[7] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 10>{}, particle_id_in_bin);
-    DefGrad[8] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, 11>{}, particle_id_in_bin);
+  getDefGrad(const T bin, const T particle_id_in_bin, PREC * DefGrad) {
+    DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
+    DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
+    DefGrad[2] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XZ>{}, particle_id_in_bin);
+    DefGrad[3] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_YX>{}, particle_id_in_bin);
+    DefGrad[4] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_YY>{}, particle_id_in_bin);
+    DefGrad[5] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_YZ>{}, particle_id_in_bin);
+    DefGrad[6] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_ZX>{}, particle_id_in_bin);
+    DefGrad[7] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_ZY>{}, particle_id_in_bin);
+    DefGrad[8] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_ZZ>{}, particle_id_in_bin);
   }
 
 
@@ -754,10 +973,14 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
 
   template <typename T = PREC>
   __forceinline__ __device__ void
+  getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
+    compute_energy_neohookean(vol, mu, lambda, F, strain_energy);
+  }
+  template <typename T = PREC>
+  __forceinline__ __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_neohookean(volume, mu, lambda, F, strain_energy);
   }
-
   template <typename T = PREC>
   __forceinline__ __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T &kinetic_energy){  
@@ -824,6 +1047,41 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          logJp,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant=J, 
+          Volume_FBAR 
+  };
+
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
@@ -889,9 +1147,44 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
     use_FEM = algo.use_FEM;
     use_FBAR = algo.use_FBAR;
   }
+
+  // * Attributes saved on particles of this material. Given variable names for easy mapping
+  // * REQUIRED : Variable order matches atttribute order in ParticleBuffer.val_1d(VARIABLE, ...)
+  // * e.g. if ParticleBuffer<MATERIAL>.val_1d(4_, ...) is Velocity_X, then set Velocity_X = 4
+  // * REQUIRED : Define material's unused base variables after END to avoid errors.
+  // TODO : Write unit-test to guarantee all attribs_e have base set of variables.
+  enum attribs_e : int {
+          EMPTY=-3, // Empty attribute request 
+          INVALID_CT=-2, // Invalid compile-time request, e.g. asking for variable after END
+          INVALID_RT=-1, // Invalid run-time request e.g. "Speed_X" instead of "Velocity_X"
+          START=0, // Values less than or equal to START not held on particle
+          Position_X=0, Position_Y=1, Position_Z=2,
+          DefGrad_XX, DefGrad_XY, DefGrad_XZ,
+          DefGrad_YX, DefGrad_YY, DefGrad_YZ,
+          DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
+          logJp,
+          Velocity_X, Velocity_Y, Velocity_Z,
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
+          END, // Values greater than or equal to END not held on particle
+          // REQUIRED: Put N/A variables for specific material below END
+          J, DefGrad_Determinant=J, 
+          Volume_FBAR 
+  };
+
+  // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
+  template <attribs_e ATTRIBUTE, typename T>
+  __forceinline__ __device__ PREC
+  getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
 };
+
 
 template <>
 struct ParticleBuffer<material_e::Meshed>
@@ -972,6 +1265,16 @@ using particle_array_3_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::compact>,
                ParticleArrayDomain, attrib_layout::aos, f_, f_, f_>;
+using particle_array_4_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_>;
+using particle_array_5_ =
+    structural<structural_type::dynamic,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::compact>,
+               ParticleArrayDomain, attrib_layout::aos, f_, f_, f_, f_, f_>;
 using particle_array_6_ =
     structural<structural_type::dynamic,
                decorator<structural_allocation_policy::full_allocation,
@@ -1018,77 +1321,40 @@ struct ParticleArray : Instance<particle_array_> {
   }
 };
 
-template <int N> struct particle_attrib_;
-template <> struct particle_attrib_<3> : particle_array_3_ {};
-// template <> struct particle_attrib_<4> : particle_array_6_ {}; //
-// template <> struct particle_attrib_<5> : particle_array_6_ {}; //
-template <> struct particle_attrib_<6> : particle_array_6_ {};
-// template <> struct particle_attrib_<7> : particle_array_9_ {}; //
-// template <> struct particle_attrib_<8> : particle_array_9_ {}; //
-template <> struct particle_attrib_<9> : particle_array_9_ {};
-template <> struct particle_attrib_<10> : particle_array_12_ {}; //
-template <> struct particle_attrib_<11> : particle_array_12_ {}; //
-template <> struct particle_attrib_<12> : particle_array_12_ {};
-template <> struct particle_attrib_<15> : particle_array_15_ {};
-template <> struct particle_attrib_<24> : particle_array_24_ {};
+template <num_attribs_e N> struct particle_attrib_;
+template <> struct particle_attrib_<num_attribs_e::Three> : particle_array_3_ {};
+template <> struct particle_attrib_<num_attribs_e::Four> : particle_array_4_ {}; //
+template <> struct particle_attrib_<num_attribs_e::Five> : particle_array_5_ {}; //
+template <> struct particle_attrib_<num_attribs_e::Six> : particle_array_6_ {};
+// // template <> struct particle_attrib_<7> : particle_array_9_ {}; //
+// // template <> struct particle_attrib_<8> : particle_array_9_ {}; //
+// template <> struct particle_attrib_<9> : particle_array_9_ {};
+// // template <> struct particle_attrib_<10> : particle_array_12_ {}; //
+// // template <> struct particle_attrib_<11> : particle_array_12_ {}; //
+// template <> struct particle_attrib_<12> : particle_array_12_ {};
+// template <> struct particle_attrib_<15> : particle_array_15_ {};
+// template <> struct particle_attrib_<24> : particle_array_24_ {};
 
-template<int N=3>
+template<num_attribs_e N=num_attribs_e::Three>
 struct ParticleAttrib: Instance<particle_attrib_<N>> {
-  static constexpr unsigned numAttributes = N;
+  static constexpr unsigned numAttributes = static_cast<unsigned>(N);
   using base_t = Instance<particle_attrib_<N>>;
-  ParticleAttrib &operator=(base_t &&instance) {
-    static_cast<base_t &>(*this) = instance;
-    return *this;
-  }
-
-  // template <const unsigned INDEX, typename T>
-  // __forceinline__ __device__ void
-  // setAttribute(PREC val, const T particle_id){
-  //   this->val(std::integral_constant<unsigned, INDEX>{}, particle_id) = val;
+  // ParticleAttrib &operator=(base_t &&instance) {
+  //   static_cast<base_t &>(*this) = instance;
+  //   return *this;
   // }
-
-  template <typename IDX_, typename T>
-  void setAttribute(IDX_ idx, const T particle_id, PREC val){
-    
-    if (idx == mn::placeholder::_0 && numAttributes < 1) return;
-    else if (idx == mn::placeholder::_1 && numAttributes < 2) return;
-    else if (idx == mn::placeholder::_2 && numAttributes < 3) return;
-    else if (idx == mn::placeholder::_3 && numAttributes < 4) return;
-    else if (idx == mn::placeholder::_4 && numAttributes < 5) return;
-    else if (idx == mn::placeholder::_5 && numAttributes < 6) return;
-    else if (idx == mn::placeholder::_6 && numAttributes < 7) return;
-    // if (idx == mn::placeholder::_7 && numAttributes > 8) return;
-    // if (idx == mn::placeholder::_8 && numAttributes > 9) return;
-    // if (idx == mn::placeholder::_9 && numAttributes > 10) return;
-    // if (idx == mn::placeholder::_10 && numAttributes > 11) return;
-    // if (idx == mn::placeholder::_11 && numAttributes > 12) return;
-    // if (idx == mn::placeholder::_12 && numAttributes > 13) return;
-    // if (idx == mn::placeholder::_13 && numAttributes > 14) return;
-    // if (idx == mn::placeholder::_14 && numAttributes > 15) return;
-    // if (idx == mn::placeholder::_15 && numAttributes > 16) return;
-    // if (idx == mn::placeholder::_16 && numAttributes > 17) return;
-    // if (idx == mn::placeholder::_17 && numAttributes > 18) return;
-    // if (idx == mn::placeholder::_18 && numAttributes > 19) return;
-    // if (idx == mn::placeholder::_19 && numAttributes > 20) return;
-    // if (idx == mn::placeholder::_20 && numAttributes > 21) return;
-    // if (idx == mn::placeholder::_21 && numAttributes > 22) return;
-    // if (idx == mn::placeholder::_22 && numAttributes > 23) return;
-    // if (idx == mn::placeholder::_23 && numAttributes > 24) return;
-
-    else this->val(idx, particle_id) = val;
-    return; 
-  }
-
+  template <typename Allocator>
+  ParticleAttrib(Allocator allocator)
+      : base_t{spawn<particle_attrib_<N>, orphan_signature>(
+            allocator)} {}
 };
 
+using particle_attrib_t =
+    variant<ParticleAttrib<num_attribs_e::Three>,
+            ParticleAttrib<num_attribs_e::Four>,
+            ParticleAttrib<num_attribs_e::Five>,
+            ParticleAttrib<num_attribs_e::Six> >;
 
-// struct ParticleAttrib: Instance<particle_array_> {
-//   using base_t = Instance<particle_array_>;
-//   ParticleAttrib &operator=(base_t &&instance) {
-//     static_cast<base_t &>(*this) = instance;
-//     return *this;
-//   }
-// };
 
 using particle_target_ =
     structural<structural_type::dynamic,
@@ -1104,8 +1370,6 @@ struct ParticleTarget : Instance<particle_target_> {
     return *this;
   }
   ParticleTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
-  // template <typename Allocator>
-  // ParticleTarget(Allocator allocator) : base_t{allocator} {}
 };
 
 } // namespace mn

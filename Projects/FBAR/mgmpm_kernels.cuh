@@ -236,6 +236,144 @@ __global__ void rasterize(uint32_t particleCount, const ParticleArray parray,
       }
 }
 
+// template <typename ParticleArray, num_attribs_e N, typename Grid, typename Partition>
+// __global__ void rasterize(uint32_t particleCount, const ParticleArray parray, ParticleAttrib<N> pattrib,
+//                           Grid grid, const Partition partition, float dt,
+//                           PREC mass, PREC volume, pvec3 vel0, PREC length, PREC grav) { }
+
+template <typename ParticleArray, num_attribs_e N, typename Grid, typename Partition>
+__global__ void rasterize(uint32_t particleCount, const ParticleArray parray, 
+                          const ParticleAttrib<N> pattrib,
+                          Grid grid, const Partition partition, float dt,
+                          PREC mass, PREC volume, pvec3 vel0, PREC length, PREC grav) {
+  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (parid >= particleCount)
+    return;
+
+  pvec3 local_pos{(PREC)parray.val(_0, parid), (PREC)parray.val(_1, parid),
+                 (PREC)parray.val(_2, parid)};
+  pvec3 vel;
+  pvec9 contrib, C;
+  vel.set(0.), contrib.set(0.), C.set(0.);
+  PREC J = 1.0;  // Volume ratio, Det def. gradient. 1 for t0 
+  unsigned i = 0;
+  PREC val = 0;
+  getParticleAttrib(pattrib, i, parid, val); 
+  i=i+1;
+  PREC sJ = val; J = 1-sJ;
+
+  getParticleAttrib(pattrib, i, parid, val); 
+  i=i+1;
+  vel[0] = val;
+
+  getParticleAttrib(pattrib, i, parid, val); 
+  i=i+1;
+  vel[1] = val;
+
+  getParticleAttrib(pattrib, i, parid, val); 
+  i=i+1;
+  vel[2] = val;
+
+  getParticleAttrib(pattrib, i, parid, val); 
+  i=i+1;
+  PREC ID = val;
+
+  getParticleAttrib(pattrib, i, parid, val); 
+  PREC sJBar = val;
+
+  PREC pressure =  (6e7 /7.1) * (  pow((1.0-sJBar), -7.1) - 1.0 );
+  PREC voln = J * volume;
+  contrib[0] = - pressure * voln;
+  contrib[4] = - pressure * voln;
+  contrib[8] = - pressure * voln;
+
+  bool hydrostatic_init = false;
+  if (hydrostatic_init) {
+    PREC pressure = (mass/volume) * (grav) * (local_pos[1] - g_offset)*length; //< P = pgh
+    PREC voln = J * volume;
+    contrib[0] = - pressure * voln;
+    contrib[4] = - pressure * voln;
+    contrib[8] = - pressure * voln;
+  }
+  // // Leap-frog init vs symplectic Euler
+  // /if (1) dt = dt / 2.0;
+
+  // vel[0] = setParticleAttribpattribs(_1, parid);
+  // vel[1] = pattribs(_2, parid);
+  // vel[2] = pattribs(_3, parid);
+
+  // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+  PREC Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+  PREC scale = length * length; //< Area scale (m^2)
+  Dp_inv = g_D_inv / scale;     //< Scalar 4/(dx^2) for Quad. B-Spline
+  contrib = (C * mass - contrib * dt) * Dp_inv;
+  ivec3 global_base_index{int(std::lround(local_pos[0] * g_dx_inv) - 1),
+                          int(std::lround(local_pos[1] * g_dx_inv) - 1),
+                          int(std::lround(local_pos[2] * g_dx_inv) - 1)};
+  local_pos = local_pos - global_base_index * g_dx;
+  vec<vec<PREC, 3>, 3> dws;
+  //pvec3x3 dws;
+  for (int d = 0; d < 3; ++d)
+    dws[d] = bspline_weight((PREC)local_pos[d]);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      for (int k = 0; k < 3; ++k) {
+        ivec3 offset{i, j, k};
+        pvec3 xixp = offset * g_dx - local_pos;
+        PREC W = dws[0][i] * dws[1][j] * dws[2][k];
+        ivec3 local_index = global_base_index + offset;
+        PREC wm = mass * W;
+        PREC wv = volume * W;
+        PREC J = 1.0; // Volume ratio, Det def. gradient. 1 for t0 
+        int blockno = partition.query(ivec3{local_index[0] >> g_blockbits,
+                                            local_index[1] >> g_blockbits,
+                                            local_index[2] >> g_blockbits});
+        auto grid_block = grid.ch(_0, blockno);
+        for (int d = 0; d < 3; ++d)
+          local_index[d] &= g_blockmask;
+        atomicAdd(
+            &grid_block.val(_0, local_index[0], local_index[1], local_index[2]),
+            wm);
+        atomicAdd(
+            &grid_block.val(_1, local_index[0], local_index[1], local_index[2]),
+            wm * vel[0] + (contrib[0] * xixp[0] + contrib[3] * xixp[1] +
+                           contrib[6] * xixp[2]) *
+                              W);
+        atomicAdd(
+            &grid_block.val(_2, local_index[0], local_index[1], local_index[2]),
+            wm * vel[1] + (contrib[1] * xixp[0] + contrib[4] * xixp[1] +
+                           contrib[7] * xixp[2]) *
+                              W);
+        atomicAdd(
+            &grid_block.val(_3, local_index[0], local_index[1], local_index[2]),
+            wm * vel[2] + (contrib[2] * xixp[0] + contrib[5] * xixp[1] +
+                           contrib[8] * xixp[2]) *
+                              W);
+        // ASFLIP velocity unstressed
+        atomicAdd(
+            &grid_block.val(_4, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[0] + Dp_inv * (C[0] * xixp[0] + C[3] * xixp[1] +
+                           C[6] * xixp[2]) )
+                             );
+        atomicAdd(
+            &grid_block.val(_5, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[1] + Dp_inv * (C[1] * xixp[0] + C[4] * xixp[1] +
+                           C[7] * xixp[2]) )
+                              );
+        atomicAdd(
+            &grid_block.val(_6, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[2] + Dp_inv * (C[2] * xixp[0] + C[5] * xixp[1] +
+                           C[8] * xixp[2]) )
+                              );
+        // Simple FBar: Vol, Vol JBar
+        atomicAdd(
+            &grid_block.val(_7, local_index[0], local_index[1], local_index[2]),
+            wv);
+        atomicAdd(
+            &grid_block.val(_8, local_index[0], local_index[1], local_index[2]),
+            wv * (sJBar + sJBar * 1.0 - 1.0));//(sJBar + sJBar * JInc - JInc));
+      }
+}
 
 
 // %% ============================================================= %%
@@ -452,8 +590,8 @@ __global__ void array_to_buffer(ParticleArray parray,
 }
 
 
-template <typename ParticleArray, typename ParticleAttribs, typename Partition>
-__global__ void array_to_buffer(ParticleArray parray, ParticleAttribs pattribs,
+template <typename ParticleArray, typename Partition>
+__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Four> pattribs,
                                 ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
@@ -472,8 +610,7 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttribs pattribs,
     /// vel
     pbin.val(_4, pidib % g_bin_capacity) = pattribs.val(_1, parid); //< Vel_x m/s
     pbin.val(_5, pidib % g_bin_capacity) = pattribs.val(_2, parid); //< Vel_y m/s
-    pbin.val(_6, pidib % g_bin_capacity) = pattribs.val(_0, parid); //< Vel_z m/s // TODO: FIX pas _2
-
+    pbin.val(_6, pidib % g_bin_capacity) = pattribs.val(_3, parid); //< Vel_z m/s 
   }
 }
 
@@ -499,8 +636,8 @@ __global__ void array_to_buffer(ParticleArray parray,
 
 
 
-template <typename ParticleArray, typename ParticleAttribs, typename Partition>
-__global__ void array_to_buffer(ParticleArray parray, ParticleAttribs pattribs,
+template <typename ParticleArray, typename Partition>
+__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Three> pattribs,
                                 ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
@@ -547,6 +684,32 @@ __global__ void array_to_buffer(ParticleArray parray,
 }
 
 
+template <typename ParticleArray, typename Partition>
+__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Six> pattribs,
+                                ParticleBuffer<material_e::JBarFluid> pbuffer,
+                                Partition partition, vec<PREC, 3> vel) {
+  uint32_t blockno = blockIdx.x;
+  int pcnt = partition._ppbs[blockno];
+  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
+    auto parid = bucket[pidib];
+    auto pbin =
+        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// pos
+    pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
+    pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
+    pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
+    /// J
+    pbin.val(_3, pidib % g_bin_capacity) = pattribs.val(_0, parid); //< (1 - J) = (1 - V/Vo)
+    /// vel (ASFLIP)
+    pbin.val(_4, pidib % g_bin_capacity) = pattribs.val(_1, parid); //< Vel_x m/s
+    pbin.val(_5, pidib % g_bin_capacity) = pattribs.val(_2, parid); //< Vel_y m/s
+    pbin.val(_6, pidib % g_bin_capacity) = pattribs.val(_3, parid); //< Vel_z m/s
+    pbin.val(_7, pidib % g_bin_capacity) = pattribs.val(_4, parid); //< ID
+    /// Vol, J (Simple FBar)
+    pbin.val(_8, pidib % g_bin_capacity) = pattribs.val(_5, parid); //< JBar
+  }
+}
 
 template <typename ParticleArray, typename Partition>
 __global__ void
@@ -9286,13 +9449,13 @@ __global__ void check_partition_domain(uint32_t blockCount, int did,
 }
 
 
-template<int N, typename I, typename T>
+template<num_attribs_e N, typename I, typename T>
 __device__ void setParticleAttrib(ParticleAttrib<N> pattrib, I i, T parid, PREC val)
 {
 
 }
 template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<3> pattrib, I i, T parid, PREC val)
+__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Three> pattrib, I i, T parid, PREC val)
 {
   if      (i == 0) pattrib.val(_0, parid) = val; 
   else if (i == 1) pattrib.val(_1, parid) = val; 
@@ -9300,7 +9463,26 @@ __device__ void setParticleAttrib(ParticleAttrib<3> pattrib, I i, T parid, PREC 
 }
 
 template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<6> pattrib, I i, T parid, PREC val)
+__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Four> pattrib, I i, T parid, PREC val)
+{
+  if      (i == 0) pattrib.val(_0, parid) = val; 
+  else if (i == 1) pattrib.val(_1, parid) = val; 
+  else if (i == 2) pattrib.val(_2, parid) = val; 
+  else if (i == 3) pattrib.val(_3, parid) = val; 
+}
+
+template<typename I, typename T>
+__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Five> pattrib, I i, T parid, PREC val)
+{
+  if      (i == 0) pattrib.val(_0, parid) = val; 
+  else if (i == 1) pattrib.val(_1, parid) = val; 
+  else if (i == 2) pattrib.val(_2, parid) = val; 
+  else if (i == 3) pattrib.val(_3, parid) = val; 
+  else if (i == 4) pattrib.val(_4, parid) = val; 
+}
+
+template<typename I, typename T>
+__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Six> pattrib, I i, T parid, PREC val)
 {
   if      (i == 0) pattrib.val(_0, parid) = val; 
   else if (i == 1) pattrib.val(_1, parid) = val; 
@@ -9310,83 +9492,127 @@ __device__ void setParticleAttrib(ParticleAttrib<6> pattrib, I i, T parid, PREC 
   else if (i == 5) pattrib.val(_5, parid) = val; 
 }
 
-template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<9> pattrib, I i, T parid, PREC val)
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<9> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+// }
+
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<12> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 10) pattrib.val(_10, parid) = val; 
+//   else if (i == 11) pattrib.val(_11, parid) = val; 
+// }
+
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<15> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 10) pattrib.val(_10, parid) = val; 
+//   else if (i == 11) pattrib.val(_11, parid) = val; 
+//   else if (i == 12) pattrib.val(_12, parid) = val; 
+//   else if (i == 13) pattrib.val(_13, parid) = val; 
+//   else if (i == 14) pattrib.val(_14, parid) = val; 
+// }
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<24> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 10) pattrib.val(_10, parid) = val; 
+//   else if (i == 11) pattrib.val(_11, parid) = val; 
+//   else if (i == 12) pattrib.val(_12, parid) = val; 
+//   else if (i == 13) pattrib.val(_13, parid) = val; 
+//   else if (i == 14) pattrib.val(_14, parid) = val; 
+//   else if (i == 15) pattrib.val(_15, parid) = val; 
+//   else if (i == 16) pattrib.val(_16, parid) = val; 
+//   else if (i == 17) pattrib.val(_17, parid) = val; 
+//   else if (i == 18) pattrib.val(_18, parid) = val; 
+//   else if (i == 19) pattrib.val(_19, parid) = val; 
+//   else if (i == 20) pattrib.val(_20, parid) = val; 
+//   else if (i == 21) pattrib.val(_21, parid) = val; 
+//   else if (i == 22) pattrib.val(_22, parid) = val; 
+//   else if (i == 23) pattrib.val(_23, parid) = val; 
+// }
+
+
+template<num_attribs_e N, typename I, typename T>
+__device__ void getParticleAttrib(ParticleAttrib<N> pattrib, I i, T parid, PREC& val)
 {
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
+
+}
+template<typename I, typename T>
+__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Three> pattrib, I i, T parid, PREC&val)
+{
+  if      (i == 0) val = pattrib.val(_0, parid) ; 
+  else if (i == 1) val = pattrib.val(_1, parid) ; 
+  else if (i == 2) val = pattrib.val(_2, parid) ; 
 }
 
 template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<12> pattrib, I i, T parid, PREC val)
+__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Four> pattrib, I i, T parid, PREC&val)
 {
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 10) pattrib.val(_10, parid) = val; 
-  else if (i == 11) pattrib.val(_11, parid) = val; 
+  if      (i == 0) val = pattrib.val(_0, parid) ; 
+  else if (i == 1) val = pattrib.val(_1, parid) ; 
+  else if (i == 2) val = pattrib.val(_2, parid) ; 
+  else if (i == 3) val = pattrib.val(_3, parid) ; 
 }
 
 template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<15> pattrib, I i, T parid, PREC val)
+__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Five> pattrib, I i, T parid, PREC&val)
 {
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 10) pattrib.val(_10, parid) = val; 
-  else if (i == 11) pattrib.val(_11, parid) = val; 
-  else if (i == 12) pattrib.val(_12, parid) = val; 
-  else if (i == 13) pattrib.val(_13, parid) = val; 
-  else if (i == 14) pattrib.val(_14, parid) = val; 
+  if      (i == 0) val = pattrib.val(_0, parid) ; 
+  else if (i == 1) val = pattrib.val(_1, parid) ; 
+  else if (i == 2) val = pattrib.val(_2, parid) ; 
+  else if (i == 3) val = pattrib.val(_3, parid) ; 
+  else if (i == 4) val = pattrib.val(_4, parid) ; 
 }
+
 template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<24> pattrib, I i, T parid, PREC val)
+__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Six> pattrib, I i, T parid, PREC& val)
 {
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 10) pattrib.val(_10, parid) = val; 
-  else if (i == 11) pattrib.val(_11, parid) = val; 
-  else if (i == 12) pattrib.val(_12, parid) = val; 
-  else if (i == 13) pattrib.val(_13, parid) = val; 
-  else if (i == 14) pattrib.val(_14, parid) = val; 
-  else if (i == 15) pattrib.val(_15, parid) = val; 
-  else if (i == 16) pattrib.val(_16, parid) = val; 
-  else if (i == 17) pattrib.val(_17, parid) = val; 
-  else if (i == 18) pattrib.val(_18, parid) = val; 
-  else if (i == 19) pattrib.val(_19, parid) = val; 
-  else if (i == 20) pattrib.val(_20, parid) = val; 
-  else if (i == 21) pattrib.val(_21, parid) = val; 
-  else if (i == 22) pattrib.val(_22, parid) = val; 
-  else if (i == 23) pattrib.val(_23, parid) = val; 
+  if      (i == 0) val = pattrib.val(_0, parid) ; 
+  else if (i == 1) val = pattrib.val(_1, parid) ; 
+  else if (i == 2) val = pattrib.val(_2, parid) ; 
+  else if (i == 3) val = pattrib.val(_3, parid) ; 
+  else if (i == 4) val = pattrib.val(_4, parid) ; 
+  else if (i == 5) val = pattrib.val(_5, parid) ; 
 }
 
 template <typename Partition, typename ParticleBuffer, typename ParticleArray>
@@ -9626,13 +9852,13 @@ retrieve_particle_buffer_attributes(Partition partition,
     PREC o = g_offset;
     PREC l = pbuffer.length;
 
-    pvec3 pos, vel;
+    pvec3 pos;
     pos[0] = (source_bin.val(_0, _source_pidib) - o) * l;
     pos[1] = (source_bin.val(_1, _source_pidib) - o) * l;
     pos[2] = (source_bin.val(_2, _source_pidib) - o) * l;
     PREC sJ = source_bin.val(_3, _source_pidib);
     PREC sJBar = source_bin.val(_4, _source_pidib);
-    int global_particle_ID = (int)source_bin.val(_5, _source_pidib);
+    PREC global_particle_ID = (int)source_bin.val(_5, _source_pidib);
     {
       parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
       parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
@@ -9770,13 +9996,13 @@ retrieve_particle_buffer_attributes(Partition partition,
   }
 }
 
-template <typename Partition, typename ParticleArray, typename ParticleAttrib, typename ParticleTarget>
+template <typename Partition, typename ParticleArray, num_attribs_e N, typename ParticleTarget>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                          Partition prev_partition,
                                          ParticleBuffer<material_e::JBarFluid> pbuffer,
                                          ParticleArray parray, 
-                                         ParticleAttrib pattrib,
+                                         ParticleAttrib<N> pattrib,
                                          PREC *trackVal, 
                                          int *_parcnt,
                                          ParticleTarget particleTarget,
@@ -9800,6 +10026,9 @@ retrieve_particle_buffer_attributes(Partition partition,
 
     /// Increase particle ID
     auto parid = atomicAdd(_parcnt, 1);
+    using attribs_e_ = ParticleBuffer<mn::material_e::JBarFluid>::attribs_e;
+    using output_e_ = particle_output_attribs_e;
+
     PREC o = g_offset;
     PREC l = pbuffer.length;
     /// Send positions (x,y,z) [m] to parray (device --> device)
@@ -9814,7 +10043,7 @@ retrieve_particle_buffer_attributes(Partition partition,
     vel[0] = (source_bin.val(_4, _source_pidib) ) * l;
     vel[1] = (source_bin.val(_5, _source_pidib) ) * l;
     vel[2] = (source_bin.val(_6, _source_pidib) ) * l;
-    int global_particle_ID = (int)source_bin.val(_7, _source_pidib);
+    int global_particle_ID = (PREC)source_bin.val(_7, _source_pidib);
     PREC sJBar = source_bin.val(_8, _source_pidib);
     
     PREC pressure = (pbuffer.bulk / pbuffer.gamma) * 
@@ -9822,40 +10051,45 @@ retrieve_particle_buffer_attributes(Partition partition,
     
     if (!output_pt)
     {
-      mn::vec<int,3> output_attribs = pbuffer.output_attribs;
-      for (int i=0; i < 3; i++ ) {
-        int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
-        PREC val;
-        if      (idx == 0)
+      //mn::vec<int,3> output_attribs = pbuffer.output_attribs_dyn;
+      vec<int,static_cast<int>(N)> output_attribs; // =  pbuffer.output_attribs;
+      for (int j = 0; j < static_cast<int>(N);j++) output_attribs[j]= pbuffer.output_attribs_dyn[j];
+      for (unsigned i=0; i < static_cast<unsigned>(N); i++ ) {
+      //for (int i=0; i < 3; i++ ) {
+        //int idx = output_attribs[i]; //< Map index for output attribute (particle_buffer.cuh)
+        output_e_ idx = static_cast<output_e_>(output_attribs[i]); //< Map index for output attribute (particle_buffer.cuh)
+
+        PREC val = 0;
+        if      (idx == output_e_::ID)
           val = global_particle_ID; // ID 
-        else if (idx == 1)
+        else if (idx == output_e_::Mass)
           val = pbuffer.mass; // Mass [kg]
-        else if (idx == 2)
+        else if (idx == output_e_::Volume)
           val = pbuffer.volume; // Volume [m^3]
-        else if (idx == 3)
+        else if (idx == output_e_::Position_X)
           val = pos[0]; // Position_X [m/s]
-        else if (idx == 4)
+        else if (idx == output_e_::Position_Y)
           val = pos[1]; // Position_Y [m/s]
-        else if (idx == 5)
+        else if (idx == output_e_::Position_Z)
           val = pos[2]; // Position_Z [m/s]
-        else if (idx == 6)
+        else if (idx == output_e_::Velocity_X)
           val = vel[0]; // Velocity_X [m/s]
-        else if (idx == 7)
+        else if (idx == output_e_::Velocity_Y)
           val = vel[1]; // Velocity_Y [m/s]
-        else if (idx == 8)
+        else if (idx == output_e_::Velocity_Z)
           val = vel[2]; // Velocity_Z [m/s]
-        else if (idx == 18)
+        else if (idx == output_e_::J)
           val = sJ;  //< J, V/Vo, det| F |
-        else if (idx == 19)
+        else if (idx == output_e_::JBar)
           val = sJBar;  //< JBar, det| FBar |, F-Bar method assumed V/Vo
-        else if (idx == 29)
+        else if (idx == output_e_::Pressure)
           val = pressure; // Pressure [Pa], Mean Stress
         else
           val = -1; // Incorrect output attributes name
-        
-        if (i == 0) pattrib.val(_0, parid) = val; 
-        else if (i == 1) pattrib.val(_1, parid) = val; 
-        else if (i == 2) pattrib.val(_2, parid) = val; 
+        setParticleAttrib(pattrib, i, parid, val);
+        // if (i == 0) pattrib.val(_0, parid) = val; 
+        // else if (i == 1) pattrib.val(_1, parid) = val; 
+        // else if (i == 2) pattrib.val(_2, parid) = val; 
       }
 
 
@@ -10172,7 +10406,7 @@ retrieve_particle_buffer_attributes(Partition partition,
 
 
     /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
-    pvec3 pos, vel;
+    pvec3 vel;
     pvec9 F; //< Deformation Gradient
     F[0] = source_bin.val(_3,  _source_pidib);
     F[1] = source_bin.val(_4,  _source_pidib);
@@ -10316,7 +10550,7 @@ retrieve_particle_buffer_attributes(Partition partition,
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
-  uint32_t blockno = blockIdx.x;
+  //uint32_t blockno = blockIdx.x;
 
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -10344,7 +10578,7 @@ retrieve_particle_buffer_attributes(Partition partition,
     /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
     pvec9 F; //< Deformation Gradient
     pvec3 pos, vel;
-    PREC vol, JBar;
+    PREC JBar;
     pos[0] = (source_bin.val(_0, _source_pidib) - o ) * l; // Position_X [m]
     pos[1] = (source_bin.val(_1, _source_pidib) - o ) * l; // Position_Y [m]
     pos[2] = (source_bin.val(_2, _source_pidib) - o ) * l; // Position_Z [m]
@@ -10360,7 +10594,7 @@ retrieve_particle_buffer_attributes(Partition partition,
     vel[0] = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
     vel[1] = (source_bin.val(_13, _source_pidib) ) * l; // Velocity_X [m/s]
     vel[2] = (source_bin.val(_14, _source_pidib) ) * l; // Velocity_X [m/s]
-    vol  = source_bin.val(_15, _source_pidib);
+    //vol  = source_bin.val(_15, _source_pidib);
     JBar = source_bin.val(_16, _source_pidib);
     auto global_particle_ID = source_bin.val(_17, _source_pidib);
     JBar = 1.0 - JBar;
@@ -10677,7 +10911,7 @@ retrieve_particle_buffer_attributes(Partition partition,
   }
 }
 
-template <typename Partition, typename ParticleArray, const int N, typename ParticleTarget>
+template <typename Partition, typename ParticleArray, num_attribs_e N, typename ParticleTarget>
 __global__ void
 retrieve_particle_buffer_attributes(Partition partition,
                                         Partition prev_partition,
@@ -10694,7 +10928,7 @@ retrieve_particle_buffer_attributes(Partition partition,
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket =
       partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
-  uint32_t blockno = blockIdx.x;
+  //uint32_t blockno = blockIdx.x;
 
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -10708,35 +10942,34 @@ retrieve_particle_buffer_attributes(Partition partition,
     auto _source_pidib = source_pidib % g_bin_capacity;
     auto _source_bin = prev_partition._binsts[source_blockno] +
                                          source_pidib / g_bin_capacity;
-    //auto global_particle_ID = bucket[pidib];
+    using attribs_e_ = ParticleBuffer<mn::material_e::NeoHookean_ASFLIP_FBAR>::attribs_e;
+    using output_e_ = particle_output_attribs_e;
 
-    /// Increase particle ID
-    auto parid = atomicAdd(_parcnt, 1);
+    //auto global_particle_ID = bucket[pidib];
+    auto parid = atomicAdd(_parcnt, 1); //< Particle count, increments atomically
     PREC o = g_offset;
     PREC l = pbuffer.length;
-    /// Send positions (x,y,z) [m] to parray (device --> device)
-    parray.val(_0, parid) = (source_bin.val(_0, _source_pidib) - o) * l;
-    parray.val(_1, parid) = (source_bin.val(_1, _source_pidib) - o) * l;
-    parray.val(_2, parid) = (source_bin.val(_2, _source_pidib) - o) * l;
 
+    /// Send positions (x,y,z) [m] to parray (device --> device)
+    float3 position; 
+    position.x = (pbuffer.getAttribute<attribs_e_::Position_X>(_source_bin, _source_pidib) - o) * l;
+    position.y = (pbuffer.getAttribute<attribs_e_::Position_Y>(_source_bin, _source_pidib) - o) * l;
+    position.z = (pbuffer.getAttribute<attribs_e_::Position_Z>(_source_bin, _source_pidib) - o) * l;
+    parray.val(_0, parid) = position.x;
+    parray.val(_1, parid) = position.y;
+    parray.val(_2, parid) = position.z;
 
     /// Send attributes (Left-Strain Invariants) to pattribs (device --> device)
     pvec9 F; //< Deformation Gradient
-    pvec3 pos, vel;
-    PREC vol, JBar;
-    pos[0] = (source_bin.val(_0, _source_pidib) - o ) * l; // Position_X [m]
-    pos[1] = (source_bin.val(_1, _source_pidib) - o ) * l; // Position_Y [m]
-    pos[2] = (source_bin.val(_2, _source_pidib) - o ) * l; // Position_Z [m]
+    pvec3 vel;
+    PREC JBar;
     pbuffer.getDefGrad(_source_bin, _source_pidib, F.data());
     vel[0] = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
     vel[1] = (source_bin.val(_13, _source_pidib) ) * l; // Velocity_X [m/s]
     vel[2] = (source_bin.val(_14, _source_pidib) ) * l; // Velocity_X [m/s]
-    vol  = source_bin.val(_15, _source_pidib);
+    //vol  = source_bin.val(_15, _source_pidib);
     JBar = source_bin.val(_16, _source_pidib);
-    //  auto global_particle_ID = source_bin.val(_17, _source_pidib);
-    ///auto global_particle_ID = pbuffer.getID(_source_bin, _source_pidib);
-    using attribs_e_ = ParticleBuffer<mn::material_e::NeoHookean_ASFLIP_FBAR>::attribs_e;
-    using output_e_ = particle_output_attribs_e;
+
 
     auto global_particle_ID = pbuffer.getAttribute<attribs_e_::ID>(_source_bin, _source_pidib);
     auto logJp = pbuffer.getAttribute<attribs_e_::logJp>(_source_bin, _source_pidib);
@@ -10750,22 +10983,20 @@ retrieve_particle_buffer_attributes(Partition partition,
     C_Invariants_I.set(0.0);
     C_Principals.set(0.0);
     pvec9 C;
-    pbuffer.getStress_Cauchy((PREC)1, F, C);
     compute_Invariants_from_3x3_Tensor(F.data(), F_Invariants_I.data());
+    PREC J = F_Invariants_I[2];
+    pbuffer.getStress_Cauchy(PREC(1/J), F, C);
     compute_Invariants_from_3x3_Tensor(C.data(), C_Invariants_I.data()); 
     compute_Principals_from_Invariants_3x3_Sym_Tensor(C_Invariants_I.data(), C_Principals.data());
-    PREC J = F_Invariants_I[2];
-
-    // // Set pattribs for particle to Principal Strain Invariants
     PREC pressure  = compute_MeanStress_from_StressCauchy(C.data());
     PREC von_mises = compute_VonMisesStress_from_StressCauchy(C.data());
     if (!output_pt)
     {
-      vec<int,3> output_attribs = pbuffer.output_attribs;
-#pragma unroll N
-      for (unsigned i=0; i < N; i++ ) {
+      vec<int,static_cast<int>(N)> output_attribs; // =  pbuffer.output_attribs;
+      for (int j = 0; j < static_cast<int>(N);j++) output_attribs[j]= pbuffer.output_attribs_dyn[j];
+      for (unsigned i=0; i < static_cast<unsigned>(N); i++ ) {
         const unsigned I = i;
-        if (I < sizeof(pbuffer.output_attribs) / sizeof(int)) {
+        if (I < sizeof(pbuffer.output_attribs_dyn) / sizeof(int)) {
           //if (i < g_particle_attribs) {
           output_e_ idx = static_cast<output_e_>(output_attribs[i]); //< Map index for output attribute (particle_buffer.cuh)
           PREC val;
@@ -10777,11 +11008,11 @@ retrieve_particle_buffer_attributes(Partition partition,
             case output_e_::Volume:
               val = pbuffer.volume * pbuffer.getAttribute<attribs_e_::J>(_source_bin, _source_pidib); break;// Volume [m^3]
             case output_e_::Position_X:
-              val = pos[0]; break;// Position_X [m]
+              val = position.x; break;// Position_X [m]
             case output_e_::Position_Y:
-              val = pos[1]; break;// Position_Y [m]
+              val = position.y; break;// Position_Y [m]
             case output_e_::Position_Z:
-              val = pos[2];break; // Position_Z [m]
+              val = position.z; break; // Position_Z [m]
             case output_e_::Velocity_X:
               val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; break; // Velocity_X [m/s]
             case output_e_::Velocity_Y:
@@ -10807,9 +11038,9 @@ retrieve_particle_buffer_attributes(Partition partition,
             case output_e_::DefGrad_ZZ:
               val = F[8]; break;// DefGrad_ZZ
             case output_e_::DefGrad_Determinant:
-              val = J;  break;// J, V/Vo, det| F |
+              val = J; break;// J, V/Vo, det| F |
             case output_e_::DefGrad_Determinant_FBAR:
-              val = JBar;  break;// JBar, V/Vo, det| FBar |
+              val = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib); break;// JBar, V/Vo, det| FBar |
             case output_e_::StressCauchy_XX:
               val = C[0]; break;// StressCauchy_XX
             case output_e_::StressCauchy_XY:
@@ -10829,9 +11060,9 @@ retrieve_particle_buffer_attributes(Partition partition,
             case output_e_::StressCauchy_ZZ:
               val = C[8]; break;// StressCauchy_ZZ
             case output_e_::Pressure:
-              val = pressure; break;// Pressure [Pa], Mean Stress
+              val = compute_MeanStress_from_StressCauchy(C.data()); break;// Pressure [Pa], Mean Stress
             case output_e_::VonMisesStress:
-              val = von_mises;break; // Von Mises Stress [Pa]
+              val = compute_VonMisesStress_from_StressCauchy(C.data()); break; // Von Mises Stress [Pa]
             case output_e_::DefGrad_Invariant1:
               val = F_Invariants_I[0]; break;// Def. Grad. Invariant 1
             case output_e_::DefGrad_Invariant2:
@@ -10841,7 +11072,7 @@ retrieve_particle_buffer_attributes(Partition partition,
             case output_e_::StressCauchy_Invariant1:
               val = C_Invariants_I[0]; break;// Cauchy Stress Invariant 1
             case output_e_::StressCauchy_Invariant2:
-              val = C_Invariants_I[1];break; // Cauchy Stress Invariant 2
+              val = C_Invariants_I[1]; break; // Cauchy Stress Invariant 2
             case output_e_::StressCauchy_Invariant3:
               val = C_Invariants_I[2]; break;// Cauchy Stress Invariant 3
             case output_e_::StressCauchy_1:
@@ -10849,31 +11080,17 @@ retrieve_particle_buffer_attributes(Partition partition,
             case output_e_::StressCauchy_2:
               val = C_Principals[1]; break;// Cauchy Stress Principal 2 [Pa]
             case output_e_::StressCauchy_3:
-              val = C_Principals[2];break; // Cauchy Stress Principal 3 [Pa]
+              val = C_Principals[2]; break; // Cauchy Stress Principal 3 [Pa]
             case output_e_::logJp:
               val = pbuffer.getAttribute<attribs_e_::logJp>(_source_bin, _source_pidib); break;
+            case output_e_::EMPTY:
+              val = 0.0; break; // Return zero if EMPTY requested, used to buffer output columns
+            case output_e_::INVALID_CT:
+              val = -2; break; // Invalid compile-time request, e.g. Specifically disallowed output
             default:
-              val = -1; break; // Incorrect output attributes name
+              val = -1; break; // Invalid run-time request, e.g. Incorrect output attributes name
           }
-          //pattrib.val(std::integral_constant<unsigned, std::static_cast<unsigned>(i)>{}, parid) = val;
-          //pattrib.setAttribute<i>(VAL, parid);
-          //  if      (i == 0) pattrib.val(_0, parid) = val; 
-          //  else if (i == 1) pattrib.val(_1, parid) = val; 
-          //  else if (i == 2) pattrib.val(_2, parid) = val; 
           setParticleAttrib(pattrib, i, parid, val);
-
-// #if (N > 0)
-//            if      (i == 0) pattrib.val(_0, parid) = val; 
-//            else if (i == 1) pattrib.val(_1, parid) = val; 
-//            else if (i == 2) pattrib.val(_2, parid) = val; 
-// #if (N > 3)
-//            else if (i == 3 && i < N) pattrib.val((i < N ? _3 : _0), parid) = val; 
-//           //  else if (i == 4) pattrib.val(_4, parid) = val; 
-//           //  else if (i == 5) pattrib.val(_5, parid) = val; 
-// #if (N > 6)
-// #endif
-// #endif
-// #endif
         }
       }
 
@@ -10897,11 +11114,11 @@ retrieve_particle_buffer_attributes(Partition partition,
           else if (idx == 2)
             val = pbuffer.volume; // Volume [m^3]
           else if (idx == 3)
-            val = (source_bin.val(_0, _source_pidib) - o) * l; // Position_X [m]
+            val = position.x; // Position_X [m]
           else if (idx == 4)
-            val = (source_bin.val(_1, _source_pidib) - o) * l; // Position_Y [m]
+            val = position.y; // Position_Y [m]
           else if (idx == 5)
-            val = (source_bin.val(_2, _source_pidib) - o) * l; // Position_Z [m]
+            val = position.z; // Position_Z [m]
           else if (idx == 6)
             val = (source_bin.val(_12, _source_pidib) ) * l; // Velocity_X [m/s]
           else if (idx == 7)
@@ -10988,11 +11205,11 @@ retrieve_particle_buffer_attributes(Partition partition,
           else if (idx == 2)
             val = pbuffer.volume; // Volume [m^3]
           else if (idx == 3)
-            val = pos[0]; // Position_X [m]
+            val = position.x; // Position_X [m]
           else if (idx == 4)
-            val = pos[1]; // Position_Y [m]
+            val = position.y; // Position_Y [m]
           else if (idx == 5)
-            val = pos[2]; // Position_Z [m]
+            val = position.z; // Position_Z [m]
           else if (idx == 6)
             val = vel[0]; // Velocity_X [m/s]
           else if (idx == 7)
@@ -11064,9 +11281,9 @@ retrieve_particle_buffer_attributes(Partition partition,
           else
             val = -1; // Incorrect output attributes name
           
-          particleTarget.val(_0, target_id) = pos[0]; 
-          particleTarget.val(_1, target_id) = pos[1]; 
-          particleTarget.val(_2, target_id) = pos[2]; 
+          particleTarget.val(_0, target_id) = position.x; 
+          particleTarget.val(_1, target_id) = position.y; 
+          particleTarget.val(_2, target_id) = position.z; 
           particleTarget.val(_3, target_id) = val; 
 
           //atomicAdd(valAgg, val);

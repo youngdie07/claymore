@@ -295,6 +295,22 @@ template <typename T> constexpr void matrixDeviatoric3d(const T *in, T *out) {
 // Engineering function utils (Justin Bonus)
 
 template <typename T>
+constexpr void compute_StrainSmall_from_DefGrad(const T *F, T *e) 
+{
+  // Small strain = 1/2 (Def. Gradient^T + Def. Gradient) - Identity Matrix
+  // Small strain = 1/2 (Grad(Displacement)^T + Grad(Displacement))
+  e[0] = 0.5 * ((F[0]) + (F[0]))-1;
+  e[1] = 0.5 * (F[1] + F[3]);
+  e[2] = 0.5 * (F[2] + F[6]);
+  e[3] = 0.5 * (F[3] + F[1]);
+  e[4] = 0.5 * ((F[4]) + (F[4]))-1;
+  e[5] = 0.5 * (F[5] + F[7]);
+  e[6] = 0.5 * (F[6] + F[2]);
+  e[7] = 0.5 * (F[7] + F[5]);
+  e[8] = 0.5 * ((F[8]) + (F[8]))-1;
+}
+
+template <typename T>
 constexpr void compute_RateOfDeformation_from_VelocityGrad(const T *C, T *d) 
 {
   d[0] = 0.5 * (C[0] + C[0]);

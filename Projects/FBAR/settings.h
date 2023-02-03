@@ -64,12 +64,15 @@ enum class fem_e {  Tetrahedron = 0,
                     Brick, //< Not implemented yet
                     Total };
 
+/// * Available material models
+enum class num_attribs_e : int { Three = 3, Four = 4, Five = 5, Six = 6 };
+
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// * Simulation config setup
 namespace config 
 {
 // GPU devices for simulation
-constexpr int g_device_cnt = 1; //< IMPORTANT. Number of GPUs to compile for.
+constexpr int g_device_cnt = 2; //< IMPORTANT. Number of GPUs to compile for.
 
 // Run-time animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames
@@ -99,7 +102,7 @@ constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
 
 // Grid set-up
 #define BLOCK_BITS 2 //< Bits for grid block resolution. 2 -> 4x4x4 grid-nodes. 
-#define DOMAIN_BITS 10 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
+#define DOMAIN_BITS 8 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
@@ -145,12 +148,12 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain 
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 5000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 7500; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 2250000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 900000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 128;
@@ -161,6 +164,7 @@ constexpr std::size_t g_max_particle_bin =
 constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
+constexpr int g_max_particle_attribs = 32; //< No. attribute values to output per particle 
 
 // * Finite Elements
 constexpr int g_max_fem_vertice_num = 64;  // Max no. of vertice on FEM mesh
@@ -170,8 +174,8 @@ constexpr int g_max_fem_element_bin =
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 // * Grid-Targets
-constexpr int g_target_cells = 4096; //< Max grid-nodes per gridTarget
-constexpr int g_max_grid_target_nodes = 4096; //< Max grid-nodes per gridTarget
+constexpr int g_target_cells = 16384; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 16384; //< Max grid-nodes per gridTarget
 constexpr int g_target_attribs = 10; //< No. of values per gridTarget node
 
 // * Particle-Targets
@@ -182,7 +186,7 @@ constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice
 std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
 
 // * Halo Blocks
-constexpr std::size_t g_max_halo_block = 1024;  //< Max active halo blocks. Preallocated, can resize.
+constexpr std::size_t g_max_halo_block = 512;  //< Max active halo blocks. Preallocated, can resize.
 
 
 // * Grid Boundaries

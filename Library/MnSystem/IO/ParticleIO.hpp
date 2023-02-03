@@ -35,12 +35,12 @@ void write_partio_general(std::string filename,
                   const std::vector<std::array<T, 3>>  &positions, 
                   const std::vector<std::array<T,dim>> &attributes,
                   const std::vector<std::string> &tags,
-                  const std::vector<int> &sets) {
+                  const std::vector<int> &sets, const std::array<int,3> color = {{0, 191, 255}}) {
   Partio::ParticlesDataMutable *parts = Partio::create();
   
-  Partio::FixedAttribute Cd = parts->addFixedAttribute("color", Partio::VECTOR, 3);
+  Partio::FixedAttribute Cd = parts->addFixedAttribute("Cd", Partio::VECTOR, 3);
   float* c = parts->fixedDataWrite<float>(Cd);
-  c[0] = 0; c[1] = 191; c[2] = 255;
+  c[0] = color[0]; c[1] = color[1]; c[2] = color[2];
   Partio::ParticleAttribute pos = parts->addAttribute("position", Partio::VECTOR, 3);
   for(int i=0; i < (int)positions.size(); ++i) {
     // Create new particle with two write-input vectors/arrays
@@ -65,10 +65,11 @@ void write_partio_general(std::string filename,
   parts->release();
 }
 
-template <typename T, std::size_t dim>
+template <typename T>
 void read_partio_general(std::string filename,
                   std::vector<std::array<T, 3>>  &positions, 
-                  std::vector<std::array<T,dim>> &attributes,
+                  std::vector<std::vector<T>> &attributes,
+                  const int dim_in,
                   const std::vector<std::string> &labels) {
   Partio::ParticlesData *parts = Partio::read(filename.c_str());
   if(!parts) printf("ERROR: Failed to open file with PartIO.");
@@ -86,7 +87,7 @@ void read_partio_general(std::string filename,
       printf("ERROR: PartIO failed to get position as VECTOR of size 3");
 
   // Generic attribute processing
-  Partio::ParticleAttribute genericAttr[dim];
+  Partio::ParticleAttribute genericAttr[dim_in];
   int d = 0;
   for (auto label : labels) {
     if(!parts->attributeInfo(label.c_str(), genericAttr[d]) || genericAttr[d].type !=  Partio::FLOAT || genericAttr[d].count != 1)
@@ -105,10 +106,11 @@ void read_partio_general(std::string filename,
 
   // Read particle generic attirbutes
   for(int i=0; i < parts->numParticles(); i++) {   
-    std::array<T,dim> generics;
+    std::vector<T> generics;
+    generics.resize(dim_in);
     int d = 0;
     for (auto label : labels) {
-      if (d >= dim) break;
+      if (d >= dim_in) break;
       auto val = parts->data<float>(genericAttr[d], i);
       generics[d] = (T)val[0];
       d++;
@@ -120,23 +122,27 @@ void read_partio_general(std::string filename,
 
 
 // Write combined particle position (x,y,z) and attribute (...) data (JB)
-template <typename T, std::size_t dim>
+template <typename T>
 void write_partio_particles(std::string filename,
                   const std::vector<std::array<T, 3>>  &positions, 
-                  const std::vector<std::array<T,dim>> &attributes,
-                  const std::vector<std::string> &labels) {
+                  const std::vector<std::vector<T>> &attributes,
+                  //const int dim_out,
+                  const std::vector<std::string> &labels, 
+                  const std::array<int,3> color = {{0, 191, 255}}) {
+  printf("partio");
   // Create a mutable Partio structure pointer
   Partio::ParticlesDataMutable*       parts = Partio::create();
-
+  const int dim_out = attributes[0].size();
   // Add positions and attributes to the pointer by arrow operator
-  Partio::FixedAttribute Cd      = parts->addFixedAttribute("color", Partio::VECTOR, 3);
+  Partio::FixedAttribute Cd      = parts->addFixedAttribute("Cd", Partio::VECTOR, 3);
   float* c = parts->fixedDataWrite<float>(Cd);
-  c[0] = 0; c[1] = 191; c[2] = 255;
+  c[0] = color[0]; c[1] = color[1]; c[2] = color[2];
   Partio::ParticleAttribute pos     = parts->addAttribute("position", Partio::VECTOR, 3);
-  Partio::ParticleAttribute attrib[dim];
-  for (int d = 0; d < dim; d++){
+  Partio::ParticleAttribute attrib[dim_out];
+  for (int d = 0; d < dim_out; d++){
     attrib[d] = parts->addAttribute(labels[d].c_str(), Partio::FLOAT, (int)1);
   }
+  printf("partio addAttribute");
 
   for(int i=0; i < (int)positions.size(); ++i) {
     // Create new particle with two write-input vectors/arrays
@@ -148,16 +154,60 @@ void write_partio_particles(std::string filename,
     }
 
     // Add extra attributes for particle
-    for(int k=0; k<(int)dim; ++k) {
+    for(int k=0; k<(int)dim_out; ++k) {
       float* a = parts->dataWrite<float>(attrib[k], idx);
       a[0] = attributes[i][k];
     }
+
   }
+  printf("partio read from attributes");
 
   // Write
   Partio::write(filename.c_str(), *parts);
+  printf("partio writes");
 
   // Release (scope-dependent)
+  parts->release();
+  printf("partio release");
+
+}
+
+
+// Write combined particle position (x,y,z) and attribute (...) data (JB)
+template <typename T>
+void write_partio_particles(std::string filename,
+                  const std::vector<std::array<T, 3>>  &positions, 
+                  const std::vector<T> &attributes,
+                  //const int dim_out,
+                  const std::vector<std::string> &labels, 
+                  const std::array<int,3> color = {{0, 191, 255}}) {
+  const int dim_out = attributes.size() / positions.size(); //< Output attributes per particle
+  Partio::ParticlesDataMutable* parts = Partio::create();
+  Partio::FixedAttribute Cd      = parts->addFixedAttribute("Cd", Partio::VECTOR, 3);
+  float* c = parts->fixedDataWrite<float>(Cd);
+  c[0] = color[0]; c[1] = color[1]; c[2] = color[2];
+  // Add positions and attributes to the pointer by arrow operator
+  Partio::ParticleAttribute pos     = parts->addAttribute("position", Partio::VECTOR, 3);
+  Partio::ParticleAttribute attrib[dim_out];
+  for (int d = 0; d < dim_out; d++)
+    attrib[d] = parts->addAttribute(labels[d].c_str(), Partio::FLOAT, (int)1);
+  
+  for(int i=0; i < (int)positions.size(); ++i) {
+    // Create new particle with two write-input vectors/arrays
+    int idx  = parts->addParticle();
+    float* p = parts->dataWrite<float>(pos,    idx);
+    // Add position data for particle
+    for(int k=0; k<3; ++k) 
+      p[k] = positions[i][k];
+    
+    // Add extra attributes for particle
+    for(int k=0; k<(int)dim_out; ++k) {
+      float* a = parts->dataWrite<float>(attrib[k], idx);
+      a[0] = attributes[i*dim_out + k];
+    }
+
+  }
+  Partio::write(filename.c_str(), *parts);
   parts->release();
 }
 

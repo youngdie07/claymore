@@ -14,22 +14,16 @@
 		{
 			"gpu": 0,
 			"type": "particles",
-			"color": "blue",
 			"constitutive": "NeoHookean",
-			"output_attribs": ["ID", "Pressure", "Velocity_X"],
+			"output_attribs": ["ID", "Pressure", "VonMisesStress", "Position_X", "Position_Y", "Position_Z"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
-			"ppc": 8,
 			"CFL": 0.5,
+			"ppc": 27,
 			"rho": 988,
 			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.3,
-			"friction_angle": 40,
-			"cohesion": 0.0005,
-			"logJp0": 0,
-			"beta": 1,
-			"Sand_volCorrection": true,
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
@@ -37,7 +31,6 @@
 			"beta_min": 0,
 			"beta_max": 0,
 			"FBAR_ratio": 0.9,
-			"velocity": [0, 0, 0],
 			"geometry": [
 				{
 					"object": "file",
@@ -45,14 +38,9 @@
 					"file": "MpmParticles/Misc/SimCenter_0.05_dx0.0125_pad1.sdf",
 					"span": [88.1, 1.85, 1.825],
 					"offset": [1.375, 0.0, 6.4],
-					"array": [1, 1, 1],
-					"spacing": [0, 0, 0],
-					"scaling_factor": 2,
-					"padding": 1
+					"scaling_factor": 2
 				}
-			],
-			"partition_start": [0,0,0],
-			"partition_end": [12.8, 12.8, 12.8]
+			]
 		},
 		{
 			"gpu": 1,

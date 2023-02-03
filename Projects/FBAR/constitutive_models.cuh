@@ -225,20 +225,22 @@ compute_stress_neohookean(T volume, T mu, T lambda, const vec<T, 9> &F,
   T J = matrixDeterminant3d(F.data());
   T logJ = log(J);
 
-  // P  = mu * (F - F^-T) + lambda * log(J) * F^-T
+  // P  = mu * (F - F^-T) + lambda * log(J) * F^-T ??
+  // First Piola Kirchoff Stress = (mu * (F - F^-T) + lambda * (J - 1) * J * F^-T)
   vec<T, 9> P;
-  P[0] = mu * (F[0] - Finv[0]) + lambda * logJ * Finv[0];
-  P[1] = mu * (F[1] - Finv[3]) + lambda * logJ * Finv[3];
-  P[2] = mu * (F[2] - Finv[6]) + lambda * logJ * Finv[6];
-  P[3] = mu * (F[3] - Finv[1]) + lambda * logJ * Finv[1];
-  P[4] = mu * (F[4] - Finv[4]) + lambda * logJ * Finv[4];
-  P[5] = mu * (F[5] - Finv[7]) + lambda * logJ * Finv[7];
-  P[6] = mu * (F[6] - Finv[2]) + lambda * logJ * Finv[2];
-  P[7] = mu * (F[7] - Finv[5]) + lambda * logJ * Finv[5];
-  P[8] = mu * (F[8] - Finv[8]) + lambda * logJ * Finv[8];
+  P[0] = mu * (F[0] - Finv[0]) + lambda * (J - 1) * J * Finv[0];
+  P[1] = mu * (F[1] - Finv[3]) + lambda * (J - 1) * J * Finv[3];
+  P[2] = mu * (F[2] - Finv[6]) + lambda * (J - 1) * J * Finv[6];
+  P[3] = mu * (F[3] - Finv[1]) + lambda * (J - 1) * J * Finv[1];
+  P[4] = mu * (F[4] - Finv[4]) + lambda * (J - 1) * J * Finv[4];
+  P[5] = mu * (F[5] - Finv[7]) + lambda * (J - 1) * J * Finv[7];
+  P[6] = mu * (F[6] - Finv[2]) + lambda * (J - 1) * J * Finv[2];
+  P[7] = mu * (F[7] - Finv[5]) + lambda * (J - 1) * J * Finv[5];
+  P[8] = mu * (F[8] - Finv[8]) + lambda * (J - 1) * J * Finv[8];
 
-  /// PF'
-  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) * volume;
+  /// Cauchy = J^-1 PK1 F^T
+
+  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6]) * volume; // May need to check J
   PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6]) * volume;
   PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6]) * volume;
   PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) * volume;
