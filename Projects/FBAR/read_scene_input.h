@@ -587,9 +587,52 @@ void load_motionPath(const std::string& filename, char sep, MotionHolder& fields
   }
 }
 
+/// @brief Make 3D rotation matrix that can rotate a point around origin
+/// @brief Order: [Z Rot.]->[Y Rot.]->[X Rot.]=[ZYX Rot.]. (X Rot. 1st).
+/// @brief Rot. on fixed axis (X,Y,Z) (i.e. NOT Euler or Quat. rotation)
+/// @param angles Rotation angles [a,b,c] (degrees) for [X,Y,Z] axis.
+/// @param R Original rotation matrix, use 3x3 Identity mat. if none.
+/// @returns Multiply new rotation matrix into R.
+template <typename T>
+constexpr void rotation_matrix(const mn::vec<T,3> &angles, mn::vec<T,3,3> &R = {{1,0,0},{0,1,0},{0,0,0,1}}) {
+    // TODO: Can be way more efficient, made this quickly
+    for (int d=0;d<3;d++) angles[d] *= PI_AS_A_DOUBLE;
+    mn::vec3x3 prev_R = R;
+    mn::vec3x3 tmp_R; tmp_R.set(0.0);
+    // X-Axis Rotation
+    tmp_R(0, 0) = 1;
+    tmp_R(1, 1) = tmp_R(2, 2) = std::cos(angles[0]);
+    tmp_R(2, 1) = tmp_R(1, 2) = std::sin(angles[0]);
+    tmp_R(1, 2) = -tmp_R(1, 2);
+    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+    prev_R = tmp_R; tmp_R.set(0.0);
+    // Z-Axis * Y-Axis * X-Axis Rotation
+    tmp_R(1, 1) = 1;
+    tmp_R(0, 0) = tmp_R(2, 2) = std::cos(angles[1]);
+    tmp_R(2, 0) = tmp_R(0, 2) = std::sin(angles[1]);
+    tmp_R(2, 0) = -tmp_R(2, 0);
+    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+    prev_R = R; tmp_R.set(0.0);
+    // Z-Axis * Y-Axis * X-Axis Rotation
+    tmp_R(2, 2) = 1;
+    tmp_R(0, 0) = tmp_R(1, 1) = std::cos(angles[2]);
+    tmp_R(1, 0) = tmp_R(0, 1) = std::sin(angles[2]);
+    tmp_R(0, 1) = -tmp_R(0, 1);
+    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+  }
+
+template <typename T>
+constexpr void translate_rotate_translate_point(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, std::array<T,3> point) {
+  std::array<T,3> tmp_point;
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
+  matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
+  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
+}
+
+
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a string.
 /// Return retrieved string from JSON or return backup value if not found/is not a string.
-std::string JSON_CheckString(rapidjson::Value &object, std::string key, std::string backup) {
+std::string CheckString(rapidjson::Value &object, std::string key, std::string backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -601,8 +644,55 @@ std::string JSON_CheckString(rapidjson::Value &object, std::string key, std::str
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a number array.
 /// Return retrieved double-precision floating point array from JSON or return backup value if not found/is not a number array.
-template<int dim>
-mn::vec<PREC, dim> JSON_CheckDoubleArray(rapidjson::Value &object, std::string key, mn::vec<PREC,dim> backup) {
+std::vector<std::string> CheckStringArray(rapidjson::Value &object, std::string key, std::vector<std::string> backup) {
+  auto check = object.FindMember(key.c_str());
+  if (check != object.MemberEnd())
+  { 
+    if (object[key.c_str()].IsArray())
+    {
+      int dim = object[key.c_str()].GetArray().Size();
+      if (dim > 0) {
+        if (!object[key.c_str()].GetArray()[0].IsString()){
+          fmt::print(fg(red), "ERROR: Input [{}] not an array of strings! Fix and retry. Current type: {}.\n", key, kTypeNames[object[key.c_str()].GetArray()[0].GetType()]);
+        }
+        else {
+          std::vector<std::string> arr;
+          for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetString());
+          for (int d=0; d<dim; d++) arr.push_back(object[key.c_str()].GetArray()[d].GetString());
+          fmt::print(fg(green), "Input [{}] found: ", key);
+          fmt::print(fg(green), " [ ");
+          for (int d=0; d<dim; d++) fmt::print(fg(green), " {}, ", arr[d]);
+          fmt::print(fg(green), "]\n");
+          return arr;
+        }
+      } else {
+        fmt::print(fg(red), "ERROR: Input [{}] is an Array! Populate and retry.\n", key);
+      }
+    }
+    else 
+    {
+      fmt::print(fg(red), "ERROR: Input [{}] not an Array! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+  }
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] not in scene file! \n ", key);
+    fmt::print(fg(orange), "WARNING: Using default value: [ ");
+    for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
+    fmt::print(fg(orange), "]\n");
+    return backup;
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: ", key);
+  fmt::print(fg(orange), " [ ");
+  for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
+  fmt::print(fg(orange), "]\n");
+  getchar();
+  return backup;
+}
+
+/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a number array.
+/// Return retrieved double-precision floating point array from JSON or return backup value if not found/is not a number array.
+template<int dim=3>
+mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, std::string key, mn::vec<PREC,dim> backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -648,7 +738,7 @@ mn::vec<PREC, dim> JSON_CheckDoubleArray(rapidjson::Value &object, std::string k
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an integer array.
 /// Return retrieved integer array from JSON or return backup value if not found/is not a double.
 template<int dim>
-mn::vec<int, dim> JSON_CheckIntArray(rapidjson::Value &object, std::string key, mn::vec<int,dim> backup) {
+mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, std::string key, mn::vec<int,dim> backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd()) { 
     if (object[key.c_str()].IsArray()) {
@@ -689,7 +779,7 @@ mn::vec<int, dim> JSON_CheckIntArray(rapidjson::Value &object, std::string key, 
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a double.
 /// Return retrieved double from JSON or return backup value if not found/is not a double.
-double JSON_CheckDouble(rapidjson::Value &object, std::string key, double backup) {
+double CheckDouble(rapidjson::Value &object, std::string key, double backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -709,9 +799,31 @@ double JSON_CheckDouble(rapidjson::Value &object, std::string key, double backup
   return backup;
 }
 
+/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a booelean.
+/// Return retrieved boolean from JSON or return backup value if not found/is not a boolean.
+bool CheckBool(rapidjson::Value &object, std::string key, bool backup) {
+  auto check = object.FindMember(key.c_str());
+  if (check != object.MemberEnd())
+  { 
+    if (!object[key.c_str()].IsBool()){
+      fmt::print(fg(red), "ERROR: Input [{}] not a boolean (true/false! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+    else {
+      fmt::print(fg(green), "Input [{}] found: {}.\n", key, object[key.c_str()].GetBool());
+      return object[key.c_str()].GetBool();
+    }
+  }
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
+  getchar();
+  return backup;
+}
+
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a float.
 /// Return retrieved float from JSON or return backup value if not found/is not a float.
-float JSON_CheckFloat(rapidjson::Value &object, std::string key, float backup) {
+float CheckFloat(rapidjson::Value &object, std::string key, float backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -723,7 +835,7 @@ float JSON_CheckFloat(rapidjson::Value &object, std::string key, float backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an int.
 /// Return retrieved int from JSON or return backup value if not found/is not an int.
-double JSON_CheckInt(rapidjson::Value &object, std::string key, int backup) {
+double CheckInt(rapidjson::Value &object, std::string key, int backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -745,7 +857,7 @@ double JSON_CheckInt(rapidjson::Value &object, std::string key, int backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a positive integer.
 /// Return retrieved double from JSON or return backup value if not found/is not a positive integer.
-uint32_t JSON_CheckUnsignedInt(rapidjson::Value &object, std::string key, uint32_t backup) {
+uint32_t CheckUnsignedInt(rapidjson::Value &object, std::string key, uint32_t backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -792,30 +904,30 @@ void parse_scene(std::string fn,
         auto &sim = it->value;
         if (sim.IsObject()) {
 
-
-          l = sim["default_dx"].GetDouble() * mn::config::g_dx_inv_d; 
-          for (int d = 0; d < 3; ++d)
-            domain[d] = sim["domain"].GetArray()[d].GetDouble();
-            
-          if (domain[0] > l || domain[1] > l || domain[2] > l) {
-            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], l);
-            fmt::print(fg(red), "TIP: Shrink domain, grow default_dx, or increase DOMAIN_BITS (settings.h) and recompile. \n" );
-            fmt::print(fg(red), "Press Enter to continue...\n");
-            getchar();
-          } 
+          float sim_default_dx = (float)CheckDouble(sim, std::string{"default_dx"}, 0.1);
+          float sim_default_dt = (float)CheckDouble(sim, std::string{"default_dt"}, sim_default_dx/100.);
+          uint64_t sim_fps = (uint64_t)CheckInt(sim, std::string{"fps"}, 60);
+          uint64_t sim_frames = (uint64_t)CheckInt(sim, std::string{"frames"}, 60);
+          float sim_gravity = (float)CheckDouble(sim, std::string{"gravity"}, -9.81);
           
           auto save_suffix_check = sim.FindMember("save_suffix");
           if (save_suffix_check != sim.MemberEnd()) save_suffix = sim["save_suffix"].GetString();
           else save_suffix = std::string{".bgeo"};
           fmt::print("Saving particle outputs with save_suffix[{}] file format.\n", save_suffix);
 
+          l = sim_default_dx * mn::config::g_dx_inv_d; 
+          domain = CheckDoubleArray(sim, std::string{"domain"}, mn::pvec3{1.,1.,1.});
+          if (domain[0] > (l-16*sim_default_dx) || domain[1] > (l-16*sim_default_dx) || domain[2] > (l-16*sim_default_dx)) {
+            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-16*sim_default_dx));
+            fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
+          } 
           fmt::print(fg(cyan),
-              "Simulation Scene: gpuid[{}], Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}]\n",
-              sim["gpu"].GetInt(), l, sim["default_dx"].GetFloat(), sim["default_dt"].GetFloat(),
-              sim["fps"].GetInt(), sim["frames"].GetInt());
+              "Simulation Scene: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}]\n",
+              l, sim_default_dx, sim_default_dt,
+              sim_fps, sim_frames, sim_gravity);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
-              l, sim["default_dt"].GetFloat(),
-              sim["fps"].GetInt(), sim["frames"].GetInt(), sim["gravity"].GetFloat(), save_suffix);
+              l, sim_default_dt,
+              sim_fps, sim_frames, sim_gravity, save_suffix);
           fmt::print(fmt::emphasis::bold,
               "-----------------------------------------------------------"
               "-----\n");
@@ -844,7 +956,15 @@ void parse_scene(std::string fn,
             for (int d = 0; d < model["output_attribs"].GetArray().Size(); ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
                       
-            mn::config::AlgoConfigs algoConfigs( model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),  model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(), model["FBAR_ratio"].GetDouble());
+            mn::config::AlgoConfigs algoConfigs;
+            algoConfigs.use_FEM = CheckBool(model,std::string{"use_FEM"}, false);
+            algoConfigs.use_ASFLIP = CheckBool(model, std::string{"use_ASFLIP"}, true);
+            algoConfigs.ASFLIP_alpha = CheckDouble(model, std::string{"alpha"}, 0.);
+            algoConfigs.ASFLIP_beta_min = CheckDouble(model, std::string{"beta_min"}, 0.);
+            algoConfigs.ASFLIP_beta_max = CheckDouble(model, std::string{"beta_max"}, 0.);
+            algoConfigs.use_FBAR = CheckBool(model, std::string{"use_FBAR"}, true);
+            algoConfigs.FBAR_ratio = CheckDouble(model, std::string{"FBAR_ratio"}, 0.25);
+
 
             mn::config::MaterialConfigs materialConfigs;
             materialConfigs.ppc = model["ppc"].GetDouble();
@@ -947,217 +1067,180 @@ void parse_scene(std::string fn,
         if (it->value.IsArray()) {
           fmt::print(fg(cyan), "Scene file has [{}] particle models. \n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
-            if (model["gpu"].GetInt() >= mn::config::g_device_cnt) {
-              fmt::print(fg(red),
-                       "ERROR! Particle model gpu[{}] exceeds GPUs reserved by g_device_cnt (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", 
-                       model["gpu"].GetInt());
+            int gpu_id = model["gpu"].GetInt();
+            if (gpu_id >= mn::config::g_device_cnt) {
+              fmt::print(fg(red), "ERROR! Particle model gpu[{}] exceeds GPUs reserved by g_device_cnt (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", gpu_id);
               continue;
             } 
-            else if (model["gpu"].GetInt() < 0) {
-              fmt::print(fg(red),
-                       "ERROR! GPU ID[{}] cannot be negative. \n", model["gpu"].GetInt());
+            else if (gpu_id < 0) {
+              fmt::print(fg(red), "ERROR! GPU ID[{}] cannot be negative. \n", gpu_id);
               continue;
             }
-            int gpu_id = model["gpu"].GetInt();
-
-            //fs::path p{model["file"].GetString()};
             std::string constitutive{model["constitutive"].GetString()};
-            fmt::print(fg(green),
-                       "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
+            fmt::print(fg(green),  "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
             std::vector<std::string> target_attribs;
             std::vector<std::string> track_attribs;
-            int track_particle_id;
-            fmt::print("Output Attributes: [");
-            for (int d = 0; d < mn::config::g_max_particle_attribs; ++d) {
-              if (d >= model["output_attribs"].GetArray().Size()) break;
-              output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
-              fmt::print(" {}, ", output_attribs[d]);
-            }
-            fmt::print("].\n");
-
+            mn::vec<int, 1> track_particle_id;
             bool has_attributes = false;
             std::vector<std::vector<PREC>> attributes; //< Initial attributes (not incl. position)
-            // attribs[did].resize(model_attribs.size(), std::vector<PREC>(0));
 
-            mn::config::AlgoConfigs algoConfigs( model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool(),  model["alpha"].GetDouble(), model["beta_min"].GetDouble(), model["beta_max"].GetDouble(), model["FBAR_ratio"].GetDouble());
+            mn::config::AlgoConfigs algoConfigs;
+            algoConfigs.use_FEM = CheckBool(model,std::string{"use_FEM"}, false);
+            algoConfigs.use_ASFLIP = CheckBool(model, std::string{"use_ASFLIP"}, true);
+            algoConfigs.ASFLIP_alpha = CheckDouble(model, std::string{"alpha"}, 0.);
+            algoConfigs.ASFLIP_beta_min = CheckDouble(model, std::string{"beta_min"}, 0.);
+            algoConfigs.ASFLIP_beta_max = CheckDouble(model, std::string{"beta_max"}, 0.);
+            algoConfigs.use_FBAR = CheckBool(model, std::string{"use_FBAR"}, true);
+            algoConfigs.FBAR_ratio = CheckDouble(model, std::string{"FBAR_ratio"}, 0.25);
 
             mn::config::MaterialConfigs materialConfigs;
-            materialConfigs.ppc = model["ppc"].GetDouble();
-            materialConfigs.rho = model["rho"].GetDouble();
+            materialConfigs.ppc = CheckDouble(model, std::string{"ppc"}, 8.0); 
+            materialConfigs.rho = CheckDouble(model, std::string{"rho"}, 1e3); 
 
             auto initModel = [&](auto &positions, auto &velocity) {
-
+              bool algo_error = false, mat_error  = false;
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
-                
-                materialConfigs.bulk = model["bulk_modulus"].GetDouble(); 
-                materialConfigs.gamma = model["gamma"].GetDouble(); 
-                materialConfigs.visco = model["viscosity"].GetDouble();
-
+                materialConfigs.bulk = CheckDouble(model, std::string{"bulk_modulus"}, 2e7); 
+                materialConfigs.gamma = CheckDouble(model, std::string{"gamma"}, 7.1); 
+                materialConfigs.visco = CheckDouble(model, std::string{"viscosity"}, 0.001);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JFluid>(gpu_id, positions, velocity);                    
                   benchmark->updateParameters<mn::material_e::JFluid>( 
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, positions, velocity);                    
                   benchmark->updateParameters<mn::material_e::JFluid_ASFLIP>( 
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::JBarFluid>( 
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 } 
                 else if (!algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::JFluid_FBAR>( 
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
-                else 
-                {
-                  fmt::print(fg(red),
-                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       gpu_id, constitutive,
-                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
-                  getchar();
-                }
+                else { algo_error = true; }
               } 
               else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
-
-                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
-                materialConfigs.nu = model["poisson_ratio"].GetDouble();
-
+                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7);
+                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated>(
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP>(
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP_FBAR>(
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
-                else 
-                {
-                  fmt::print(fg(red),
-                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       gpu_id, constitutive,
-                       model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
-                  getchar();
-                }
+                else { algo_error = true; }
               } 
               else if (constitutive == "NeoHookean" || constitutive == "neohookean" || 
                       constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
-
-                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
-                materialConfigs.nu = model["poisson_ratio"].GetDouble();
-                  
+                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
+                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::NeoHookean_ASFLIP_FBAR>( 
                       gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                  fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
-                else 
-                {
-                  fmt::print(fg(red),
-                       "ERROR: GPU[{}] Improper/undefined settings for material [{}] with: use_ASFLIP[{}], use_FEM[{}], and use_FBAR[{}]! \n", 
-                       gpu_id, constitutive,
-                       algoConfigs.use_ASFLIP, algoConfigs.use_FBAR, algoConfigs.use_FEM);
-                  getchar();
-                }
+                else { algo_error = true; }
               } 
               else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
-                benchmark->initModel<mn::material_e::Sand>(gpu_id, positions, velocity); 
-                
-                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
-                materialConfigs.nu = model["poisson_ratio"].GetDouble();
-                materialConfigs.logJp0 = model["logJp0"].GetDouble(); 
-                materialConfigs.frictionAngle = model["friction_angle"].GetDouble();
-                materialConfigs.cohesion = model["cohesion"].GetDouble(); 
-                materialConfigs.beta = model["beta"].GetDouble();
-                materialConfigs.volumeCorrection = model["Sand_volCorrection"].GetBool(); 
-
-                benchmark->updateParameters<mn::material_e::Sand>( 
-                      gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
+                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
+                materialConfigs.logJp0 = CheckDouble(model, std::string{"logJp0"}, 0.0);
+                materialConfigs.frictionAngle = CheckDouble(model, std::string{"friction_angle"}, 30.0);
+                materialConfigs.cohesion = CheckDouble(model, std::string{"cohesion"}, 0.0);
+                materialConfigs.beta = CheckDouble(model, std::string{"beta"}, 0.5);
+                materialConfigs.volumeCorrection = CheckBool(model, std::string{"SandVolCorrection"}, true); 
+                if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
+                {
+                  benchmark->initModel<mn::material_e::Sand>(gpu_id, positions, velocity); 
+                  benchmark->updateParameters<mn::material_e::Sand>( 
+                        gpu_id, materialConfigs, algoConfigs,
+                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                }
+                else { algo_error = true; }
               } 
               else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
-                benchmark->initModel<mn::material_e::NACC>(gpu_id, positions, velocity);
-                materialConfigs.E = model["youngs_modulus"].GetDouble(); 
-                materialConfigs.nu = model["poisson_ratio"].GetDouble();
-                materialConfigs.logJp0 = model["logJp0"].GetDouble(); 
-                materialConfigs.frictionAngle = model["friction_angle"].GetDouble();
-                materialConfigs.beta = model["beta"].GetDouble();
-                materialConfigs.xi = model["xi"].GetDouble(); 
-                materialConfigs.hardeningOn = model["hardeningOn"].GetBool(); 
-
-                benchmark->updateParameters<mn::material_e::NACC>( 
-                      gpu_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id, track_attribs, target_attribs);
-                fmt::print(fg(green),"GPU[{}] Particle material[{}] model updated.\n", gpu_id, constitutive);
+                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
+                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
+                materialConfigs.logJp0 = CheckDouble(model, std::string{"logJp0"}, 0.0);
+                materialConfigs.xi = CheckDouble(model, std::string{"xi"}, 0.8);
+                materialConfigs.frictionAngle = CheckDouble(model, std::string{"friction_angle"}, 30.0);
+                materialConfigs.beta = CheckDouble(model, std::string{"beta"}, 0.5);
+                materialConfigs.hardeningOn = CheckBool(model, std::string{"hardeningOn"}, true); 
+                if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
+                {
+                  benchmark->initModel<mn::material_e::NACC>(gpu_id, positions, velocity);
+                  benchmark->updateParameters<mn::material_e::NACC>( 
+                        gpu_id, materialConfigs, algoConfigs,
+                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                }
+                else { algo_error = true; }
               } 
-              else {
-                fmt::print(fg(red),"ERROR: GPU[{}] constititive[{}] does not exist! \n",  gpu_id, constitutive);
-                fmt::print(fg(red), "Press Enter to continue..."); getchar(); }
+              else { mat_error = true; } //< Requested material doesn't exist in code
+              if (mat_error) {
+                fmt::print(fg(red),"ERROR: GPU[{}] constititive[{}] does not exist! Press ENTER to continue...\n",  gpu_id, constitutive); getchar(); return; 
+              }
+              if (algo_error) {
+                fmt::print(fg(red), "ERROR: GPU[{}] Undefined algorithm use for material [{}]: use_ASFLIP[{}], use_FEM[{}], use_FBAR[{}]! Press ENTER to continue...\n", gpu_id, constitutive, algoConfigs.use_ASFLIP, algoConfigs.use_FEM, algoConfigs.use_FBAR); getchar(); return; 
+              }
+              fmt::print(fg(green),"GPU[{}] Material[{}] model set and updated.\n", gpu_id, constitutive);
             };
 
             mn::vec<PREC, 3> velocity, partition_start, partition_end;
-            velocity = JSON_CheckDoubleArray(model, std::string{"velocity"}, mn::pvec3{0,0,0});
-            partition_start = JSON_CheckDoubleArray(model, std::string{"partition_start"}, mn::pvec3{0,0,0});
-            partition_end = JSON_CheckDoubleArray(model, std::string{"partition_end"}, domain);
+            velocity = CheckDoubleArray(model, std::string{"velocity"}, mn::pvec3{0.,0.,0.});
+            partition_start = CheckDoubleArray(model, std::string{"partition_start"}, mn::pvec3{0.,0.,0.});
+            partition_end = CheckDoubleArray(model, std::string{"partition_end"}, domain);
             for (int d = 0; d < 3; ++d) {
               velocity[d] = velocity[d] / l;
               partition_start[d]  = partition_start[d] / l + o;
               partition_end[d]  = partition_end[d] / l + o;
               if (partition_start[d] > partition_end[d]) {
                 fmt::print(fg(red), "GPU[{}] ERROR: Inverted partition (Element of partition_start > partition_end). Fix and Retry.", gpu_id); getchar();
-              }
-              else if (partition_end[d] == partition_start[d]) {
+              } else if (partition_end[d] == partition_start[d]) {
                 fmt::print(fg(red), "GPU[{}] ERROR: Zero volume partition (Element of partition_end == partition_start). Fix and Retry.", gpu_id); getchar();
               }
             }
-
-            track_particle_id = model["track_particle_id"].GetArray()[0].GetInt();
-            for (int d = 0; d < 1; ++d) track_attribs.emplace_back(model["track_attribs"].GetArray()[d].GetString());
-            fmt::print("Track attributes [{}] on particle IDs [{}].\n", track_attribs[0], track_particle_id);
-
-            for (int d = 0; d < 1; ++d) {
-              if (d >= model["target_attribs"].Size()) break;
-              target_attribs.emplace_back(model["target_attribs"].GetArray()[d].GetString());
-            }
-            fmt::print("Target Attributes: [{}].\n", target_attribs[0]);
+            output_attribs = CheckStringArray(model, std::string{"output_attribs"}, std::vector<std::string> {{"ID"}});
+            track_attribs = CheckStringArray(model, std::string{"track_attribs"}, std::vector<std::string> {{"Position_Y"}});
+            track_particle_id = CheckIntArray(model, std::string{"track_particle_id"}, mn::vec<int, 1> {0});
+            target_attribs = CheckStringArray(model, std::string{"target_attribs"}, std::vector<std::string> {{"Position_Y"}});
+            if (output_attribs.size() > mn::config::g_max_particle_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] output_attribs value supported.\n", gpu_id, mn::config::g_max_particle_attribs); }
+            if (track_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] track_attribs value supported currently.\n", gpu_id); }
+            if (sizeof(track_particle_id) / sizeof(int) > 1) { fmt::print(fg(red), "ERROR: Only [1] track__particle_id value supported currently.\n"); }
+            fmt::print("GPU[{}] Track attributes [{}] on particle IDs [{}].\n", gpu_id, track_attribs[0], track_particle_id[0]);
+            if (target_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] target_attribs value supported currently.\n", gpu_id); }
 
             // * Begin particle geometry construction 
             auto geo = model.FindMember("geometry");
@@ -1167,18 +1250,22 @@ void parse_scene(std::string fn,
                 for (auto &geometry : geo->value.GetArray()) {
                   std::string operation{geometry["operation"].GetString()};
                   std::string type{geometry["object"].GetString()};
-                  fmt::print("GPU[{}] Operation[{}] with object[{}]... \n", gpu_id, operation, type);
+                  fmt::print(fg(white), "GPU[{}] Begin operation[{}] with object[{}]... \n", gpu_id, operation, type);
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
-                  geometry_offset = JSON_CheckDoubleArray(geometry, std::string{"offset"}, mn::pvec3{0,0,0});
-                  geometry_span = JSON_CheckDoubleArray(geometry, std::string{"span"}, domain);
-                  geometry_spacing = JSON_CheckDoubleArray(geometry, std::string{"spacing"}, mn::pvec3{0,0,0});
-                  geometry_array = JSON_CheckIntArray(geometry, std::string{"array"}, mn::ivec3{1,1,1});
+                  mn::vec<PREC, 3> geometry_rotate, geometry_fulcrum, geometry_shear;
+                  geometry_span = CheckDoubleArray(geometry, std::string{"span"}, domain);
+                  geometry_offset = CheckDoubleArray(geometry, std::string{"offset"}, mn::pvec3{0.,0.,0.});
+                  geometry_array = CheckIntArray(geometry, std::string{"array"}, mn::ivec3{1,1,1});
+                  geometry_spacing = CheckDoubleArray(geometry, std::string{"spacing"}, mn::pvec3{0.,0.,0.});
+                  geometry_rotate = CheckDoubleArray(geometry, std::string{"rotate"}, mn::pvec3{0.,0.,0.});
+                  geometry_fulcrum = CheckDoubleArray(geometry, std::string{"fulcrum"}, mn::pvec3{0.,0.,0.});           
                   for (int d = 0; d < 3; ++d) {
-                    geometry_offset[d]   = geometry_offset[d] / l + o;
-                    geometry_span[d]     = geometry_span[d] / l;
-                    geometry_spacing[d]  = geometry_spacing[d] / l;
+                    geometry_span[d]    = geometry_span[d]    / l;
+                    geometry_offset[d]  = geometry_offset[d]  / l + o;
+                    geometry_spacing[d] = geometry_spacing[d] / l;                    
+                    geometry_fulcrum[d] = geometry_fulcrum[d] / l + o;
                   }
 
                   mn::vec<PREC, 3> geometry_offset_updated;
@@ -1194,51 +1281,41 @@ void parse_scene(std::string fn,
                   if (type == "Box" || type == "box")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_box(models[gpu_id], 
-                          geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
-                    }
+                      make_box(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end); }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_box(models[gpu_id], geometry_span, geometry_offset_updated);
-                    }
-                    else if (operation == "Union" || operation == "union") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else if (operation == "Difference" || operation == "difference") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else {
-                      fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                      subtract_box(models[gpu_id], geometry_span, geometry_offset_updated); }
+                    else if (operation == "Union" || operation == "union") { fmt::print(fg(red),"Operation not implemented...\n");}
+                    else if (operation == "Intersect" || operation == "intersect") { fmt::print(fg(red),"Operation not implemented...\n");}
+                    else if (operation == "Difference" || operation == "difference") { fmt::print(fg(red),"Operation not implemented...\n");}
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
+                    PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
                     if (operation == "Add" || operation == "add") {
-                      make_cylinder(models[gpu_id], 
-                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), geometry["axis"].GetString(), partition_start, partition_end); }
-                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry["radius"].GetDouble(), geometry["axis"].GetString(), geometry_span, geometry_offset_updated); }
-                    else {
-                      fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry["axis"].GetString(), partition_start, partition_end); }
+                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry_radius, geometry["axis"].GetString(), geometry_span, geometry_offset_updated); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
+                    PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
                     if (operation == "Add" || operation == "add") {
-                      make_sphere(models[gpu_id], 
-                              geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), geometry["radius"].GetDouble(), partition_start, partition_end);
-                    }
+                      make_sphere(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end); }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_sphere(models[gpu_id], geometry["radius"].GetDouble(), geometry_offset_updated); }
-                    else {
-                      fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                      subtract_sphere(models[gpu_id], geometry_radius, geometry_offset_updated); }
+                    else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "OSU LWF" || type == "OSU Water")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[gpu_id], 
-                            geometry_span, geometry_offset_updated, model["ppc"].GetFloat(), partition_start, partition_end);
-                    }
-                    else if (operation == "Subtract" || operation == "subtract") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else {
-                      fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                      make_OSU_LWF(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end); }
+                    else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "File" || type == "file") 
                   {
-                    // * NOTE : Assumes geometry "file" specified by scene.json is in AssetDirPath/, e.g. ~/claymore/Data/file
+                    // * NOTE : Assumes geometry "file" specified by scene.json is in  AssetDirPath/, e.g. for AssetDirPath = ~/claymore/Data/, then use ~/claymore/Data/file
                     std::string geometry_fn = std::string(AssetDirPath) + geometry["file"].GetString();
                     fs::path geometry_file_path{geometry_fn};
                     if (geometry_file_path.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
@@ -1250,26 +1327,13 @@ void parse_scene(std::string fn,
                     if (operation == "Add" || operation == "add") {
                       if (geometry_file_path.extension() == ".sdf") 
                       {
-                        PREC geometry_scaling_factor = JSON_CheckDouble(geometry, std::string{"scaling_factor"}, 1);
-                        
-                        int geometry_padding = JSON_CheckInt(geometry, std::string{"padding"}, 1);
+                        PREC geometry_scaling_factor = CheckDouble(geometry, std::string{"scaling_factor"}, 1);
+                        int geometry_padding = CheckInt(geometry, std::string{"padding"}, 1);
                         if (geometry_scaling_factor <= 0) {
-                          fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry."); getchar();}
+                          fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); getchar(); }
                         if (geometry_padding < 1) {
-                          fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files should have [padding] of atleast [1] (padding is empty cells on all sides of .sdf model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files. You may use a shell script (e.g. create_SDF.sh) as follows, specifying PAD as 1.");
-                          fmt::print("#!/bin/bash \n");
-                          fmt::print("FILEIN=$1 \n");
-                          fmt::print("DX=$2 \n");
-                          fmt::print("PAD=$3 \n");
-                          fmt::print("FILEOUT=\"${FILEIN%.obj}_dx${DX}_pad${PAD}.sdf\" \n ");
-                          fmt::print("SDFGen=~/InsertYourPath/SDFGen/build/bin/SDFGen \n");
-                          fmt::print("$SDFGen $FILEIN $DX $PAD \n");
-                          fmt::print("mv \"${FILEIN%.obj}.sdf\" $FILEOUT \n");
-                          fmt::print("sudo chmod a+rwx $FILEOUT \n");
-                          fmt::print(fg(yellow), "TIP:For input_file.obj with SDF grid-spacing of 0.1 meters, script can be called with: sudo sh input_file.obj 0.1 1 \n"); 
-                          getchar();}
-                        mn::read_sdf(
-                            geometry_fn, models[gpu_id], model["ppc"].GetDouble(),
+                          fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files require [padding] of atleast [1] (padding is empty exterior cells on sides of model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files.\n"); getchar();}
+                        mn::read_sdf(geometry_fn, models[gpu_id], materialConfigs.ppc,
                             (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
                             partition_start, partition_end, geometry_scaling_factor, geometry_padding);
                       }
@@ -1284,32 +1348,24 @@ void parse_scene(std::string fn,
                           geometry_file_path.extension() == ".pdb" ||
                           geometry_file_path.extension() == ".ptc") 
                       {
-                        auto check = geometry.FindMember("has_attributes");
-                        if (check != geometry.MemberEnd())
-                        {               
-                          if(!geometry["has_attributes"].IsBool()) { fmt::print("ERROR: Not a bool."); break;}
-                          has_attributes = geometry["has_attributes"].GetBool();
+                        has_attributes = CheckBool(geometry, std::string{"has_attributes"}, false);
+                        input_attribs = CheckStringArray(geometry, std::string{"input_attribs"}, std::vector<std::string> {{"ID"}});
+                        if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
+                        if (input_attribs.size() > mn::config::g_max_particle_attribs) {
+                          fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); getchar();
                         }
-                        fmt::print("GPU[{}] Model has pre-existing particle attributes to read-into simulation[{}].\n", gpu_id, has_attributes);
-                        for (int d = 0; d < 32; ++d) {
-                          if (d >= geometry["input_attribs"].Size()) break;
-                          input_attribs.emplace_back(geometry["input_attribs"].GetArray()[d].GetString());
-                          fmt::print("Input Attributes: [{}]\n", input_attribs.back());
-                        }
-                        // attributes = std::vector<std::vector<PREC> >(0, std::vector<PREC>(input_attribs.size())); // Resize to fit number of input attributes per particle
                         attributes.resize(0, std::vector<PREC>(input_attribs.size()));
                         mn::read_partio_general<PREC>(geometry_fn, models[gpu_id], attributes, input_attribs.size(), input_attribs); 
-                        fmt::print("Size of attributes after reading in initial data: Particles {}, Attributess {}, First Particle [{}, {}, {}]\n", attributes.size(), attributes[0].size(), attributes[0][0], attributes[0][1], attributes[0][2]);
-                        //attributes.resize(models[gpu_id].size());
-                        // Scale length based particle values to 1x1x1 simulation (e.g. Velocity)
-                        // Manually add attribute scaling for new variables (e.g. Acceleration)
+                        fmt::print("Size of attributes after reading in initial data: Particles {}, Attributess {}\n", attributes.size(), attributes[0].size());
+                        fmt::print("First element: {} \n", attributes[0][0]);
+
+                        // Scale particle positions to 1x1x1 simulation
                         for (int part=0; part < models[gpu_id].size(); part++) {
                           for (int d = 0; d<3; d++) {
                             models[gpu_id][part][d] = models[gpu_id][part][d] / l + o;
                           }
-                        }
-                        for (int part=0; part < models[gpu_id].size(); part++) {
-                          for (int d = 0; d<input_attribs.size(); d++) {
+                          // Scale length based attributes to 1x1x1 simulation (e.g. Velocity)
+                          for (int d = 0; d < input_attribs.size(); d++) {
                             if (input_attribs[d] == "Velocity_X" || input_attribs[d] == "Velocity_Y" || input_attribs[d] == "Velocity_Z" )
                               attributes[part][d] = attributes[part][d] / l; 
                           }
@@ -1320,18 +1376,10 @@ void parse_scene(std::string fn,
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else 
-                    {
-                      fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); 
-                      getchar(); 
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! Press ENTER to continue...\n", gpu_id, operation); getchar(); 
                     }
-
                   }
-                  else 
-                  {
-                    fmt::print(fg(red), "GPU[{}] ERROR: Geometry object[{}] does not exist!\n", gpu_id, type);
-                    fmt::print(fg(red), "Press Enter...\n");
-                    getchar();
+                  else  { fmt::print(fg(red), "GPU[{}] ERROR: Geometry object[{}] does not exist! Press ENTER to continue...\n", gpu_id, type); getchar();
                   } 
                   geometry_offset_updated[2] += geometry_spacing[2];
                   } 
@@ -1339,20 +1387,17 @@ void parse_scene(std::string fn,
                   } 
                   geometry_offset_updated[0] += geometry_spacing[0];
                   }
-
                 }
               }
             } //< End geometry
             else {
-              fmt::print(fg(red), "ERROR: GPU[{}] has no geometry object!\n", gpu_id);
-              fmt::print(fg(red), "Press enter to continue...\n");
-              getchar();
+              fmt::print(fg(red), "ERROR: GPU[{}] Model has no geometry object! Neccesary to create particles.\n", gpu_id);
+              fmt::print(fg(red), "Press enter to continue...\n"); getchar();
             }
               
             auto positions = models[gpu_id];
             mn::IO::insert_job([&]() {
-              mn::write_partio<PREC, 3>(std::string{p.stem()} + save_suffix,
-                                        positions);});              
+              mn::write_partio<PREC,3>(std::string{p.stem()} + save_suffix,positions); });              
             mn::IO::flush();
             fmt::print(fg(green), "GPU[{}] Saved particle model to [{}].\n", gpu_id, std::string{p.stem()} + save_suffix);
             
@@ -1362,56 +1407,145 @@ void parse_scene(std::string fn,
               getchar();
             }
 
-
-            // Initial particle positions per material
+            // * Initialize particle positions in simulator and on GPU
             initModel(positions, velocity);
 
-            // Initial particle attributes
-            if (input_attribs.size() == 3){
+            // ! Chose to hard-code available attribute count per particle for input, output
+            // ! Gives clearer code/better compiler optimization over run-time binding for GPU data-structures, but could definitely be improved.
+
+            // * Initialize particle attributes in simulator and on GPU
+            if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(input_attribs.size(), 0.)); //< Zero initial attribs if none
+            if (input_attribs.size() == 1){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 2){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(2);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 3){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(3, 0.));
               benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 4){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(4);
-              if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(4, 0.));
               benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 5){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(5);
-              if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(5, 0.));
               benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 6){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(6);
-              if (!has_attributes) { fmt::print("No attribute\n"); attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(6, 0.)); }
               benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 7){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(7);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 8){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(8);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 9){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 10){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 11){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 12){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 13){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 14){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 15){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() == 16){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() <= 18 && input_attribs.size() > 16){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() <= 24 && input_attribs.size() > 18){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() <= 32 && input_attribs.size() > 24){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
+              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+            } else if (input_attribs.size() > 32){
+              fmt::print("More than [{}] input_attribs not implemented. You requested [{}].", mn::config::g_max_particle_attribs, input_attribs.size());
+              getchar();
             } else {
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(3, 0.));
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
               benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
             }
-
-            // fmt::print("Finished inital attributes.");
-            // fmt::print("Start output attributes.");
-
-            // Output particle attributes
-            if (output_attribs.size() == 3){
+            
+            // * Initialize output particle attributes in simulator and on GPU
+            attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
+            if (output_attribs.size() == 1){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 2){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(2);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 3){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
               benchmark->initOutputAttribs<N>(gpu_id, attributes); 
             } else if (output_attribs.size() == 4){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(4);
-              attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
               benchmark->initOutputAttribs<N>(gpu_id, attributes); 
             } else if (output_attribs.size() == 5){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(5);
-              attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
               benchmark->initOutputAttribs<N>(gpu_id, attributes); 
             } else if (output_attribs.size() == 6){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(6);
-              attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 7){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(7);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 8){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(8);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 9){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 10){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 11){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 12){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 13){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 14){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 15){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() == 16){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() <= 18 && output_attribs.size() > 16){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() <= 24 && output_attribs.size() > 18){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() <= 32 && output_attribs.size() > 24){
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
+              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+            } else if (output_attribs.size() > 32){
+              fmt::print(fg(red), "ERROR: GPU[{}] More than [{}] output_attribs not valid. Requested: [{}]. Truncating...", gpu_id, mn::config::g_max_particle_attribs, output_attribs.size()); 
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
               benchmark->initOutputAttribs<N>(gpu_id, attributes); 
             } else {
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(3, 0.));
+              fmt::print(fg(orange), "WARNING: GPU[{}] output_attribs not found. Using [1] element default", gpu_id);
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
               benchmark->initOutputAttribs<N>(gpu_id, attributes); 
             }
             fmt::print(fmt::emphasis::bold,
@@ -1477,7 +1611,7 @@ void parse_scene(std::string fn,
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
             PREC_G freq = model["output_frequency"].GetFloat();
 
-            mn::config::GridTargetConfigs gridTargetConfigs(target[6], target[6], target[6], make_float3(target[1], target[2], target[3]), make_float3(target[4], target[5], target[6]), freq);
+            mn::config::GridTargetConfigs gridTargetConfigs((int)target[6], (int)target[6], (int)target[6], make_float3((float)target[1], (float)target[2], (float)target[3]), make_float3((float)target[4], (float)target[5], (float)target[6]), (float)freq);
 
             // * Loop through GPU devices to initialzie
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
@@ -1529,7 +1663,7 @@ void parse_scene(std::string fn,
 
             PREC freq = model["output_frequency"].GetDouble();
 
-            mn::config::ParticleTargetConfigs particleTargetConfigs(target[6], target[6], target[6], {(float)target[1], (float)target[2], (float)target[3]}, {target[4], (float)target[5], (float)target[6]}, freq);
+            mn::config::ParticleTargetConfigs particleTargetConfigs((int)target[6], (int)target[6], (int)target[6], {(float)target[1], (float)target[2], (float)target[3]}, {(float)target[4], (float)target[5], (float)target[6]}, (float)freq);
 
 
             // Initialize on GPUs

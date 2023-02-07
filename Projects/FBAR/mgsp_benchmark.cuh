@@ -59,6 +59,9 @@ struct mgsp_benchmark {
     inputHaloGridBlocks.emplace_back(g_device_cnt);
     outputHaloGridBlocks.emplace_back(g_device_cnt);
     
+    flag_pe = true;
+    flag_ge = true;
+
     flag_fem[GPU_ID] = 0;
     element_cnt[GPU_ID] = config::g_max_fem_element_num;
     vertice_cnt[GPU_ID] = config::g_max_fem_vertice_num;
@@ -195,13 +198,12 @@ struct mgsp_benchmark {
     flattened.reserve(n * model_attribs.size());
     size_t reserve_size = 0;
     for (int i=0; i<model_attribs.size(); ++i)
-    {
       reserve_size += model_attribs[i].size();
-    }
+    
     flattened.reserve(reserve_size);
     for (int i=0; i<model_attribs.size(); ++i)
     {
-      const std::vector<PREC> & v = model_attribs[i];  // just to make code more readable (note ..  a reference)
+      const std::vector<PREC> & v = model_attribs[i];
       flattened.insert( flattened.end() , v.begin() , v.end() );
     }
 
@@ -783,7 +785,7 @@ template<material_e mt>
                         get<typename std::decay_t<decltype(pb)>>(
                             particleBins[rollid ^ 1][did]),
                         partitions[rollid ^ 1][did], partitions[rollid][did],
-                        gridBlocks[0][did], gridBlocks[1][did], length);
+                        gridBlocks[0][did], gridBlocks[1][did]);
                   cuDev.syncStream<streamIdx::Compute>();
                   timer.tock(fmt::format("GPU[{}] frame {} step {} g2p_FBar", did,
                                         curFrame, curStep));
@@ -799,7 +801,7 @@ template<material_e mt>
                       get<typename std::decay_t<decltype(pb)>>(
                           particleBins[rollid ^ 1][did]),
                       partitions[rollid ^ 1][did], partitions[rollid][did],
-                      gridBlocks[0][did], gridBlocks[1][did], length);
+                      gridBlocks[0][did], gridBlocks[1][did]);
                   cuDev.syncStream<streamIdx::Compute>();
                   timer.tock(fmt::format("GPU[{}] frame {} step {} p2g_FBar", did,
                                         curFrame, curStep));
@@ -824,7 +826,7 @@ template<material_e mt>
                         get<typename std::decay_t<decltype(pb)>>(
                             particleBins[rollid ^ 1][did]),
                         partitions[rollid ^ 1][did], partitions[rollid][did],
-                        gridBlocks[0][did], gridBlocks[1][did], length);
+                        gridBlocks[0][did], gridBlocks[1][did]);
                   cuDev.syncStream<streamIdx::Compute>();
                   timer.tock(fmt::format("GPU[{}] frame {} step {} g2p_ASFLIP_FBar", did,
                                         curFrame, curStep));
@@ -840,7 +842,7 @@ template<material_e mt>
                       get<typename std::decay_t<decltype(pb)>>(
                           particleBins[rollid ^ 1][did]),
                       partitions[rollid ^ 1][did], partitions[rollid][did],
-                      gridBlocks[0][did], gridBlocks[1][did], length);
+                      gridBlocks[0][did], gridBlocks[1][did]);
                   cuDev.syncStream<streamIdx::Compute>();
                   timer.tock(fmt::format("GPU[{}] frame {} step {} p2g_ASFLIP_FBar", did,
                                         curFrame, curStep));
@@ -1062,7 +1064,7 @@ template<material_e mt>
                     get<typename std::decay_t<decltype(pb)>>(
                         particleBins[rollid ^ 1][did]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
-                    gridBlocks[0][did], gridBlocks[1][did], length);
+                    gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
                 timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar", did,
                                       curFrame, curStep));          
@@ -1077,7 +1079,7 @@ template<material_e mt>
                     get<typename std::decay_t<decltype(pb)>>(
                         particleBins[rollid ^ 1][did]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
-                    gridBlocks[0][did], gridBlocks[1][did], length);
+                    gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
                 timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar", did,
                                       curFrame, curStep));
@@ -1100,7 +1102,7 @@ template<material_e mt>
                     get<typename std::decay_t<decltype(pb)>>(
                         particleBins[rollid ^ 1][did]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
-                    gridBlocks[0][did], gridBlocks[1][did], length);
+                    gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
                 timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar_ASFLIP", did,
                                       curFrame, curStep));          
@@ -1115,7 +1117,7 @@ template<material_e mt>
                     get<typename std::decay_t<decltype(pb)>>(
                         particleBins[rollid ^ 1][did]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
-                    gridBlocks[0][did], gridBlocks[1][did], length);
+                    gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
                 timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar_ASFLIP", did,
                                       curFrame, curStep));
@@ -1483,7 +1485,7 @@ template<material_e mt>
 
     fmt::print(fg(fmt::color::red), "GPU[{}] Launch retrieve_particle_buffer_attributes\n", did);
     match(particleBins[rollid][did], pattribs[did])([&](const auto &pb, auto &pa) {
-      cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes,
+      cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes_general,
                           partitions[rollid][did], partitions[rollid ^ 1][did],
                           pb, particles[did],  get<typename std::decay_t<decltype(pa)>>(
                         pattribs[did]), d_trackVal, d_parcnt,
@@ -1524,15 +1526,16 @@ template<material_e mt>
     {
       match(particleBins[rollid][did], pattribs[did])([&](const auto &pb, const auto &pa) {
         attribs[did].resize(pa.numAttributes*parcnt);
-        fmt::print("Updated attribs, [{}] particles with [{}] elements for [{}] output attributes.\n", attribs[did].size() / pa.numAttributes, attribs[did].size() / parcnt, pa.numAttributes);
-        checkCudaErrors(cudaMemcpyAsync(attribs[did].data(), (void *)&pa.val_1d(_0, 0),
-                                        sizeof(PREC) * (pa.numAttributes) * (parcnt),
-                                        cudaMemcpyDefault, cuDev.stream_compute()));
-        cuDev.syncStream<streamIdx::Compute>();
-        std::string fn = std::string{"model"} + "_dev[" + std::to_string(did) +
-                        "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
-        // IO::insert_job([fn, m = models[did], a = attribs[did], labels = pb.output_labels, dim_out = pa.numAttributes]() { write_partio_particles<PREC>(fn, m, a, labels); });
-        IO::insert_job([fn, m = models[did], a = attribs[did], labels = pb.output_labels, dim_out = pa.numAttributes]() { write_partio_particles<PREC>(fn, m, a, labels); });
+        if (pa.numAttributes){
+          checkCudaErrors(cudaMemcpyAsync(attribs[did].data(), (void *)&pa.val_1d(_0, 0),
+                                          sizeof(PREC) * (pa.numAttributes) * (parcnt),
+                                          cudaMemcpyDefault, cuDev.stream_compute()));
+          cuDev.syncStream<streamIdx::Compute>();
+          fmt::print("Updated attribs, [{}] particles with [{}] elements for [{}] output attributes.\n", attribs[did].size() / pa.numAttributes, attribs[did].size() / parcnt, pa.numAttributes);
+          std::string fn = std::string{"model"} + "_dev[" + std::to_string(did) +
+                          "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
+          IO::insert_job([fn, m = models[did], a = attribs[did], labels = pb.output_labels, dim_out = pa.numAttributes]() { write_partio_particles<PREC>(fn, m, a, labels); });
+        }
       });
     }
     timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particles", did,
@@ -1776,7 +1779,7 @@ template<material_e mt>
       }
 
       match(particleBins[particleID][did], pattribs[did])([&](const auto &pb, auto &pa) {
-        cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes,
+        cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes_general,
                             partitions[rollid][did], partitions[rollid ^ 1][did],
                             pb, particles[did], pa, d_trackVal, d_parcnt,
                             d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, true);
@@ -1961,28 +1964,22 @@ template<material_e mt>
 
       timer.tick();
       gridBlocks[0][did].reset(nbcnt[did], cuDev); // Zero out blocks on all Grids 0
-      // Send initial information from Particle Arrays to Grids 0 (e.g. mass, velocity)
       cuDev.syncStream<streamIdx::Compute>();
 
+      // Send initial information from Particle Arrays to initial Grids (e.g. mass, velocity)
       match(particleBins[rollid][did], pattribs_init[did])([&](const auto &pb, auto &pa) {
         if (flag_has_attributes[did]) {
-        cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
-                           particles[did],  get<typename std::decay_t<decltype(pa)>>(
-                        pattribs_init[did]), gridBlocks[0][did],
-                           partitions[rollid][did], dt, pb.mass, pb.volume, vel0[did], pb.length, (PREC)grav);
+          cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
+                              pb, particles[did],  get<typename std::decay_t<decltype(pa)>>(
+                              pattribs_init[did]), gridBlocks[0][did],
+                              partitions[rollid][did], dt, vel0[did], (PREC)grav);
                            fmt::print("Rasterized grid with initial particle attributes.\n");
-        // cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
-        //                    particles[did], pa, gridBlocks[0][did],
-        //                    partitions[rollid ^ 1][did], dt, pb.mass, pb.volume, vel0[did], pb.length, (PREC)grav);
-        //                    fmt::print("Rasterized grid with initial particle attributes.\n");
-                           //getchar();
+        } else {
+          cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
+                           pb, particles[did], gridBlocks[0][did],
+                           partitions[rollid][did], dt, vel0[did], (PREC)grav); 
         }
-        else{
-        cuDev.compute_launch({(pcnt[did] + 255) / 256, 256}, rasterize, pcnt[did],
-                           particles[did], gridBlocks[0][did],
-                           partitions[rollid][did], dt, pb.mass, pb.volume, vel0[did], pb.length, (PREC)grav); }
       });
-
       cuDev.syncStream<streamIdx::Compute>();
       // Initialize advection buckets on Partitions
       cuDev.compute_launch({pbcnt[did], 128}, init_adv_bucket,
@@ -1996,8 +1993,7 @@ template<material_e mt>
     collect_halo_grid_blocks(0); //< 
     reduce_halo_grid_blocks(0);
 
-
-    if (1)
+    if (flag_pe)
     {
       {
       issue([this](int did) {
@@ -2200,7 +2196,7 @@ template<material_e mt>
     });
     sync();
 
-  }
+  } //< End
 
 
   // * Declare Simulation basic run-time settings
@@ -2225,8 +2221,6 @@ template<material_e mt>
 
   vec<vec7, g_max_grid_boundaries> gridBoundary; ///< 
   vec3 d_motionPath; ///< Motion path info (time, disp, vel) to send to device kernels
-  //std::vector<vec3> d_wg_point_a; ///< Point A of target (JB)
-  //std::vector<vec3> d_wg_point_b; ///< Point B of target (JB)
 
   std::vector<std::string> output_attribs[config::g_device_cnt];
   std::vector<std::string> track_attribs[config::g_device_cnt];
@@ -2234,9 +2228,6 @@ template<material_e mt>
   std::vector<std::string> grid_target_attribs[config::g_device_cnt];
 
   vec<ParticleArray, config::g_device_cnt> particles; //< Basic GPU vector for Particle positions
-  //vec<ParticleAttrib, config::g_device_cnt> pattribs;  //< Basic GPU vector for Particle attributes
-  //vec<ParticleAttrib, config::g_device_cnt> pattribs;  //< Basic GPU vector for Particle attributes
-  //std::vector<particle_array_> particles; //< Basic GPU vector for Particle positions
   std::vector<particle_attrib_t> pattribs;  //< Basic GPU vector for Particle attributes
   std::vector<particle_attrib_t> pattribs_init;  //< Basic GPU vector for Particle attributes
 
@@ -2309,29 +2300,25 @@ template<material_e mt>
 
   std::vector<float> durations[config::g_device_cnt + 1];
   std::vector<std::array<PREC, 3>> models[config::g_device_cnt];
-  //std::vector<std::array<PREC, config::g_max_particle_attribs>> attribs[config::g_device_cnt];
-  //std::vector<std::vector<PREC>> attribs[config::g_device_cnt];
   std::vector<PREC> attribs[config::g_device_cnt];
-  //attribs.resize(ROW, std::vector<PREC>(COL));
-  //attribs = std::vector<std::vector<PREC> >(ROW, std::vector<PREC>(COL));
 
-  int number_of_grid_targets=0;
+  int number_of_grid_targets = 0;
+  int number_of_particle_targets = 0;
   std::vector<std::array<PREC_G, config::g_target_attribs>> host_gridTarget[config::g_device_cnt];   ///< Grid target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
-  int number_of_particle_targets=0;
   std::vector<std::array<PREC, config::g_particle_target_attribs>> host_particleTarget[config::g_device_cnt];   ///< Particle target info (x,y,z,m,mx,my,mz,fx,fy,fz) on host (JB)
 
   std::vector<std::array<PREC, 13>> host_vertices[config::g_device_cnt];
   std::vector<std::array<int, 4>> host_element_IDs[config::g_device_cnt];
   std::vector<std::array<PREC, 6>> host_element_attribs[config::g_device_cnt];
-  std::vector<std::array<PREC_G, 3>> host_motionPath;   ///< Motion-Path (time, disp, vel) on host (JB)
+  std::vector<std::array<PREC_G, 3>> host_motionPath; ///< Motion-Path (time, disp, vel) on host (JB)
   std::array<int , config::g_device_cnt> flag_fem; // Toggle finite elements
   bool flag_gt = false; // Toggle grid target
   bool flag_pt = false; // Toggle particle target
   bool flag_wm = false; // Toggle motion path
   bool flag_ti = false; // Toggle particle tracked ID 
-  bool flat_pe = false; // Toggle particle energy output
+  bool flag_pe = false; // Toggle particle energy output
   bool flag_ge = false; // Toggle grid energy output 
-  bool flag_has_attributes[config::g_device_cnt];
+  bool flag_has_attributes[config::g_device_cnt] = {false};
 
   PREC_G host_gt_freq = 60.f; // Frequency of grid-target output
   PREC_G host_pt_freq = 60.f; // Frequency of particle-target output
@@ -2347,12 +2334,9 @@ template<material_e mt>
   std::ofstream gridEnergyFile;
   std::ofstream particleEnergyFile;
 
-  bool verb = false; //< If true, print more information to terminal
-  std::string save_suffix;
-
   Instance<signed_distance_field_> _hostData;
 
-  /// Set-up host threads, tasks, locks, etc.
+  /// Set-up host CPU threads, tasks, locks, etc.
   bool bRunning;
   threadsafe_queue<std::function<void(int)>> jobs[config::g_device_cnt];
   std::thread ths[config::g_device_cnt]; ///< thread is not trivial
@@ -2363,6 +2347,9 @@ template<material_e mt>
   /// computations per substep
   std::vector<std::function<void(int)>> init_tasks;
   std::vector<std::function<void(int)>> loop_tasks;
+
+  bool verb = false; //< If true, print more information to terminal
+  std::string save_suffix;
 };
 
 } // namespace mn

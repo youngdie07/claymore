@@ -404,11 +404,12 @@ constexpr void compute_Principals_from_Invariants_3x3_Sym_Tensor(const T *x, T *
 {
   // A number of assumptions about the tensor required
   // Must be symmetric, maybe positive semi-definite?
-  T p = - ((1.0/3.0)*x[0]*x[0] - x[1]);  //< -J2
-  T q = - ((2.0/27.0)*x[0]*x[0]*x[0] - (1.0/3.0)*x[0]*x[1] + x[2]); //< -J3
+  T p = (3.0*x[1] - x[0]*x[0]) / 9.0;  //< -J2
+  T q = (2*x[0]*x[0]*x[0] - 9*x[0]*x[1] + 27*x[2]) / 54.0; //< -J3
+  T t = acos( q / sqrt(-(p*p*p)) );
   for (int k = 0; k < 3; k++) 
   {
-    out[k] = (x[0] / 3.0) + 2.0 * sqrt(-p / 3.0) * cos((1.0/3.0) * acos((3*q/(2*p)) * sqrt(-3.0/p) ) - (2.0/3.0) * ((T)k - 1.0) * PI_AS_A_DOUBLE); //< J1
+    out[k] = (x[0] / 3.0) + 2.0 * sqrt(-p) * cos((t/3.0) + (2.0/3.0) * ((T)k) * PI_AS_A_DOUBLE); //< J1
   }
 }
 //

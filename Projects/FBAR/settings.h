@@ -64,15 +64,20 @@ enum class fem_e {  Tetrahedron = 0,
                     Brick, //< Not implemented yet
                     Total };
 
-/// * Available material models
-enum class num_attribs_e : int { Three = 3, Four = 4, Five = 5, Six = 6 };
+/// * For convenience, binds I/O sizes to compile-time variable names
+/// * Just guarantees someone avoids unimplemented sizes (e.g. -1, 1000)
+enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
+                                 Four = 4, Five = 5, Six = 6, Seven = 7,
+                                 Eight = 8, Nine = 9, Ten = 10, 
+                                 Eleven = 11, Twelve = 12 , Thirteen = 13,
+                                 Fourteen = 14, Fifteen = 15, Sixteen = 16, 
+                                 Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 };
 
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// * Simulation config setup
 namespace config 
 {
-// GPU devices for simulation
-constexpr int g_device_cnt = 2; //< IMPORTANT. Number of GPUs to compile for.
+constexpr int g_device_cnt = 1; //< IMPORTANT. Number of GPUs to compile for.
 
 // Run-time animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames
@@ -85,7 +90,7 @@ constexpr material_e get_material_type(int did) noexcept {
 constexpr fem_e get_element_type(int did) noexcept {
   fem_e type{fem_e::Tetrahedron}; return type;}
 
-// Default material parameters
+// Default material parameters, overrided at run-time
 #define DENSITY 1000       //< Default density [kg/m^3]
 #define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
 #define POISSON_RATIO 0.3 // Default Poisson Ratio
@@ -108,7 +113,7 @@ constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
 constexpr float g_bc = 2; //< Offset for Off-by-2 (Claymore, Wang 2020)
 constexpr float g_dx = 1.0 / DXINV; //< Grid-cell spacing
-constexpr float g_dx_inv = DXINV; //< Max grid-nodes in a direction, inverse of  grid-spacing.
+constexpr float g_dx_inv = DXINV; //< Max grid-nodes in a direction, inverse of grid-spacing.
 constexpr float g_D_inv = 4.0 * DXINV * DXINV; //< D_p^-1 (Jiang 2015) for quad. B-spline
 constexpr double g_dx_inv_d = (1.0 * (1 << DOMAIN_BITS)); 
 constexpr double g_dx_d = 1.0 / g_dx_inv_d;
@@ -153,7 +158,7 @@ constexpr int g_max_active_block = 7500; //< Max active blocks in gridBlocks. Pr
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actualy PPC) to account for compression.
-constexpr int g_max_particle_num = 900000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 800000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 128;
@@ -186,7 +191,7 @@ constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice
 std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
 
 // * Halo Blocks
-constexpr std::size_t g_max_halo_block = 512;  //< Max active halo blocks. Preallocated, can resize.
+constexpr std::size_t g_max_halo_block = 0;  //< Max active halo blocks. Preallocated, can resize.
 
 
 // * Grid Boundaries
@@ -210,7 +215,7 @@ struct MaterialConfigs {
   bool volumeCorrection;
   PREC xi;
   bool hardeningOn;
-  MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0), frictionAngle(30), cohesion(0), beta(1), volumeCorrection(false), xi(1.0), hardeningOn(true) {}
+  MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0.), frictionAngle(30.), cohesion(0.), beta(0.5), volumeCorrection(false), xi(1.0), hardeningOn(true) {}
   MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x, bool hard) : ppc(p), rho(density), bulk(k), visco(v), gamma(g), E(e), nu(pr), logJp0(j), frictionAngle(fa), cohesion(c), beta(b), volumeCorrection(false), xi(x), hardeningOn(hard)  {}
   ~MaterialConfigs() {}
 };
@@ -219,12 +224,9 @@ struct AlgoConfigs {
   bool use_ASFLIP;
   bool use_FEM;
   bool use_FBAR;
-  PREC ASFLIP_alpha;
-  PREC ASFLIP_beta_min;
-  PREC ASFLIP_beta_max;
+  PREC ASFLIP_alpha, ASFLIP_beta_min, ASFLIP_beta_max;
   PREC FBAR_ratio;
-  AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0), ASFLIP_beta_min(0), ASFLIP_beta_max(0), FBAR_ratio(0) {}
-  AlgoConfigs(bool asflip = true, bool fem = false, bool fbar = false, PREC alpha = 0.0, PREC beta_min = 0.0, PREC beta_max = 0.0, PREC fbar_ratio = 0.0) : use_ASFLIP(asflip), use_FEM(fem), use_FBAR(fbar), ASFLIP_alpha(alpha), ASFLIP_beta_min(beta_min), ASFLIP_beta_max(beta_max), FBAR_ratio(fbar_ratio) {}
+  AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0.), ASFLIP_beta_min(0.), ASFLIP_beta_max(0.), FBAR_ratio(0.) {}
   ~AlgoConfigs() {}
 };
 
