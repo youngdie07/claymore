@@ -33,16 +33,23 @@ struct mgsp_benchmark {
     void *allocate(std::size_t bytes) {
       void *ret;
       checkCudaErrors(cudaMalloc(&ret, bytes));
+      fmt::print("Allocated device_allocator.\n");
       return ret;
     }
-    void deallocate(void *p, std::size_t) { checkCudaErrors(cudaFree(p)); }
+    void deallocate(void *p, std::size_t) { 
+      checkCudaErrors(cudaFree(p)); 
+      fmt::print("Deallocated device_allocator.\n");
+    }
   };
   struct temp_allocator {
     explicit temp_allocator(int did) : did{did} {}
     void *allocate(std::size_t bytes) {
+      fmt::print("Allocated temp_allocator.\n");
       return Cuda::ref_cuda_context(did).borrow(bytes);
     }
-    void deallocate(void *p, std::size_t) {}
+    void deallocate(void *p, std::size_t) {      
+      fmt::print("Deallocated temp_allocator.\n");
+    }
     int did;
   };
   template <std::size_t GPU_ID> void initParticles() {
@@ -59,13 +66,13 @@ struct mgsp_benchmark {
     inputHaloGridBlocks.emplace_back(g_device_cnt);
     outputHaloGridBlocks.emplace_back(g_device_cnt);
     
+    flag_has_attributes[GPU_ID] = false;
     flag_pe = true;
     flag_ge = true;
-
     flag_fem[GPU_ID] = 0;
+
     element_cnt[GPU_ID] = config::g_max_fem_element_num;
     vertice_cnt[GPU_ID] = config::g_max_fem_vertice_num;
-    flag_has_attributes[GPU_ID] = false;
     d_element_attribs[GPU_ID] = spawn<element_attrib_, orphan_signature>(device_allocator{}); //< Particle attributes on device
 
     // Add/initialize a gridTarget data-structure per GPU within d_gridTarget vector. 
@@ -2261,10 +2268,12 @@ template<material_e mt>
       destinations = (int *)((char *)base + sizeof(int) * maxBlockCnt * 2);
       sources = (int *)((char *)base + sizeof(int) * maxBlockCnt * 3);
       binpbs = (int *)((char *)base + sizeof(int) * maxBlockCnt * 4);
+      fmt::print("Allocated tmp.\n");
     }
     void dealloc() {
       cudaDeviceSynchronize();
       checkCudaErrors(cudaFree(base));
+      fmt::print("Deallocated tmp.\n");
     }
     void resize(int maxBlockCnt) {
       dealloc();

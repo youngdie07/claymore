@@ -636,10 +636,20 @@ std::string CheckString(rapidjson::Value &object, std::string key, std::string b
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
-    assert(object[key.c_str()].IsString());
-    return object[key.c_str()].GetString();
+    if (!object[key.c_str()].IsString()){
+      fmt::print(fg(red), "ERROR: Input [{}] not a string! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+    else {
+      fmt::print(fg(green), "Input [{}] found: {}.\n", key, object[key.c_str()].GetString());
+      return object[key.c_str()].GetString();
+    }
   }
-  else return backup;
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
+  getchar();
+  return backup;
 }
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a number array.
@@ -835,7 +845,7 @@ float CheckFloat(rapidjson::Value &object, std::string key, float backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an int.
 /// Return retrieved int from JSON or return backup value if not found/is not an int.
-double CheckInt(rapidjson::Value &object, std::string key, int backup) {
+int CheckInt(rapidjson::Value &object, std::string key, int backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -855,16 +865,48 @@ double CheckInt(rapidjson::Value &object, std::string key, int backup) {
   return backup;
 }
 
-/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a positive integer.
-/// Return retrieved double from JSON or return backup value if not found/is not a positive integer.
-uint32_t CheckUnsignedInt(rapidjson::Value &object, std::string key, uint32_t backup) {
+/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an uint32.
+/// Return retrieved int from JSON or return backup value if not found/is not an uint32.
+uint32_t CheckUint(rapidjson::Value &object, std::string key, uint32_t backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
-    assert(object[key.c_str()].IsUint()); //< make Uint64 if large than ~4 Billion
-    return object[key.c_str()].GetUint();
+    if (!object[key.c_str()].IsNumber() && !object[key.c_str()].IsUint() ){
+      fmt::print(fg(red), "ERROR: Input [{}] not an 32-bit Unsigned Integer! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+    else {
+      fmt::print(fg(green), "Input [{}] found: {}.\n", key, object[key.c_str()].GetUint());
+      return object[key.c_str()].GetUint();
+    }
   }
-  else return backup;
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
+  getchar();
+  return backup;
+}
+
+/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an uint64.
+/// Return retrieved int from JSON or return backup value if not found/is not an uint64.
+uint64_t CheckUint64(rapidjson::Value &object, std::string key, uint64_t backup) {
+  auto check = object.FindMember(key.c_str());
+  if (check != object.MemberEnd())
+  { 
+    if (!object[key.c_str()].IsNumber() && !object[key.c_str()].IsUint64() ){
+      fmt::print(fg(red), "ERROR: Input [{}] not a 64-bit Unsigned Integer! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+    else {
+      fmt::print(fg(green), "Input [{}] found: {}.\n", key, object[key.c_str()].GetUint64());
+      return object[key.c_str()].GetUint64();
+    }
+  }
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
+  getchar();
+  return backup;
 }
 
 /// @brief Parses an input JSON script to set-up a Multi-GPU simulation.
@@ -904,16 +946,15 @@ void parse_scene(std::string fn,
         auto &sim = it->value;
         if (sim.IsObject()) {
 
-          float sim_default_dx = (float)CheckDouble(sim, std::string{"default_dx"}, 0.1);
+          PREC sim_default_dx = CheckDouble(sim, std::string{"default_dx"}, 0.1);
           float sim_default_dt = (float)CheckDouble(sim, std::string{"default_dt"}, sim_default_dx/100.);
-          uint64_t sim_fps = (uint64_t)CheckInt(sim, std::string{"fps"}, 60);
-          uint64_t sim_frames = (uint64_t)CheckInt(sim, std::string{"frames"}, 60);
+          uint64_t sim_fps = CheckUint64(sim, std::string{"fps"}, 60);
+          uint64_t sim_frames = CheckUint64(sim, std::string{"frames"}, 60);
           float sim_gravity = (float)CheckDouble(sim, std::string{"gravity"}, -9.81);
           
           auto save_suffix_check = sim.FindMember("save_suffix");
           if (save_suffix_check != sim.MemberEnd()) save_suffix = sim["save_suffix"].GetString();
           else save_suffix = std::string{".bgeo"};
-          fmt::print("Saving particle outputs with save_suffix[{}] file format.\n", save_suffix);
 
           l = sim_default_dx * mn::config::g_dx_inv_d; 
           domain = CheckDoubleArray(sim, std::string{"domain"}, mn::pvec3{1.,1.,1.});
@@ -922,7 +963,7 @@ void parse_scene(std::string fn,
             fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
           } 
           fmt::print(fg(cyan),
-              "Simulation Scene: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}]\n",
+              "Scene simulation: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}]\n",
               l, sim_default_dx, sim_default_dt,
               sim_fps, sim_frames, sim_gravity);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
@@ -1076,7 +1117,8 @@ void parse_scene(std::string fn,
               fmt::print(fg(red), "ERROR! GPU ID[{}] cannot be negative. \n", gpu_id);
               continue;
             }
-            std::string constitutive{model["constitutive"].GetString()};
+            //std::string constitutive{model["constitutive"].GetString()};
+            std::string constitutive = CheckString(model, std::string{"constitutive"}, std::string{"JFluid"});
             fmt::print(fg(green),  "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
@@ -1248,8 +1290,10 @@ void parse_scene(std::string fn,
               if (geo->value.IsArray()) {
                 fmt::print(fg(blue),"Model has [{}] particle geometry operations to perform. \n", geo->value.Size());
                 for (auto &geometry : geo->value.GetArray()) {
-                  std::string operation{geometry["operation"].GetString()};
-                  std::string type{geometry["object"].GetString()};
+                  // std::string operation{geometry["operation"].GetString()};
+                  // std::string type{geometry["object"].GetString()};
+                  std::string operation = CheckString(geometry, std::string{"operation"}, std::string{"add"});
+                  std::string type = CheckString(geometry, std::string{"object"}, std::string{"box"});
                   fmt::print(fg(white), "GPU[{}] Begin operation[{}] with object[{}]... \n", gpu_id, operation, type);
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
@@ -1292,9 +1336,11 @@ void parse_scene(std::string fn,
                   else if (type == "Cylinder" || type == "cylinder")
                   {
                     PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
+                    std::string geometry_axis = CheckString(geometry, std::string{"axis"}, std::string{"X"});
+
                     if (operation == "Add" || operation == "add") {
-                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry["axis"].GetString(), partition_start, partition_end); }
-                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry_radius, geometry["axis"].GetString(), geometry_span, geometry_offset_updated); }
+                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end); }
+                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry_radius, geometry_axis, geometry_span, geometry_offset_updated); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "Sphere" || type == "sphere")
@@ -1316,7 +1362,8 @@ void parse_scene(std::string fn,
                   else if (type == "File" || type == "file") 
                   {
                     // * NOTE : Assumes geometry "file" specified by scene.json is in  AssetDirPath/, e.g. for AssetDirPath = ~/claymore/Data/, then use ~/claymore/Data/file
-                    std::string geometry_fn = std::string(AssetDirPath) + geometry["file"].GetString();
+                    std::string geometry_file = CheckString(geometry, std::string{"file"}, std::string{"MpmParticles/yoda.sdf"});
+                    std::string geometry_fn = std::string(AssetDirPath) + geometry_file;
                     fs::path geometry_file_path{geometry_fn};
                     if (geometry_file_path.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
                     else {

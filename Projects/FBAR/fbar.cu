@@ -25,10 +25,10 @@ namespace fs = ghc::filesystem;
 namespace fs = std::experimental::filesystem;
 #endif
 
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-namespace rj = rapidjson;
+// #include <rapidjson/document.h>
+// #include <rapidjson/stringbuffer.h>
+// #include <rapidjson/writer.h>
+// namespace rj = rapidjson;
 
 
 /// @brief Multi-GPU MPM for Engineers. Builds on the original, open-source Claymore MPM, all rights reserved. Claymore MPM for Engineers: https://github.com/JustinBonus/claymore . Original Claymore MPM : https://github.com/penn-graphics-research/claymore . For an executable [test] with scene file [scene_test.json]
@@ -60,20 +60,21 @@ int main(int argc, char *argv[]) {
     }
 
     fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
-
     benchmark->main_loop();
 
-    fmt::print(fg(fmt::color::green), "Finished simulation.\n");
     // ---------------- Clear
+    fmt::print(fg(fmt::color::green), "Finished simulation.\n");
     IO::flush();
     fmt::print(fg(fmt::color::green),"Cleared I/O.\n");
 
     benchmark.reset();
-    fmt::print(fg(fmt::color::green),"Reset simulation structure.\n");
+    if(benchmark == nullptr) fmt::print(fg(fmt::color::green),"Reset simulation pointer.\n");
+
+    
     Cuda::shutdown();
     // ---------------- Shutdown GPU / CUDA
     fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
   }
-  // ---------------- Finish
+  // ---------------- Finish application
   return 0;
 }
