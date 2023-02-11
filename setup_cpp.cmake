@@ -1,7 +1,7 @@
 function(add_cpp_executable binary)
   add_executable(${binary} ${ARGN})
   target_compile_options(${binary} 
-    INTERFACE   "${CMAKE_CXX_FLAGS} -O3 -fPIE -fuse-ld=lld -fvisibility=hidden") # -flto=thin -fsanitize=cfi 
+    INTERFACE   "${CMAKE_CXX_FLAGS} -O3 -fPIE -fuse-ld=lld -fvisibility=hidden -fsanitize=cfi ") # -flto=thin -fsanitize=cfi 
   # -fsanitize=address memory thread
   set_target_properties(${binary}
     PROPERTIES  CXX_STANDARD 20
@@ -10,7 +10,7 @@ function(add_cpp_executable binary)
   )
   target_compile_features(${binary} INTERFACE cxx_std_20)
   target_link_libraries(${binary}
-    PUBLIC      #pthread
+    PUBLIC      pthread
                 #stdc++
                 fmt
   )
@@ -21,7 +21,7 @@ function(add_cpp_executable_debug binary)
   add_executable(${binary} ${ARGN})
   target_compile_options(${binary} 
     INTERFACE   "${CMAKE_CXX_FLAGS} -O2 -fPIE -fuse-ld=lld -fvisibility=hidden"
-                "-fsanitize=address -fsanitize=memory -fsanitize=thread -fno-sanitize-trap=cfi") # -flto=thin -fsanitize=cfi
+                "-fsanitize=address -fsanitize=memory -fsanitize=thread -fno-sanitize-trap=cfi -fsanitize=cfi") # -flto=thin -fsanitize=cfi
   # -fsanitize=address memory thread
   set_target_properties(${binary}
     PROPERTIES  CXX_STANDARD 20
@@ -30,7 +30,7 @@ function(add_cpp_executable_debug binary)
   )
   target_compile_features(${binary} INTERFACE cxx_std_20)
   target_link_libraries(${binary}
-    PUBLIC      #pthread
+    PUBLIC      pthread
                 #stdc++
                 fmt
   )

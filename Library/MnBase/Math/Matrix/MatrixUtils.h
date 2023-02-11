@@ -348,6 +348,15 @@ constexpr T compute_VonMisesStress_from_StressCauchy(const T *x)
 }
 
 template <typename T> 
+constexpr T compute_VonMisesStrain_from_StrainSmall(const T *x) 
+{
+  return sqrt( (  (x[0]-x[4])*(x[0]-x[4]) + 
+                  (x[4]-x[8])*(x[4]-x[8]) + 
+                  (x[8]-x[0])*(x[8]-x[0]) + 
+                  4*(x[3]*x[3] + x[6]*x[6] + x[7]*x[7]) ) * 0.5);
+}
+
+template <typename T> 
 constexpr T compute_MeanStress_from_StressCauchy(const T *x) 
 {
   return (x[0] + x[4] + x[8]) / (-3.0);

@@ -1,7 +1,7 @@
 {
 	"simulation": {
-		"fps": 10,
-		"frames": 20,
+		"fps": 2400,
+		"frames": 1,
 		"default_dt": 7e-5,
 		"default_dx": 0.05,
 		"domain": [8, 8, 8],
@@ -11,7 +11,8 @@
 	},
 	"models": [
 		{
-			"gpu": 1,
+			"gpu": 0,
+			"model": 0,
 			"type": "particles",
 			"constitutive": "JFluid",
 			"output_attribs": ["Pressure", "Velocity_Y", "Velocity_Z", "ID"],
@@ -37,15 +38,17 @@
 					"object": "Box",
 					"operation": "Add",
 					"span": [8, 2.4, 0.5],
-					"offset": [0, 1.6, 0.0]
+					"offset": [0, 1.6, 0.0],
+					"rotate": [0,0,0],
+					"fulcrum": [0, 1.6, 0.0]
 				}
 			]
 		},
 		{
-			"gpu": 0,
+			"gpu": 1,
 			"type": "particles",
-			"constitutive": "Sand",
-			"output_attribs": ["Position_Y", "Pressure", "StressCauchy_1", "StressCauchy_2","StressCauchy_3", "VonMisesStress", "DefGrad_Invariant1", "DefGrad_Invariant2","DefGrad_Invariant3", "ID"],
+			"constitutive": "NACC",
+			"output_attribs": ["Pressure","VonMisesStress", "Dilation"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],

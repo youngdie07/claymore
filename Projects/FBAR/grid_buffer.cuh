@@ -13,7 +13,7 @@ using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_siz
                                   config::g_grid_size_z>;
 using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
-using GridTargetDomain = compact_domain<int, config::g_target_cells>;
+using GridTargetDomain = compact_domain<int, config::g_grid_target_cells>;
 
 using grid_block_f32_ =
     structural<structural_type::dense,
@@ -74,10 +74,14 @@ using grid_target_ =
 
 struct GridBuffer : Instance<grid_buffer_> {
   using base_t = Instance<grid_buffer_>;
-
+  // Default constructor
   template <typename Allocator>
   GridBuffer(Allocator allocator)
-      : base_t{spawn<grid_buffer_, orphan_signature>(allocator)} {}
+      : base_t{spawn<grid_buffer_, orphan_signature>(allocator)} {
+        std::cout << "Constructing GridBuffer." << std::endl;
+      }
+  
+  // Check capacity, resize if necessary
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > _capacity)
@@ -103,23 +107,43 @@ struct GridBuffer : Instance<grid_buffer_> {
 /// 1D GridArray structure for device instantiation (JB)
 struct GridArray : Instance<grid_array_> {
   using base_t = Instance<grid_array_>;
+  GridArray(base_t &&instance) { 
+    std::cout << "Move constructor for GridArray." << std::endl;
+    static_cast<base_t &>(*this) = instance; 
+    }
   GridArray &operator=(base_t &&instance) {
+    std::cout << "Move assignment for GridArray." << std::endl;
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
-  GridArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 
 /// 1D GridTarget structure for device instantiation (JB)
 struct GridTarget : Instance<grid_target_> {
   using base_t = Instance<grid_target_>;
+
+  // // Default constructor
+  // template <typename Allocator>
+  // GridTarget(Allocator allocator) : base_t{allocator} {}
+
+  // // Destructor
+  // ~GridTarget() {
+  //   if (this->val_1d(_0, 0) != nullptr)
+  //     checkCudaErrors(cudaFree(this->val_1d(0, 0)));
+  // }
+
+  /// @brief  Move constructor
+  GridTarget(base_t &&instance) { 
+    std::cout << "Move constructor for GridTarget." << std::endl;
+    static_cast<base_t &>(*this) = instance; 
+    }
+  /// @brief Move assignment operator
   GridTarget &operator=(base_t &&instance) {
+    std::cout << "Move assignment operator for GridTarget." << std::endl;
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
-  GridTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
-  // template <typename Allocator>
-  // GridTarget(Allocator allocator) : base_t{allocator} {}
+
 };
 
 } // namespace mn

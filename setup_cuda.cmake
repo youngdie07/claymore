@@ -1,4 +1,4 @@
-message("## setup cuda")
+message("## Setup CUDA in setup_cuda.cmake")
 include(CheckLanguage)
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
@@ -9,21 +9,29 @@ else()
 endif()
 set(CUDA_FOUND ${CMAKE_CUDA_COMPILER})
 
-# IMPORTANT
-# ---------
-# Set GPU architecture(s) to compile code for. 
-# Can be found by the listed compute capability of your GPU, or use 'nvidia-smi' in console
-# Some backward/forward compatability available, tricky for older GPUs
-# reference: http://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+#  --------- READ ME IMPORTANT --------- Justin Bonus
+# Set GPU architecture(s) to compile code for. Very important!
+# Use the TARGET_CUDA_ARCH appropiate for the Compute Capability of your GPU below
+# To determine CC of your GPU, try 'nvidia-smi' in console to get GPU model, then Google search
+# Recommended minimum of CC 6.0, some backward compatability available
+# You can compile for one GPU architecture efficiently or a wide-range less efficiently
+# Just-in-time (JIT) compilation can affect software performance but is convenient.
+# Learn the difference between -arch, -gencode, and -code.
+# Reference: http://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
 
-# Mox Hyak HPC System - RTX 2080ti GPUs - Univ. of Wash. - Justin Bonus
+# --------- Mox Hyak HPC System - RTX 2080ti GPUs - Univ. of Wash. - Justin Bonus
 #set(TARGET_CUDA_ARCH -gencode=arch=compute_75,code=compute_75)
 
-# Dell G7 Laptop - GTX 1060m GPU - Univ. of Wash. - Justin Bonus
+# --------- Frontera TACC HPC System - RTX Quadro 4000 GPUs - Univ. of Texas - Justin Bonus
+#set(TARGET_CUDA_ARCH -gencode=arch=compute_75,code=compute_75)
+
+# --------- Dell G7 Laptop - GTX 1060 Max-Q GPU - Univ. of Wash. - Justin Bonus
+#set(TARGET_CUDA_ARCH -gencode=arch=compute_61,code=sm_61)
 set(TARGET_CUDA_ARCH -arch=sm_61)
 
-
-# reference: https://cliutils.gitlab.io/modern-cmake/chapters/packages/CUDA.html
+# --------- Set NVCC compiler flags ---------
+# NOTE: I removed compiler flags such as --use_fast_math to improve engineering accuracy
+# Reference: https://cliutils.gitlab.io/modern-cmake/chapters/packages/CUDA.html
 function(CUDA_CONVERT_FLAGS EXISTING_TARGET)
     get_property(old_flags TARGET ${EXISTING_TARGET} PROPERTY INTERFACE_COMPILE_OPTIONS)
     if(NOT "${old_flags}" STREQUAL "")
@@ -58,7 +66,7 @@ endfunction(add_cuda_executable)
 function(add_cuda_library library)
   if(CUDA_FOUND)
     add_library(${library} ${ARGN})
-    # seems not working
+    # Seems to not be working
     target_compile_options(${library} 
       PUBLIC        $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread -lineinfo --fmad=true --ptxas-options=-allow-expensive-optimizations=true>
     )

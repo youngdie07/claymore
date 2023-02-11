@@ -69,15 +69,18 @@ enum class fem_e {  Tetrahedron = 0,
 enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                  Four = 4, Five = 5, Six = 6, Seven = 7,
                                  Eight = 8, Nine = 9, Ten = 10, 
-                                 Eleven = 11, Twelve = 12 , Thirteen = 13,
-                                 Fourteen = 14, Fifteen = 15, Sixteen = 16, 
-                                 Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 };
+                                 Eleven = 11, Twelve = 12 , Thirteen = 13
+                                //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
+                                //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
+                                 };
 
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 /// * Simulation config setup
 namespace config 
 {
 constexpr int g_device_cnt = 1; //< IMPORTANT. Number of GPUs to compile for.
+constexpr int g_models_per_gpu = 1;
+constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu;
 
 // Run-time animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames
@@ -169,7 +172,7 @@ constexpr std::size_t g_max_particle_bin =
 constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexcept {
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
-constexpr int g_max_particle_attribs = 32; //< No. attribute values to output per particle 
+constexpr int g_max_particle_attribs = 13; //< No. attribute values to output per particle 
 
 // * Finite Elements
 constexpr int g_max_fem_vertice_num = 64;  // Max no. of vertice on FEM mesh
@@ -179,9 +182,9 @@ constexpr int g_max_fem_element_bin =
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 // * Grid-Targets
-constexpr int g_target_cells = 16384; //< Max grid-nodes per gridTarget
+constexpr int g_grid_target_cells = 16384; //< Max grid-nodes per gridTarget
 constexpr int g_max_grid_target_nodes = 16384; //< Max grid-nodes per gridTarget
-constexpr int g_target_attribs = 10; //< No. of values per gridTarget node
+constexpr int g_grid_target_attribs = 10; //< No. of values per gridTarget node
 
 // * Particle-Targets
 constexpr int g_particle_target_cells = 4096; //< Max grid-nodes per gridTarget

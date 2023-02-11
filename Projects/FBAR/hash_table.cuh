@@ -8,7 +8,12 @@ namespace mn {
 
 /// Set-up template for Halo Partitions (manages overlap and halo-tagging between GPU devices)
 template <int> struct HaloPartition {
-  template <typename Allocator> HaloPartition(Allocator, int) {}
+  template <typename Allocator> HaloPartition(Allocator, int) {
+    std::cout << "Constructing HaloPartition.\n";
+  }
+  ~HaloPartition() {
+    std::cout << "Destructing HaloPartition.\n";
+  }
   template <typename Allocator>
   void resizePartition(Allocator allocator, std::size_t prevCapacity,
                        std::size_t capacity) {}
@@ -19,11 +24,34 @@ template <> struct HaloPartition<1> {
   // Initialize with max size of maxBlockCnt using a GPU allocator
   template <typename Allocator>
   HaloPartition(Allocator allocator, int maxBlockCnt) {
-    _count = (int *)allocator.allocate(sizeof(char) * maxBlockCnt);
+    std::cout << "Constructing HaloPartition<1>.\n";
+    _count = (int *)allocator.allocate(sizeof(char) * maxBlockCnt); // int or char??
+    fmt::print("Allocated _count.\n");
     _haloMarks = (char *)allocator.allocate(sizeof(char) * maxBlockCnt);
+    fmt::print("Allocated _haloMarks.\n");
     _overlapMarks = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
+    fmt::print("Allocated _overlapMarks.\n");
     _haloBlocks = (ivec3 *)allocator.allocate(sizeof(ivec3) * maxBlockCnt);
+    fmt::print("Allocated _haloBlocks.\n");
   }
+  
+  template <typename Allocator>
+  void deallocate_partition(Allocator allocator, std::size_t prevCapacity) {
+    allocator.deallocate(_count, sizeof(char) * prevCapacity); // int or char??
+    fmt::print("Deallocated _count.\n");
+    allocator.deallocate(_haloMarks, sizeof(char) * prevCapacity);
+    fmt::print("Deallocated _haloMarks.\n");
+    allocator.deallocate(_overlapMarks, sizeof(int) * prevCapacity);
+    fmt::print("Deallocated _overlapMarks.\n");
+    allocator.deallocate(_haloBlocks, sizeof(ivec3) * prevCapacity);
+    fmt::print("Deallocated _haloBlocks.\n");
+    // _count = nullptr;
+    // _haloMarks = nullptr;
+    // _overlapMarks = nullptr;
+    // _haloBlocks = nullptr;
+    // h_count = 0;
+  }
+
   // Copy halo count, halo-marks, overlap-marks, and Halo-Block IDs to other GPUs
   void copy_to(HaloPartition &other, std::size_t blockCnt,
                cudaStream_t stream) {
@@ -44,7 +72,7 @@ template <> struct HaloPartition<1> {
   template <typename Allocator>
   void resizePartition(Allocator allocator, std::size_t prevCapacity,
                        std::size_t capacity) {
-    allocator.deallocate(_haloMarks, sizeof(char) * prevCapacity);
+    allocator.deallocate(_haloMarks, sizeof(char) * prevCapacity); 
     allocator.deallocate(_overlapMarks, sizeof(int) * prevCapacity);
     allocator.deallocate(_haloBlocks, sizeof(ivec3) * prevCapacity);
     _haloMarks = (char *)allocator.allocate(sizeof(char) * capacity);
@@ -52,7 +80,7 @@ template <> struct HaloPartition<1> {
     _haloBlocks = (ivec3 *)allocator.allocate(sizeof(ivec3) * capacity);
   }
   void resetHaloCount(cudaStream_t stream) {
-    checkCudaErrors(cudaMemsetAsync(_count, 0, sizeof(int), stream));
+    checkCudaErrors(cudaMemsetAsync(_count, 0, sizeof(int), stream)); // int or char??
   }
   void resetOverlapMarks(uint32_t neighborBlockCount, cudaStream_t stream) {
     checkCudaErrors(cudaMemsetAsync(_overlapMarks, 0,
@@ -62,7 +90,7 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(&h_count, _count, sizeof(int),
                                     cudaMemcpyDefault, stream));
   }
-  int *_count, h_count; //< Count
+  int *_count, h_count; //< Count pointer, h_count isnt a pointer?? // int or char??
   char *_haloMarks; ///< Halo particle block marks
   int *_overlapMarks; //< Overlapping marks
   ivec3 *_haloBlocks; //< IDs of Halo Blocks
@@ -92,12 +120,17 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     // allocate_handle(allocator);
     _ppcs = (int *)allocator.allocate(sizeof(int) * maxBlockCnt *
                                       config::g_blockvolume);
+    fmt::print("Allocated _ppcs.\n");
     _ppbs = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
+    fmt::print("Allocated _ppbs.\n");
     _cellbuckets = (int *)allocator.allocate(
         sizeof(int) * maxBlockCnt * config::g_blockvolume * config::g_max_ppc);
+    fmt::print("Allocated _cellbuckets.\n");
     _blockbuckets = (int *)allocator.allocate(sizeof(int) * maxBlockCnt *
                                               config::g_particle_num_per_block);
+    fmt::print("Allocated _blockbuckets.\n");
     _binsts = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
+    fmt::print("Allocated _binsts.\n");
     /// init
     reset();
   }
@@ -124,12 +157,39 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     resize_table(allocator, capacity);
   }
   ~Partition() {
+    //std::cout << "Partition destructor.\n";
     // checkCudaErrors(cudaFree(_ppcs));
     // checkCudaErrors(cudaFree(_ppbs));
     // checkCudaErrors(cudaFree(_cellbuckets));
     // checkCudaErrors(cudaFree(_blockbuckets));
     // checkCudaErrors(cudaFree(_binsts));
   }
+
+  template <typename Allocator>
+  void deallocate_partition(Allocator allocator) {
+    allocator.deallocate(_ppcs,
+                         sizeof(int) * this->_capacity * config::g_blockvolume);
+    fmt::print("Deallocated _ppcs.\n");
+    allocator.deallocate(_ppbs, sizeof(int) * this->_capacity);
+    fmt::print("Deallocated _ppbs.\n");
+    allocator.deallocate(_cellbuckets, sizeof(int) * this->_capacity *
+                                           config::g_blockvolume *
+                                           config::g_max_ppc);
+    fmt::print("Deallocated _cellbuckets.\n");
+    allocator.deallocate(_blockbuckets,
+                         sizeof(int) * this->_capacity * config::g_particle_num_per_block);
+    fmt::print("Deallocated _blockbuckets.\n");
+    allocator.deallocate(_binsts, sizeof(int) * this->_capacity);
+    fmt::print("Deallocated _binsts.\n");
+    // _ppcs = nullptr;
+    // _ppbs = nullptr;
+    // _cellbuckets = nullptr;
+    // _blockbuckets = nullptr;
+    // _binsts = nullptr;
+    //deallocate_table(allocator);
+    halo_base_t::deallocate_partition(allocator, this->_capacity);
+  }
+
   // Reset Partition's Block count and particles-per-each-cell
   void reset() {
     checkCudaErrors(cudaMemset(this->_cnt, 0, sizeof(value_t)));
@@ -212,6 +272,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
       printf("Error in hash_table.cuh! loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n",
              cellid[0], cellid[1], cellid[2], offset[0], offset[1], offset[2],
              pidib);
+      printf("Possibly caused by particles exiting valid simulation domain or a time-step that is too large. Poorly implemented material laws or incorreclty inputted material parameters can also cause this.\n");       
       return;
     }
 #endif

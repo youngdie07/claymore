@@ -36,45 +36,41 @@ namespace fs = std::experimental::filesystem;
 int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
+  
+  Cuda::startup(); //< Start CUDA GPUs if available.
+  // ---------------- Read JSON input file for simulation ---------------- 
+  cxxopts::Options options("Scene_Loader", "Read simulation scene");
+  options.add_options()("f,file", "Scene Configuration File",
+      cxxopts::value<std::string>()->default_value("scene.json")); //< scene.json is default
+  auto results = options.parse(argc, argv);
+  auto fn = results["file"].as<std::string>();
+  fmt::print(fg(fmt::color::green),"Find scene file from command-line option --file={}\n", fn);
+  
+  // ---------------- Initialize the simulation ---------------- 
+  std::unique_ptr<mn::mgsp_benchmark> simulator; //< Simulation object pointer
+  std::vector<std::array<PREC, 3>> models[g_model_cnt]; //< Initial particle positions
+  parse_scene(fn, simulator, models); //< Initialize from input scene file  
+  fmt::print(fg(fmt::color::green),"Finished scene initialization.\n");
 
-  {
-    Cuda::startup(); //< Start CUDA GPUs if available.
-    // ---------------- Read JSON input file for simulation ---------------- 
-    cxxopts::Options options("Scene_Loader", "Read simulation scene");
-    options.add_options()("f,file", "Scene Configuration File",
-        cxxopts::value<std::string>()->default_value("scene.json")); //< scene.json is default
-    auto results = options.parse(argc, argv);
-    auto fn = results["file"].as<std::string>();
-    // ---------------- Initialize the simulation ---------------- 
-    fmt::print(fg(fmt::color::green),"Loading scene file [{}].\n", fn);
-    std::unique_ptr<mn::mgsp_benchmark> benchmark; //< Simulation object pointer
-    std::vector<std::array<PREC, 3>> models[g_device_cnt]; //< Initial particle positions
+  // ---------------- Run Simulation
+  fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
+  if (g_log_level > 1) { fmt::print(fg(fmt::color::blue),"Press ENTER... \n"); getchar(); }
+  simulator->main_loop();
+  if (simulator == nullptr) fmt::print(fg(fmt::color::green),"Simulator nullptr after scope.\n"); 
+  
+  fmt::print(fg(fmt::color::green), "Finished simulation.\n");
 
-    parse_scene(fn, benchmark, models); //< Initialize from input scene file  
-    fmt::print(fg(fmt::color::green),"Finished scene initialization.\n");
+  // ---------------- Clear
+  IO::flush(); 
+  fmt::print(fg(fmt::color::green),"Cleared I/O.\n");
+  simulator.reset();
+  fmt::print(fg(fmt::color::green),"Reset simulator.\n");
+  if(simulator == nullptr) fmt::print(fg(fmt::color::green),"Simulation nullptr after reset.\n");
+  
+  // ---------------- Shutdown GPU / CUDA
+  Cuda::shutdown();
+  fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
 
-    // ---------------- Run Simulation
-    if (g_log_level > 1) {
-      fmt::print(fg(fmt::color::blue),"Press ENTER to start simulation... (Disable via g_log_level < 2). \n");
-      getchar();
-    }
-
-    fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
-    benchmark->main_loop();
-
-    // ---------------- Clear
-    fmt::print(fg(fmt::color::green), "Finished simulation.\n");
-    IO::flush();
-    fmt::print(fg(fmt::color::green),"Cleared I/O.\n");
-
-    benchmark.reset();
-    if(benchmark == nullptr) fmt::print(fg(fmt::color::green),"Reset simulation pointer.\n");
-
-    
-    Cuda::shutdown();
-    // ---------------- Shutdown GPU / CUDA
-    fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
-  }
   // ---------------- Finish application
   return 0;
 }

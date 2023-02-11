@@ -49,6 +49,7 @@ enum class particle_output_attribs_e : int {
         StrainSmall_Invariant1, StrainSmall_Invariant2, StrainSmall_Invariant3,
         Dilation = StrainSmall_Invariant1, StrainSmall_Determinant = StrainSmall_Invariant3,
         StrainSmall_1,  StrainSmall_2, StrainSmall_3,
+        VonMisesStrain,
         logJp=100,
         END,
         ExampleDeprecatedVariable //< Will give INVALID_CT output of -2
@@ -165,10 +166,15 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   static constexpr material_e materialType = mt;
   using base_t = Instance<particle_buffer_<particle_bin_<mt>>>;
 
+  // Constructor
   template <typename Allocator>
   ParticleBufferImpl(Allocator allocator)
       : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
-            allocator)} {}
+            allocator)} {
+              std::cout << "Constructing ParticleBufferImpl." << "\n";
+            }
+  
+  // Check if particle buffer can hold n particle blocks, resize if not
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > this->_capacity)
@@ -178,7 +184,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   /// @brief Maps run-time string labels for any MPM particle attributes to int indices for GPU kernel output use
   /// @param n is a std::string containing a particle attribute label  
   /// @return Integer index assigned to particle attribute n, used in GPU kernels
-  particle_output_attribs_e mapAttributeStringToIndex(std::string n) {
+  particle_output_attribs_e mapAttributeStringToIndex(const std::string& n) {
         using out_ = particle_output_attribs_e;
         if      (n == "ID") return out_:: ID; 
         else if (n == "Mass") return out_:: Mass;
@@ -253,20 +259,33 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "StrainSmall_1") return out_:: StrainSmall_1;
         else if (n == "StrainSmall_2") return out_:: StrainSmall_2;
         else if (n == "StrainSmall_3") return out_:: StrainSmall_3;
+        else if (n == "StrainSmall_Determinant")  return out_:: StrainSmall_Determinant;
+        else if (n == "VonMisesStrain")  return out_:: VonMisesStrain;
+        else if (n == "Dilation")  return out_:: Dilation;
         else if (n == "logJp") return out_:: logJp;
         else return out_:: INVALID_RT;
   }
- int queryAttributeIndex(int idx) {
-        switch(idx)
-        {
-          case -1:
-              break;
-          case 0:
-              break;
-          default:
-              break;
-        } 
- }
+
+  // // given vector of strings of attribute names, return vector of indices
+  // // for the attribute prefix (string before underscore) and the attribute
+  // // suffix (string after underscore)
+  // void getAttributePrefixSuffix(std::vector<std::string> names, std::vector<std::string> &prefix, std::vector<std::string> &suffix) {
+  //   for (auto n : names)
+  //   {
+  //     auto pos = n.find("_");
+  //     if (pos != std::string::npos)
+  //     {
+  //       prefix.emplace_back(n.substr(0, pos));
+  //       suffix.emplace_back(n.substr(pos+1));
+  //     }
+  //     else
+  //     {
+  //       prefix.emplace_back(n);
+  //       suffix.emplace_back("");
+  //     }
+  //   }
+  // }
+
   int track_ID = 0;
   vec<int, 1> track_attribs;
   std::vector<std::string> track_labels;   
@@ -376,7 +395,7 @@ struct ParticleBuffer<material_e::JFluid>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -384,12 +403,12 @@ struct ParticleBuffer<material_e::JFluid>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC& J) {
     J = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
   }
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) { 
     PREC DefGrad_Det_cbrt = cbrt(1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin));
     DefGrad[0] = DefGrad[4] = DefGrad[8] = DefGrad_Det_cbrt;
@@ -397,13 +416,13 @@ struct ParticleBuffer<material_e::JFluid>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getPressure(T J, T& pressure){
     compute_pressure_jfluid(volume, bulk, gamma, J, pressure);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -412,7 +431,7 @@ struct ParticleBuffer<material_e::JFluid>
     PF[0] = PF[4] = PF[8] = pressure;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -422,7 +441,7 @@ struct ParticleBuffer<material_e::JFluid>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStrainEnergy(T J, T& strain_energy){
     compute_energy_jfluid(volume, bulk, gamma, J, strain_energy);
   }
@@ -496,7 +515,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -504,12 +523,12 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC& J) {
     J = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
   }
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {  
     PREC DefGrad_Det_cbrt = cbrt(1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin));
     DefGrad[0] = DefGrad[4] = DefGrad[8] = DefGrad_Det_cbrt;
@@ -517,13 +536,13 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getPressure(T J, T& pressure){
     compute_pressure_jfluid(volume, bulk, gamma, J, pressure);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -532,7 +551,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
     PF[0] = PF[4] = PF[8] = pressure;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -542,7 +561,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStrainEnergy(T J, T& strain_energy){
     compute_energy_jfluid(volume, bulk, gamma, J, strain_energy);
   }
@@ -619,7 +638,7 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -627,12 +646,12 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(const T bin, const T particle_id_in_bin, PREC& J) {
     J = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
   }
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) { 
     PREC DefGrad_Det_cbrt = cbrt(1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin));
     DefGrad[0] = DefGrad[4] = DefGrad[8] = DefGrad_Det_cbrt;
@@ -640,7 +659,7 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -649,7 +668,7 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
     PF[0] = PF[4] = PF[8] = pressure;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -659,13 +678,13 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getPressure(T J, T& pressure){
     compute_pressure_jfluid(volume, bulk, gamma, J, pressure);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStrainEnergy(T J, T& strain_energy){
     compute_energy_jfluid(volume, bulk, gamma, J, strain_energy);
   }
@@ -741,7 +760,7 @@ struct ParticleBuffer<material_e::JBarFluid>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -749,7 +768,7 @@ struct ParticleBuffer<material_e::JBarFluid>
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -759,20 +778,20 @@ struct ParticleBuffer<material_e::JBarFluid>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC & J) {
     J = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     PREC DefGrad_Det_cbrt = cbrt(1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin));
     DefGrad[0] = DefGrad[4] = DefGrad[8] = DefGrad_Det_cbrt;
     DefGrad[1] = DefGrad[2] = DefGrad[3] = DefGrad[5] = DefGrad[6] = DefGrad[7] = 0.; 
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getPressure(const T bin, const T particle_id_in_bin, PREC& pressure){
     PREC Jp = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
     compute_pressure_jfluid(volume, bulk, gamma, Jp, pressure);
@@ -780,7 +799,7 @@ struct ParticleBuffer<material_e::JBarFluid>
 
   // TODO : Make getStress accurate to JFluid for APIC
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -790,7 +809,7 @@ struct ParticleBuffer<material_e::JBarFluid>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -800,7 +819,7 @@ struct ParticleBuffer<material_e::JBarFluid>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -809,7 +828,7 @@ struct ParticleBuffer<material_e::JBarFluid>
     PF[0] = PF[4] = PF[8] = pressure;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
     PREC Jp = F[0]*F[4]*F[8];
@@ -819,13 +838,13 @@ struct ParticleBuffer<material_e::JBarFluid>
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStrainEnergy(T J, T& strain_energy){
     compute_energy_jfluid(volume, bulk, gamma, J, strain_energy);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -899,7 +918,7 @@ struct ParticleBuffer<material_e::FixedCorotated>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -907,13 +926,13 @@ struct ParticleBuffer<material_e::FixedCorotated>
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity[0] = velocity[1] = velocity[2] = 0.;
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -927,39 +946,39 @@ struct ParticleBuffer<material_e::FixedCorotated>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(volume, mu, lambda, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(vol, mu, lambda, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(volume, mu, lambda, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(vol, mu, lambda, F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     compute_energy_fixedcorotated(vol, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_fixedcorotated(volume, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1031,7 +1050,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1039,7 +1058,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1049,7 +1068,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -1063,39 +1082,39 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(volume, mu, lambda, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(vol, mu, lambda, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(volume, mu, lambda, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(vol, mu, lambda, F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     compute_energy_fixedcorotated(vol, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_fixedcorotated(volume, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1168,7 +1187,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1176,7 +1195,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1186,7 +1205,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -1200,39 +1219,39 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(volume, mu, lambda, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(vol, mu, lambda, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(volume, mu, lambda, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_fixedcorotated(vol, mu, lambda, F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     compute_energy_fixedcorotated(vol, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_fixedcorotated(volume, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1305,7 +1324,7 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1313,7 +1332,7 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
   }
 
   template <typename T = int>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1323,7 +1342,7 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -1337,39 +1356,39 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_neohookean(volume, mu, lambda, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__  constexpr void
+   __device__  constexpr void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_neohookean(vol, mu, lambda, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_neohookean(volume, mu, lambda, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     compute_stress_PK1_neohookean(vol, mu, lambda, F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     compute_energy_neohookean(vol, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_neohookean(volume, mu, lambda, F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1461,7 +1480,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1469,7 +1488,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1479,7 +1498,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -1493,43 +1512,43 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_Cauchy(vec<T,9>& F, vec<T,9>& PF){
     PREC lj = logJp0;
     compute_stress_sand(volume, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, lj, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_Cauchy(T vol, vec<T,9>& F, vec<T,9>& PF){
     PREC lj = logJp0;
     compute_stress_sand(vol, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, lj, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(const vec<T,9>& F, vec<T,9>& P){
     PREC lj = logJp0;
     compute_stress_PK1_sand(volume, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, lj, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, const vec<T,9>& F, vec<T,9>& P){
     PREC lj = logJp0;
     compute_stress_PK1_sand(vol, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, lj,F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     compute_energy_sand(vol, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, logJp0,F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_sand(volume, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, logJp0,F, strain_energy);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1626,7 +1645,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1634,7 +1653,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1644,7 +1663,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     DefGrad[0] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XX>{}, particle_id_in_bin);
     DefGrad[1] = this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::DefGrad_XY>{}, particle_id_in_bin);
@@ -1659,43 +1678,43 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 
   // TODO: Change logp0 to use particle held value, not initial
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(vec<T,9>& F, vec<T,9>& PF){
     PREC lj = logJp0;
     compute_stress_nacc(volume, mu, lambda, bm, xi, beta, Msqr, hardeningOn, lj, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getStress_Cauchy(T vol, vec<T,9>& F, vec<T,9>& PF){
     PREC lj = logJp0;
     compute_stress_nacc(vol, mu, lambda, bm, xi, beta, Msqr, hardeningOn, lj, F, PF);
   }
   
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(vec<T,9>& F, vec<T,9>& P){
     PREC lj = logJp0;
     compute_stress_PK1_nacc(volume, mu, lambda, bm, xi, beta, Msqr, hardeningOn, lj, F, P);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_PK1(T vol, vec<T,9>& F, vec<T,9>& P){
     PREC lj = logJp0;
     compute_stress_PK1_nacc(vol, mu, lambda, bm, xi, beta, Msqr, hardeningOn, lj, F, P);
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy, T vol){
     strain_energy = 0.;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     strain_energy = 0.;
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
     kinetic_energy = 0.5 * mass * __fma_rn(velocity[0], velocity[0], __fma_rn(velocity[1], velocity[1], (velocity[2], velocity[2])));
     }
@@ -1768,7 +1787,7 @@ struct ParticleBuffer<material_e::Meshed>
 
   // TODO : Change if/else statement to case/switch. may require compile-time min-max guarantee
   template <attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
@@ -1776,7 +1795,7 @@ struct ParticleBuffer<material_e::Meshed>
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getVelocity(const T bin, const T particle_id_in_bin, PREC * velocity) {
     velocity = {
       this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::Velocity_X>{}, particle_id_in_bin),
@@ -1786,19 +1805,19 @@ struct ParticleBuffer<material_e::Meshed>
   }
 
   template <typename T>
-  __forceinline__ __device__ constexpr void
+   __device__ constexpr void
   getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
     for (int d=0; d<9; d++) DefGrad[d] = 0.;
     DefGrad[0] = DefGrad[4] = DefGrad[8] = 1.;
   }
 
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(volume, mu, lambda, F, PF);
   }
   template <typename T = PREC>
-  __forceinline__ __device__ void
+   __device__ void
   getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
     compute_stress_fixedcorotated(vol, mu, lambda, F, PF);
   }
@@ -1965,41 +1984,74 @@ template <> struct particle_attrib_<num_attribs_e::Ten> : particle_array_10_ {};
 template <> struct particle_attrib_<num_attribs_e::Eleven> : particle_array_11_ {}; //
 template <> struct particle_attrib_<num_attribs_e::Twelve> : particle_array_12_ {};
 template <> struct particle_attrib_<num_attribs_e::Thirteen> : particle_array_13_ {};
-template <> struct particle_attrib_<num_attribs_e::Fourteen> : particle_array_14_ {};
-template <> struct particle_attrib_<num_attribs_e::Fifteen> : particle_array_15_ {};
-template <> struct particle_attrib_<num_attribs_e::Sixteen> : particle_array_16_ {};
-template <> struct particle_attrib_<num_attribs_e::Eighteen> : particle_array_18_ {};
-template <> struct particle_attrib_<num_attribs_e::Twentyfour> : particle_array_24_ {};
-template <> struct particle_attrib_<num_attribs_e::Thirtytwo> : particle_array_32_ {};
+// template <> struct particle_attrib_<num_attribs_e::Fourteen> : particle_array_14_ {};
+// template <> struct particle_attrib_<num_attribs_e::Fifteen> : particle_array_15_ {};
+// template <> struct particle_attrib_<num_attribs_e::Sixteen> : particle_array_16_ {};
+// template <> struct particle_attrib_<num_attribs_e::Eighteen> : particle_array_18_ {};
+// template <> struct particle_attrib_<num_attribs_e::Twentyfour> : particle_array_24_ {};
+// template <> struct particle_attrib_<num_attribs_e::Thirtytwo> : particle_array_32_ {};
 
 template<num_attribs_e N=num_attribs_e::Three>
 struct ParticleAttrib: Instance<particle_attrib_<N>> {
   static constexpr unsigned numAttributes = static_cast<unsigned>(N);
   using base_t = Instance<particle_attrib_<N>>;
+  
+  template <typename Allocator>
+  ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
+      std::cout << "ParticleAttrib constructor called." << "\n";
+    }
+
+  // // Destructor
+  // // Undefined in device code
+  // ~ParticleAttrib() {
+  //   std::cout << "ParticleAttrib destructor called." << "\n";
+  // }
+  
+  // /// @brief  Copy constructor.
+  // ParticleAttrib(const ParticleAttrib &other) : base_t{other} {
+  //   fmt::print("ParticleAttrib copy constructed.\n");
+  // }
+
+  // /// @brief  Copy assignment operator.
+  // ParticleAttrib &operator=(const ParticleAttrib &other) {
+  //   base_t::operator=(other);
+  //   fmt::print("ParticleAttrib copy assigned.\n");
+  //   return *this;
+  // }
+
+  // /// @brief  Move constructor.
+  // ParticleAttrib(ParticleAttrib &&other) : base_t{other} {
+  //   fmt::print("ParticleAttrib move constructed.\n");
+  // }
+
+  // /// @brief  Move assignment operator.
+  // ParticleAttrib &operator=(ParticleAttrib &&other) {
+  //   base_t::operator=(other);
+  //   fmt::print("ParticleAttrib move assigned.\n");
+  //   return *this;
+  // }
+
+  // /// @brief  Move assignment operator.
   // ParticleAttrib &operator=(base_t &&instance) {
   //   static_cast<base_t &>(*this) = instance;
   //   return *this;
   // }
 
-  template <typename Allocator>
-  ParticleAttrib(Allocator allocator)
-      : base_t{spawn<particle_attrib_<N>, orphan_signature>(
-            allocator)} {}
 
   template <num_attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ PREC
+   __device__ PREC
   getAttribute(T parid){
     if (ATTRIBUTE >= N) return (PREC)-1;
     else return this->val(std::integral_constant<unsigned, std::min(ATTRIBUTE, N)>{}, parid);
   }
   template <num_attribs_e ATTRIBUTE, typename T>
-  __forceinline__ __device__ void
+   __device__ void
   getAttribute(T parid, PREC & val){
     if (ATTRIBUTE >= N) val = (PREC)-1;
     else val = this->val(std::integral_constant<unsigned, std::min(ATTRIBUTE, N)>{}, parid);
   }
   // template <num_attribs_e ATTRIBUTE, typename T>
-  // __forceinline__ __device__ constexpr void
+  //  __device__ constexpr void
   // setAttribute(const T parid, const PREC val){
   //   if (ATTRIBUTE >= this.numAttributes) return;
   //   else{
@@ -2022,13 +2074,14 @@ using particle_attrib_t =
             ParticleAttrib<num_attribs_e::Ten>,
             ParticleAttrib<num_attribs_e::Eleven>,
             ParticleAttrib<num_attribs_e::Twelve>,
-            ParticleAttrib<num_attribs_e::Thirteen>,
-            ParticleAttrib<num_attribs_e::Fourteen>,
-            ParticleAttrib<num_attribs_e::Fifteen>,
-            ParticleAttrib<num_attribs_e::Sixteen>,
-            ParticleAttrib<num_attribs_e::Eighteen>,
-            ParticleAttrib<num_attribs_e::Twentyfour>,
-            ParticleAttrib<num_attribs_e::Thirtytwo> >;
+            ParticleAttrib<num_attribs_e::Thirteen>
+            // ParticleAttrib<num_attribs_e::Fourteen>,
+            // ParticleAttrib<num_attribs_e::Fifteen>,
+            // ParticleAttrib<num_attribs_e::Sixteen>,
+            // ParticleAttrib<num_attribs_e::Eighteen>,
+            // ParticleAttrib<num_attribs_e::Twentyfour>,
+            // ParticleAttrib<num_attribs_e::Thirtytwo>
+            >;
 
 
 using particle_target_ =
@@ -2041,10 +2094,14 @@ using particle_target_ =
 struct ParticleTarget : Instance<particle_target_> {
   using base_t = Instance<particle_target_>;
   ParticleTarget &operator=(base_t &&instance) {
+    std::cout << "ParticleTarget move assignment operator." << "\n";
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
-  ParticleTarget(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
+  ParticleTarget(base_t &&instance) { 
+    std::cout << "ParticleTarget move constructor." << "\n";
+    static_cast<base_t &>(*this) = instance; 
+    }
 };
 
 } // namespace mn

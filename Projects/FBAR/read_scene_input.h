@@ -54,6 +54,128 @@ std::string save_suffix; //< File-format to save particles with
 float verbose = 0;
 
 
+/// @brief Make 3D rotation matrix that can rotate a point around origin
+/// @brief Order: [Z Rot.]->[Y Rot.]->[X Rot.]=[ZYX Rot.]. (X Rot. 1st).
+/// @brief Rot. on fixed axis (X,Y,Z) (i.e. NOT Euler or Quat. rotation)
+/// @param angles Rotation angles [a,b,c] (degrees) for [X,Y,Z] axis.
+/// @param R Original rotation matrix, use 3x3 Identity mat. if none.
+/// @returns Multiply new rotation matrix into R.
+template <typename T>
+void elementaryToRotationMatrix(const mn::vec<T,3> &angles, mn::vec<T,3,3> &R) {
+    // TODO: Can be way more efficient, made this quickly
+    mn::vec<T,3,3> prev_R;
+    for (int i=0; i<3; i++)
+      for (int j=0; j<3; j++)
+        prev_R(i,j) = R(i,j);
+    mn::vec<T,3,3> tmp_R; tmp_R.set(0.0);
+    // X-Axis Rotation
+    tmp_R(0, 0) = 1;
+    tmp_R(1, 1) = tmp_R(2, 2) = cos(angles[0] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(2, 1) = tmp_R(1, 2) = sin(angles[0] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(1, 2) = -tmp_R(1, 2);
+    // mn::matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+    for (int i=0; i<3; i++) for (int j=0; j<3; j++) prev_R(i,j) = tmp_R(i,j); 
+    tmp_R.set(0.0);
+    // Z-Axis * Y-Axis * X-Axis Rotation
+    tmp_R(1, 1) = 1;
+    tmp_R(0, 0) = tmp_R(2, 2) = cos(angles[1] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(2, 0) = tmp_R(0, 2) = sin(angles[1] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(2, 0) = -tmp_R(2, 0);
+    mn::matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+    for (int i=0; i<3; i++) for (int j=0; j<3; j++) prev_R(i,j) = R(i,j); 
+    tmp_R.set(0.0);
+    // Z-Axis * Y-Axis * X-Axis Rotation
+    tmp_R(2, 2) = 1;
+    tmp_R(0, 0) = tmp_R(1, 1) = cos(angles[2] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(1, 0) = tmp_R(0, 1) = sin(angles[2] * PI_AS_A_DOUBLE / 180.);
+    tmp_R(0, 1) = -tmp_R(0, 1);
+    mn::matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
+  }
+
+//https://danceswithcode.net/engineeringnotes/rotations_in_3d/rotations_in_3d_part1.html
+// Convert elementary angles of rotation around fixed axis to euler angles of rotation around axis that move with previous rotation,
+// input elementary angles as an array of three doubles in degrees, output euler angles as an array of three doubles in degrees
+// elementary angles are in the order of a, b, c
+// euler angles are in the order of z, y, x
+void elementaryToEulerAngles(double *elementary, double *euler) {
+  double a = elementary[0] * PI_AS_A_DOUBLE / 180.;
+  double b = elementary[1] * PI_AS_A_DOUBLE / 180.;
+  double c = elementary[2] * PI_AS_A_DOUBLE / 180.;
+  double z = atan2(sin(c) * cos(b) * cos(a) - sin(a) * sin(b), cos(c) * cos(b)) * 180. / PI_AS_A_DOUBLE;
+  double y = atan2(sin(c) * sin(a) + cos(c) * cos(a) * sin(b), cos(a) * cos(b)) * 180. / PI_AS_A_DOUBLE;
+  double x = atan2(sin(c) * cos(a) + cos(c) * sin(a) * sin(b), cos(c) * cos(b)) * 180. / PI_AS_A_DOUBLE;
+  euler[0] = z;
+  euler[1] = y;
+  euler[2] = x;
+}
+
+// Cnvert euler angles of rotation around axis that move with previous rotation to elementary angles of rotation around fixed axis,
+// input euler angles as an array of three doubles in degrees, output elementary angles as an array of three doubles in degrees
+// euler angles are in the order of z, y, x
+// elementary angles are in the order of a, b, c
+void eulerAnglesToElementary(double *euler, double *elementary) {
+  double z = euler[0] * PI_AS_A_DOUBLE / 180.;
+  double y = euler[1] * PI_AS_A_DOUBLE / 180.;
+  double x = euler[2] * PI_AS_A_DOUBLE / 180.;
+  double a = atan2(sin(z) * cos(y) * cos(x) + sin(x) * sin(y), cos(z) * cos(y)) * 180. / PI_AS_A_DOUBLE;
+  double b = atan2(sin(z) * sin(x) - cos(z) * cos(x) * sin(y), cos(x) * cos(y)) * 180. / PI_AS_A_DOUBLE;
+  double c = atan2(sin(z) * cos(x) - cos(z) * sin(x) * sin(y), cos(z) * cos(y)) * 180. / PI_AS_A_DOUBLE;
+  elementary[0] = a;
+  elementary[1] = b;
+  elementary[2] = c;
+}
+
+// Convert euler angles of rotation around axis that move with previous rotation to rotation matrix,
+// input euler angles as an array of three doubles in degrees, output rotation matrix as an array of nine doubles
+// euler angles are in the order of z, y, x
+void eulerAnglesToRotationMatrix(mn::vec<PREC,3> &euler, mn::vec<PREC,3,3> &matrix) {
+  // convert euler angles to elementary angles
+  mn::vec<PREC,3> elementary;
+  eulerAnglesToElementary(euler.data(), elementary.data());
+
+  // convert elementary angles to rotation matrix
+  elementaryToRotationMatrix(elementary, matrix);
+}
+
+// Rotate a point around a fulcrum point using euler angles
+// The point is an array of three doubles, the fulcrum is an array of three doubles, the euler angles are an array of three doubles in degrees
+// Order of rotation is z, y, x
+void translate_rotate_euler_translate_point(double *point, double *fulcrum, double *euler) {
+  // Translate to rotation fulcrum
+  double tmp_point[3];
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d];
+
+  // Rotate with euler angles, convert to radians
+  double x = euler[0] * PI_AS_A_DOUBLE / 180.;
+  double y = euler[1] * PI_AS_A_DOUBLE / 180.;
+  double z = euler[2] * PI_AS_A_DOUBLE / 180.;
+  double tmp_x = ((tmp_point[0]) * cos(y) + (tmp_point[1] * sin(x) + tmp_point[2] * cos(x)) * sin(y)) * cos(z) - (tmp_point[1] * cos(x) - tmp_point[0] * sin(x)) * sin(z) ;
+  double tmp_y =  ((tmp_point[0]) * cos(y) + (tmp_point[1] * sin(x) + tmp_point[2] * cos(x)) * sin(y)) * sin(z) +  (tmp_point[1] * cos(x) - tmp_point[0] * sin(x)) * cos(z);
+  double tmp_z = ( (-tmp_point[0]) * sin(y) + (tmp_point[1] * sin(x) + tmp_point[2] * cos(x)) * cos(y) ) ;
+  tmp_point[0] = tmp_x;
+  tmp_point[1] = tmp_y;
+  tmp_point[2] = tmp_z;
+
+  // Translate back
+  for (int d=0;d<3;d++) point[d] = tmp_point[d] + fulcrum[d];
+}
+
+
+template <typename T>
+void translate_rotate_translate_point(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, mn::vec<T,3>& point) {
+  mn::vec<T,3> tmp_point;
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
+  mn::matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
+  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
+}
+
+template <typename T>
+void translate_rotate_translate_point(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, std::array<T,3>& point) {
+  std::array<T,3> tmp_point;
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
+  mn::matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
+  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
+}
 /// @brief Check if a particle is inside a box partition.
 /// @tparam Data-type, e.g. float or double. 
 /// @param arr Array of [x,y,z] position to check for being inside partition.
@@ -103,7 +225,7 @@ decltype(auto) load_binary_particles(std::size_t pcnt, std::string filename) {
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void load_csv_particles(const std::string& filename, char sep, 
                         std::vector<std::array<PREC, 3>>& fields, 
-                        mn::vec<PREC, 3> offset, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
+                        mn::vec<PREC, 3> offset, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
   std::ifstream in(filename.c_str());
   if (in) {
     std::string line;
@@ -119,8 +241,10 @@ void load_csv_particles(const std::string& filename, char sep,
         arr[col] = stof(field) / l + offset[col];
         col++;
       }
-      if (inside_partition(arr, partition_start, partition_end))
+      if (inside_partition(arr, partition_start, partition_end)){
+        translate_rotate_translate_point(fulcrum, rotation, arr);
         fields.push_back(arr);
+      }
     }
   }
   fmt::print(fg(fmt::color::white), "Particle count[{}] read from file[{}].\n", fields.size(), filename); 
@@ -183,7 +307,7 @@ void load_csv_particles(const std::string& filename, char sep,
 /// @param partition_start Start corner of particle GPU partition, cut out everything before.
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_box(std::vector<std::array<PREC, 3>>& fields, 
-                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset, PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset, PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
   // Make a rectangular prism of particles, write to fields
   // Span sets dimensions, offset is starting corner, ppc is particles-per-cell
   // Assumes span and offset are pre-adjusted to 1x1x1 domain with 8*g_dx offset
@@ -214,8 +338,10 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
               surf =  m * x + b;
               
               if (y <= surf)
-                if (inside_partition(arr, partition_start, partition_end))
+                if (inside_partition(arr, partition_start, partition_end)){
+                  translate_rotate_translate_point(fulcrum, rotation, arr);
                   fields.push_back(arr);
+                }
             }  
             else if (0)
             {
@@ -229,13 +355,17 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
               surf_two =  m * (x) + b;
 
               if (z >= surf_one && z <= surf_two)
-                if (inside_partition(arr, partition_start, partition_end))
+                if (inside_partition(arr, partition_start, partition_end)){
+                  translate_rotate_translate_point(fulcrum, rotation, arr);
                   fields.push_back(arr);
+                }
             }
             else 
             {
-            if (inside_partition(arr, partition_start, partition_end))
+            if (inside_partition(arr, partition_start, partition_end)){
+              translate_rotate_translate_point(fulcrum, rotation, arr);
               fields.push_back(arr);
+            }
           }
         }
       }
@@ -254,7 +384,7 @@ void make_box(std::vector<std::array<PREC, 3>>& fields,
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_cylinder(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, PREC radius, std::string axis, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
+                        PREC ppc, PREC radius, std::string axis, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
   PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
   int i_lim, j_lim, k_lim; // Number of par. per span direction
   i_lim = (int)((span[0]) / ppl_dx + 1.0); 
@@ -264,32 +394,34 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
   for (int i = 0; i < i_lim ; i++) {
     for (int j = 0; j < j_lim ; j++) {
       for (int k = 0; k < k_lim ; k++) {
-          std::array<PREC, 3> arr;
-          arr[0] = (i + 0.5) * ppl_dx + offset[0];
-          arr[1] = (j + 0.5) * ppl_dx + offset[1];
-          arr[2] = (k + 0.5) * ppl_dx + offset[2];
-          PREC x, y, z;
-          x = ((arr[0] - offset[0]) * l);
-          y = ((arr[1] - offset[1]) * l);
-          z = ((arr[2] - offset[2]) * l);
-          if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
-            PREC xo, yo, zo;
-            xo = yo = zo = radius; 
-            PREC r;
-            if (axis == "x" || axis == "X") 
-              r = std::sqrt((y-yo)*(y-yo) + (z-zo)*(z-zo));
-            else if (axis == "y" || axis == "Y") 
-              r = std::sqrt((x-xo)*(x-xo) + (z-zo)*(z-zo));
-            else if (axis == "z" || axis == "Z") 
-              r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo));
-            else 
-            {
-              r = 0;
-              fmt::print(fg(red), "ERROR: Value of axis[{}] is not applicable for a Cylinder. Use X, Y, or Z.", axis);
+        std::array<PREC, 3> arr;
+        arr[0] = (i + 0.5) * ppl_dx + offset[0];
+        arr[1] = (j + 0.5) * ppl_dx + offset[1];
+        arr[2] = (k + 0.5) * ppl_dx + offset[2];
+        PREC x, y, z;
+        x = ((arr[0] - offset[0]) * l);
+        y = ((arr[1] - offset[1]) * l);
+        z = ((arr[2] - offset[2]) * l);
+        if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
+          PREC xo, yo, zo;
+          xo = yo = zo = radius; 
+          PREC r;
+          if (axis == "x" || axis == "X") 
+            r = std::sqrt((y-yo)*(y-yo) + (z-zo)*(z-zo));
+          else if (axis == "y" || axis == "Y") 
+            r = std::sqrt((x-xo)*(x-xo) + (z-zo)*(z-zo));
+          else if (axis == "z" || axis == "Z") 
+            r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo));
+          else 
+          {
+            r = 0;
+            fmt::print(fg(red), "ERROR: Value of axis[{}] is not applicable for a Cylinder. Use X, Y, or Z.", axis);
+          }
+          if (r <= radius)
+            if (inside_partition(arr, partition_start, partition_end)){
+              translate_rotate_translate_point(fulcrum, rotation, arr);
+              fields.push_back(arr);
             }
-            if (r <= radius)
-              if (inside_partition(arr, partition_start, partition_end))
-                fields.push_back(arr);
         }
       }
     }
@@ -306,7 +438,7 @@ void make_cylinder(std::vector<std::array<PREC, 3>>& fields,
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_sphere(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, PREC radius, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
+                        PREC ppc, PREC radius, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
   PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
   int i_lim, j_lim, k_lim; // Number of par. per span direction
   i_lim = (int)((span[0]) / ppl_dx + 1.0); 
@@ -330,8 +462,10 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
             PREC r;
             r = std::sqrt((x-xo)*(x-xo) + (y-yo)*(y-yo) + (z-zo)*(z-zo));
             if (r <= radius) 
-              if (inside_partition(arr, partition_start, partition_end))
+              if (inside_partition(arr, partition_start, partition_end)){
+                translate_rotate_translate_point(fulcrum, rotation, arr);
                 fields.push_back(arr);
+              }
         }
       }
     }
@@ -349,7 +483,7 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end) {
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
   PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
   int i_lim, j_lim, k_lim; // Number of par. per span direction
   i_lim = (int)((span[0]) / ppl_dx + 1.0); 
@@ -404,8 +538,10 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
             {
               if (y >= ( bath_slope[d] * (x - bathx[d-1]) + bathy[d-1]) )
               {
-                if (inside_partition(arr, partition_start, partition_end))
+                if (inside_partition(arr, partition_start, partition_end)){
+                  translate_rotate_translate_point(fulcrum, rotation, arr);
                   fields.push_back(arr);
+                }
                 break;
               }
               else break;
@@ -587,52 +723,10 @@ void load_motionPath(const std::string& filename, char sep, MotionHolder& fields
   }
 }
 
-/// @brief Make 3D rotation matrix that can rotate a point around origin
-/// @brief Order: [Z Rot.]->[Y Rot.]->[X Rot.]=[ZYX Rot.]. (X Rot. 1st).
-/// @brief Rot. on fixed axis (X,Y,Z) (i.e. NOT Euler or Quat. rotation)
-/// @param angles Rotation angles [a,b,c] (degrees) for [X,Y,Z] axis.
-/// @param R Original rotation matrix, use 3x3 Identity mat. if none.
-/// @returns Multiply new rotation matrix into R.
-template <typename T>
-constexpr void rotation_matrix(const mn::vec<T,3> &angles, mn::vec<T,3,3> &R = {{1,0,0},{0,1,0},{0,0,0,1}}) {
-    // TODO: Can be way more efficient, made this quickly
-    for (int d=0;d<3;d++) angles[d] *= PI_AS_A_DOUBLE;
-    mn::vec3x3 prev_R = R;
-    mn::vec3x3 tmp_R; tmp_R.set(0.0);
-    // X-Axis Rotation
-    tmp_R(0, 0) = 1;
-    tmp_R(1, 1) = tmp_R(2, 2) = std::cos(angles[0]);
-    tmp_R(2, 1) = tmp_R(1, 2) = std::sin(angles[0]);
-    tmp_R(1, 2) = -tmp_R(1, 2);
-    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
-    prev_R = tmp_R; tmp_R.set(0.0);
-    // Z-Axis * Y-Axis * X-Axis Rotation
-    tmp_R(1, 1) = 1;
-    tmp_R(0, 0) = tmp_R(2, 2) = std::cos(angles[1]);
-    tmp_R(2, 0) = tmp_R(0, 2) = std::sin(angles[1]);
-    tmp_R(2, 0) = -tmp_R(2, 0);
-    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
-    prev_R = R; tmp_R.set(0.0);
-    // Z-Axis * Y-Axis * X-Axis Rotation
-    tmp_R(2, 2) = 1;
-    tmp_R(0, 0) = tmp_R(1, 1) = std::cos(angles[2]);
-    tmp_R(1, 0) = tmp_R(0, 1) = std::sin(angles[2]);
-    tmp_R(0, 1) = -tmp_R(0, 1);
-    matrixMatrixMultiplication3d(tmp_R.data(), prev_R.data(), R.data());
-  }
-
-template <typename T>
-constexpr void translate_rotate_translate_point(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, std::array<T,3> point) {
-  std::array<T,3> tmp_point;
-  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
-  matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
-  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
-}
-
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a string.
 /// Return retrieved string from JSON or return backup value if not found/is not a string.
-std::string CheckString(rapidjson::Value &object, std::string key, std::string backup) {
+std::string CheckString(rapidjson::Value &object, const std::string &key, std::string backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -654,7 +748,7 @@ std::string CheckString(rapidjson::Value &object, std::string key, std::string b
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a number array.
 /// Return retrieved double-precision floating point array from JSON or return backup value if not found/is not a number array.
-std::vector<std::string> CheckStringArray(rapidjson::Value &object, std::string key, std::vector<std::string> backup) {
+std::vector<std::string> CheckStringArray(rapidjson::Value &object, const std::string &key, std::vector<std::string> backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -667,7 +761,7 @@ std::vector<std::string> CheckStringArray(rapidjson::Value &object, std::string 
         }
         else {
           std::vector<std::string> arr;
-          for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetString());
+          // for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetString());
           for (int d=0; d<dim; d++) arr.push_back(object[key.c_str()].GetArray()[d].GetString());
           fmt::print(fg(green), "Input [{}] found: ", key);
           fmt::print(fg(green), " [ ");
@@ -702,13 +796,13 @@ std::vector<std::string> CheckStringArray(rapidjson::Value &object, std::string 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a number array.
 /// Return retrieved double-precision floating point array from JSON or return backup value if not found/is not a number array.
 template<int dim=3>
-mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, std::string key, mn::vec<PREC,dim> backup) {
+mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, const std::string &key, mn::vec<PREC,dim> backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
     if (object[key.c_str()].IsArray())
     {
-      //assert(object[key.c_str()].IsArray());
+      // assert(object[key.c_str()].IsArray());
       mn::vec<PREC,dim> arr; 
       if (object[key.c_str()].GetArray().Size() != dim) 
       {
@@ -719,7 +813,7 @@ mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, std::string key, m
           fmt::print(fg(red), "ERROR: Input [{}] not an array of numbers! Fix and retry. Current type: {}.\n", key, kTypeNames[object[key.c_str()].GetArray()[0].GetType()]);
         }
         else {
-          for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetDouble());
+          // for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetDouble());
           for (int d=0; d<dim; d++) arr[d] = object[key.c_str()].GetArray()[d].GetDouble();
           fmt::print(fg(green), "Input [{}] found: [{}, {}, {}].\n", key, arr[0],arr[1],arr[2]);
           return arr;
@@ -748,7 +842,7 @@ mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, std::string key, m
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an integer array.
 /// Return retrieved integer array from JSON or return backup value if not found/is not a double.
 template<int dim>
-mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, std::string key, mn::vec<int,dim> backup) {
+mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, const std::string &key, mn::vec<int,dim> backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd()) { 
     if (object[key.c_str()].IsArray()) {
@@ -761,7 +855,7 @@ mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, std::string key, mn::v
           fmt::print(fg(red), "ERROR: Input [{}] not an array of integers! Fix and retry. Current type: {}.\n", key, kTypeNames[object[key.c_str()].GetArray()[0].GetType()]);
         }
         else {
-          for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetInt());
+          // for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetInt());
           for (int d=0; d<dim; d++) arr[d] = object[key.c_str()].GetArray()[d].GetInt();
           fmt::print(fg(green), "Input [{}] found: [{}, {}, {}].\n", key, arr[0],arr[1],arr[2]);
           return arr;
@@ -789,7 +883,7 @@ mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, std::string key, mn::v
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a double.
 /// Return retrieved double from JSON or return backup value if not found/is not a double.
-double CheckDouble(rapidjson::Value &object, std::string key, double backup) {
+double CheckDouble(rapidjson::Value &object, const std::string &key, double backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -811,7 +905,7 @@ double CheckDouble(rapidjson::Value &object, std::string key, double backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a booelean.
 /// Return retrieved boolean from JSON or return backup value if not found/is not a boolean.
-bool CheckBool(rapidjson::Value &object, std::string key, bool backup) {
+bool CheckBool(rapidjson::Value &object, const std::string &key, bool backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -833,19 +927,29 @@ bool CheckBool(rapidjson::Value &object, std::string key, bool backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a float.
 /// Return retrieved float from JSON or return backup value if not found/is not a float.
-float CheckFloat(rapidjson::Value &object, std::string key, float backup) {
+float CheckFloat(rapidjson::Value &object, const std::string &key, float backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
-    assert(object[key.c_str()].IsFloat());
-    return object[key.c_str()].GetFloat();
+    if (!object[key.c_str()].IsFloat() && !object[key.c_str()].IsNumber()){
+      fmt::print(fg(red), "ERROR: Input [{}] not a number! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+    else {
+      fmt::print(fg(green), "Input [{}] found: {}.\n", key, object[key.c_str()].GetFloat());
+      return object[key.c_str()].GetFloat();
+    }
   }
-  else return backup;
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
+  getchar();
+  return backup;
 }
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an int.
 /// Return retrieved int from JSON or return backup value if not found/is not an int.
-int CheckInt(rapidjson::Value &object, std::string key, int backup) {
+int CheckInt(rapidjson::Value &object, const std::string &key, int backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -867,7 +971,7 @@ int CheckInt(rapidjson::Value &object, std::string key, int backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an uint32.
 /// Return retrieved int from JSON or return backup value if not found/is not an uint32.
-uint32_t CheckUint(rapidjson::Value &object, std::string key, uint32_t backup) {
+uint32_t CheckUint(rapidjson::Value &object, const std::string &key, uint32_t backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -889,7 +993,7 @@ uint32_t CheckUint(rapidjson::Value &object, std::string key, uint32_t backup) {
 
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an uint64.
 /// Return retrieved int from JSON or return backup value if not found/is not an uint64.
-uint64_t CheckUint64(rapidjson::Value &object, std::string key, uint64_t backup) {
+uint64_t CheckUint64(rapidjson::Value &object, const std::string &key, uint64_t backup) {
   auto check = object.FindMember(key.c_str());
   if (check != object.MemberEnd())
   { 
@@ -915,23 +1019,22 @@ uint64_t CheckUint64(rapidjson::Value &object, std::string key, uint64_t backup)
 /// @param models Contains initial particle positions for simulation. One per GPU.
 void parse_scene(std::string fn,
                  std::unique_ptr<mn::mgsp_benchmark> &benchmark,
-                 std::vector<std::array<PREC, 3>> models[mn::config::g_device_cnt]) {
+                 std::vector<std::array<PREC, 3>> models[mn::config::g_model_cnt]) {
   fs::path p{fn};
   if (p.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", fn);
   else {
     std::size_t size=0;
-    try{
-      size = fs::file_size(p);
-    } catch(fs::filesystem_error& e) { std::cout << e.what() << '\n'; }
+    try{ size = fs::file_size(p); } 
+    catch(fs::filesystem_error& e) { std::cout << e.what() << '\n'; }
     std::string configs;
     configs.resize(size);
     std::ifstream istrm(fn);
     if (!istrm.is_open())  fmt::print(fg(red), "ERROR: Cannot open file[{}]\n", fn);
     else istrm.read(const_cast<char *>(configs.data()), configs.size());
     istrm.close();
-    fmt::print(fg(green), "Opened scene file[{}].\n", fn);
-    
-    mn::vec<PREC, 3> domain;
+    fmt::print(fg(green), "Opened scene file[{}] of size [{}] kilobytes.\n", fn, configs.size());
+    fmt::print(fg(white), "Scanning JSON scheme in file[{}]...\n", fn);
+
 
     rj::Document doc;
     doc.Parse(configs.data());
@@ -940,32 +1043,33 @@ void parse_scene(std::string fn,
       fmt::print("Scene member {} is type {}. \n", itr->name.GetString(),
                  kTypeNames[itr->value.GetType()]);
     }
+    mn::vec<PREC, 3> domain; // Domain size [meters] for whole 3D simulation
     {
       auto it = doc.FindMember("simulation");
       if (it != doc.MemberEnd()) {
         auto &sim = it->value;
         if (sim.IsObject()) {
-
-          PREC sim_default_dx = CheckDouble(sim, std::string{"default_dx"}, 0.1);
-          float sim_default_dt = (float)CheckDouble(sim, std::string{"default_dt"}, sim_default_dx/100.);
-          uint64_t sim_fps = CheckUint64(sim, std::string{"fps"}, 60);
-          uint64_t sim_frames = CheckUint64(sim, std::string{"frames"}, 60);
-          float sim_gravity = (float)CheckDouble(sim, std::string{"gravity"}, -9.81);
+          fmt::print(fmt::emphasis::bold,
+              "-----------------------------------------------------------"
+              "-----\n");
+          PREC sim_default_dx = CheckDouble(sim, "default_dx", 0.1);
+          float sim_default_dt = CheckFloat(sim, "default_dt", sim_default_dx/100.);
+          uint64_t sim_fps = CheckUint64(sim, "fps", 60);
+          uint64_t sim_frames = CheckUint64(sim, "frames", 60);
+          float sim_gravity = CheckFloat(sim, "gravity", -9.81);
+          domain = CheckDoubleArray(sim, "domain", mn::pvec3{1.,1.,1.});
+          std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
-          auto save_suffix_check = sim.FindMember("save_suffix");
-          if (save_suffix_check != sim.MemberEnd()) save_suffix = sim["save_suffix"].GetString();
-          else save_suffix = std::string{".bgeo"};
 
           l = sim_default_dx * mn::config::g_dx_inv_d; 
-          domain = CheckDoubleArray(sim, std::string{"domain"}, mn::pvec3{1.,1.,1.});
           if (domain[0] > (l-16*sim_default_dx) || domain[1] > (l-16*sim_default_dx) || domain[2] > (l-16*sim_default_dx)) {
             fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-16*sim_default_dx));
             fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
           } 
           fmt::print(fg(cyan),
-              "Scene simulation: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}]\n",
+              "Scene simulation parameters: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}], save_suffix[{}]\n",
               l, sim_default_dx, sim_default_dt,
-              sim_fps, sim_frames, sim_gravity);
+              sim_fps, sim_frames, sim_gravity, save_suffix);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
               l, sim_default_dt,
               sim_fps, sim_frames, sim_gravity, save_suffix);
@@ -1023,7 +1127,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM FBAR Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron_FBar>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), positions, velocity); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedFBARParameters(
@@ -1036,7 +1140,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), positions, velocity); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedParameters(
@@ -1108,18 +1212,27 @@ void parse_scene(std::string fn,
         if (it->value.IsArray()) {
           fmt::print(fg(cyan), "Scene file has [{}] particle models. \n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
-            int gpu_id = model["gpu"].GetInt();
+            int gpu_id = CheckInt(model, std::string{"gpu"}, 0);
+            int model_id = CheckInt(model, std::string{"model"}, 0);
+            int total_id = model_id + gpu_id * mn::config::g_models_per_gpu;
             if (gpu_id >= mn::config::g_device_cnt) {
-              fmt::print(fg(red), "ERROR! Particle model gpu[{}] exceeds GPUs reserved by g_device_cnt (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", gpu_id);
+              fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds GPUs reserved by g_device_cnt[{}] (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", model_id, gpu_id, mn::config::g_device_cnt);
               continue;
+            } else if (gpu_id < 0) {
+              fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] GPU ID cannot be negative. \n", gpu_id, model_id);
+              getchar(); continue;
             } 
-            else if (gpu_id < 0) {
-              fmt::print(fg(red), "ERROR! GPU ID[{}] cannot be negative. \n", gpu_id);
+            if (model_id >= mn::config::g_models_per_gpu) {
+              fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds models reserved by g_models_per_gpu[{}] (settings.h)! Skipping model. Increase g_models_per_gpu and recompile. \n", model_id, gpu_id, mn::config::g_models_per_gpu);
               continue;
+            } else if (model_id < 0) {
+              fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] Model ID cannot be negative. \n", gpu_id, model_id);
+              getchar(); continue;
             }
+
             //std::string constitutive{model["constitutive"].GetString()};
             std::string constitutive = CheckString(model, std::string{"constitutive"}, std::string{"JFluid"});
-            fmt::print(fg(green),  "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
+            fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
             std::vector<std::string> target_attribs;
@@ -1149,30 +1262,30 @@ void parse_scene(std::string fn,
                 materialConfigs.visco = CheckDouble(model, std::string{"viscosity"}, 0.001);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, positions, velocity);                    
+                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity);                    
                   benchmark->updateParameters<mn::material_e::JFluid>( 
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, positions, velocity);                    
+                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, model_id, positions, velocity);                    
                   benchmark->updateParameters<mn::material_e::JFluid_ASFLIP>( 
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::JBarFluid>( 
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 } 
                 else if (!algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::JFluid_FBAR>( 
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
@@ -1182,23 +1295,23 @@ void parse_scene(std::string fn,
                 materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated>(
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP>(
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP_FBAR>(
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
@@ -1209,9 +1322,9 @@ void parse_scene(std::string fn,
                 materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::NeoHookean_ASFLIP_FBAR>( 
-                      gpu_id, materialConfigs, algoConfigs,
+                      gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
@@ -1226,9 +1339,9 @@ void parse_scene(std::string fn,
                 materialConfigs.volumeCorrection = CheckBool(model, std::string{"SandVolCorrection"}, true); 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::Sand>(gpu_id, positions, velocity); 
+                  benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity); 
                   benchmark->updateParameters<mn::material_e::Sand>( 
-                        gpu_id, materialConfigs, algoConfigs,
+                        gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
@@ -1243,9 +1356,9 @@ void parse_scene(std::string fn,
                 materialConfigs.hardeningOn = CheckBool(model, std::string{"hardeningOn"}, true); 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NACC>(gpu_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity);
                   benchmark->updateParameters<mn::material_e::NACC>( 
-                        gpu_id, materialConfigs, algoConfigs,
+                        gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_id[0], track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
@@ -1288,13 +1401,11 @@ void parse_scene(std::string fn,
             auto geo = model.FindMember("geometry");
             if (geo != model.MemberEnd()) {
               if (geo->value.IsArray()) {
-                fmt::print(fg(blue),"Model has [{}] particle geometry operations to perform. \n", geo->value.Size());
+                fmt::print(fg(blue),"GPU[{}] MODEL[{}] has [{}] particle geometry operations to perform. \n", gpu_id, model_id, geo->value.Size());
                 for (auto &geometry : geo->value.GetArray()) {
-                  // std::string operation{geometry["operation"].GetString()};
-                  // std::string type{geometry["object"].GetString()};
                   std::string operation = CheckString(geometry, std::string{"operation"}, std::string{"add"});
                   std::string type = CheckString(geometry, std::string{"object"}, std::string{"box"});
-                  fmt::print(fg(white), "GPU[{}] Begin operation[{}] with object[{}]... \n", gpu_id, operation, type);
+                  fmt::print(fg(white), "GPU[{}] MODEL[{}] Begin operation[{}] with object[{}]... \n", gpu_id, model_id, operation, type);
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
@@ -1311,6 +1422,11 @@ void parse_scene(std::string fn,
                     geometry_spacing[d] = geometry_spacing[d] / l;                    
                     geometry_fulcrum[d] = geometry_fulcrum[d] / l + o;
                   }
+                  mn::pvec3x3 rotation_matrix; rotation_matrix.set(0.0);
+                  rotation_matrix(0,0) = rotation_matrix(1,1) = rotation_matrix(2,2) = 1;
+                  elementaryToRotationMatrix(geometry_rotate, rotation_matrix);
+                  fmt::print("Rotation Matrix: \n");
+                  for (int i=0;i<3;i++) {for (int j=0;j<3;j++) fmt::print("{} ",rotation_matrix(i,j)); fmt::print("\n");}
 
                   mn::vec<PREC, 3> geometry_offset_updated;
                   geometry_offset_updated[0] = geometry_offset[0];
@@ -1325,7 +1441,7 @@ void parse_scene(std::string fn,
                   if (type == "Box" || type == "box")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_box(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end); }
+                      make_box(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
                       subtract_box(models[gpu_id], geometry_span, geometry_offset_updated); }
                     else if (operation == "Union" || operation == "union") { fmt::print(fg(red),"Operation not implemented...\n");}
@@ -1339,7 +1455,7 @@ void parse_scene(std::string fn,
                     std::string geometry_axis = CheckString(geometry, std::string{"axis"}, std::string{"X"});
 
                     if (operation == "Add" || operation == "add") {
-                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end); }
+                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry_radius, geometry_axis, geometry_span, geometry_offset_updated); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
@@ -1347,7 +1463,7 @@ void parse_scene(std::string fn,
                   {
                     PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
                     if (operation == "Add" || operation == "add") {
-                      make_sphere(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end); }
+                      make_sphere(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
                       subtract_sphere(models[gpu_id], geometry_radius, geometry_offset_updated); }
                     else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
@@ -1355,7 +1471,7 @@ void parse_scene(std::string fn,
                   else if (type == "OSU LWF" || type == "OSU Water")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end); }
+                      make_OSU_LWF(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
@@ -1382,13 +1498,13 @@ void parse_scene(std::string fn,
                           fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files require [padding] of atleast [1] (padding is empty exterior cells on sides of model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files.\n"); getchar();}
                         mn::read_sdf(geometry_fn, models[gpu_id], materialConfigs.ppc,
                             (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
-                            partition_start, partition_end, geometry_scaling_factor, geometry_padding);
+                            partition_start, partition_end, rotation_matrix, geometry_fulcrum, geometry_scaling_factor, geometry_padding);
                       }
                       else if (geometry_file_path.extension() == ".csv") 
                       {
                         load_csv_particles(geometry_fn, ',', 
                                             models[gpu_id], geometry_offset_updated, 
-                                            partition_start, partition_end);
+                                            partition_start, partition_end, rotation_matrix, geometry_fulcrum);
                       }
                       else if (geometry_file_path.extension() == ".bgeo" ||
                           geometry_file_path.extension() == ".geo" ||
@@ -1409,7 +1525,7 @@ void parse_scene(std::string fn,
                         // Scale particle positions to 1x1x1 simulation
                         for (int part=0; part < models[gpu_id].size(); part++) {
                           for (int d = 0; d<3; d++) {
-                            models[gpu_id][part][d] = models[gpu_id][part][d] / l + o;
+                            models[gpu_id][part][d] = models[gpu_id][part][d] / l + geometry_offset_updated[d];
                           }
                           // Scale length based attributes to 1x1x1 simulation (e.g. Velocity)
                           for (int d = 0; d < input_attribs.size(); d++) {
@@ -1438,18 +1554,18 @@ void parse_scene(std::string fn,
               }
             } //< End geometry
             else {
-              fmt::print(fg(red), "ERROR: GPU[{}] Model has no geometry object! Neccesary to create particles.\n", gpu_id);
+              fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] No geometry object! Neccesary to create particles.\n", gpu_id, model_id);
               fmt::print(fg(red), "Press enter to continue...\n"); getchar();
             }
               
-            auto positions = models[gpu_id];
+            auto positions = models[total_id];
             mn::IO::insert_job([&]() {
               mn::write_partio<PREC,3>(std::string{p.stem()} + save_suffix,positions); });              
             mn::IO::flush();
-            fmt::print(fg(green), "GPU[{}] Saved particle model to [{}].\n", gpu_id, std::string{p.stem()} + save_suffix);
+            fmt::print(fg(green), "GPU[{}] MODEL[{}] Saved particles to [{}].\n", gpu_id, model_id, std::string{p.stem()} + save_suffix);
             
             if (positions.size() > mn::config::g_max_particle_num) {
-              fmt::print(fg(red), "ERROR: GPU[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", gpu_id, positions.size());
+              fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", gpu_id, model_id, positions.size());
               fmt::print(fg(red), "Press ENTER to continue anyways... \n");
               getchar();
             }
@@ -1457,143 +1573,147 @@ void parse_scene(std::string fn,
             // * Initialize particle positions in simulator and on GPU
             initModel(positions, velocity);
 
-            // ! Chose to hard-code available attribute count per particle for input, output
-            // ! Gives clearer code/better compiler optimization over run-time binding for GPU data-structures, but could definitely be improved.
+            // ! Hard-coded available attribute count per particle for input, output
+            // ! Better optimized run-time binding for GPU Taichi-esque data-structures, but could definitely be improved using Thrust data-structures, etc. 
 
             // * Initialize particle attributes in simulator and on GPU
             if (!has_attributes) attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(input_attribs.size(), 0.)); //< Zero initial attribs if none
             if (input_attribs.size() == 1){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 2){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(2);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 3){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 4){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(4);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 5){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(5);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 6){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(6);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 7){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(7);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 8){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(8);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 10){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 11){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 12){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } else if (input_attribs.size() == 13){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 14){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 15){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 16){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() <= 18 && input_attribs.size() > 16){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() <= 24 && input_attribs.size() > 18){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() <= 32 && input_attribs.size() > 24){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
-            } else if (input_attribs.size() > 32){
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            } 
+            // else if (input_attribs.size() == 14){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() == 15){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() == 16){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() <= 18 && input_attribs.size() > 16){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() <= 24 && input_attribs.size() > 18){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() <= 32 && input_attribs.size() > 24){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } 
+            else if (input_attribs.size() > mn::config::g_max_particle_attribs){
               fmt::print("More than [{}] input_attribs not implemented. You requested [{}].", mn::config::g_max_particle_attribs, input_attribs.size());
               getchar();
             } else {
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
-              benchmark->initInitialAttribs<N>(gpu_id, attributes, has_attributes); 
+              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             }
             
             // * Initialize output particle attributes in simulator and on GPU
             attributes = std::vector<std::vector<PREC> >(positions.size(), std::vector<PREC>(output_attribs.size(), 0.));
             if (output_attribs.size() == 1){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 2){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(2);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 3){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(3);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 4){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(4);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 5){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(5);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 6){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(6);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 7){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(7);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 8){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(8);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 10){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 11){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 12){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else if (output_attribs.size() == 13){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() == 14){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() == 15){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() == 16){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() <= 18 && output_attribs.size() > 16){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() <= 24 && output_attribs.size() > 18){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() <= 32 && output_attribs.size() > 24){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
-            } else if (output_attribs.size() > 32){
-              fmt::print(fg(red), "ERROR: GPU[{}] More than [{}] output_attribs not valid. Requested: [{}]. Truncating...", gpu_id, mn::config::g_max_particle_attribs, output_attribs.size()); 
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            } 
+            // else if (output_attribs.size() == 14){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() == 15){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() == 16){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() <= 18 && output_attribs.size() > 16){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() <= 24 && output_attribs.size() > 18){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() <= 32 && output_attribs.size() > 24){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } 
+            else if (output_attribs.size() > mn::config::g_max_particle_attribs){
+              fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] More than [{}] output_attribs not valid. Requested: [{}]. Truncating...", gpu_id, model_id, mn::config::g_max_particle_attribs, output_attribs.size()); 
+              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(mn::config::g_max_particle_attribs);
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } else {
-              fmt::print(fg(orange), "WARNING: GPU[{}] output_attribs not found. Using [1] element default", gpu_id);
+              fmt::print(fg(orange), "WARNING: GPU[{}] MODEL[{}] output_attribs not found. Using [1] element default", gpu_id, model_id );
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
-              benchmark->initOutputAttribs<N>(gpu_id, attributes); 
+              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             }
             fmt::print(fmt::emphasis::bold,
                       "-----------------------------------------------------------"
@@ -1610,7 +1730,7 @@ void parse_scene(std::string fn,
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
-            std::vector<std::array<PREC_G, mn::config::g_target_attribs>> h_gridTarget(mn::config::g_target_cells, std::array<PREC_G, mn::config::g_target_attribs> {0,0,0,0,0,0,0,0,0,0});
+            std::vector<std::array<PREC_G, mn::config::g_grid_target_attribs>> h_gridTarget(mn::config::g_grid_target_cells, std::array<PREC_G, mn::config::g_grid_target_attribs> {0.0});
             mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
 
             if (0) // TODO : Implement attribute selection for grid-target
@@ -1715,9 +1835,11 @@ void parse_scene(std::string fn,
 
             // Initialize on GPUs
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-              benchmark->initParticleTarget(did, h_particleTarget, target, 
-                freq);
-              fmt::print(fg(green), "GPU[{}] particleTarget[{}] Initialized.\n", did, target_ID);
+              for (int mid = 0; mid < mn::config::g_models_per_gpu; ++mid) {
+                benchmark->initParticleTarget(did, mid, h_particleTarget, target, 
+                  freq);
+                fmt::print(fg(green), "GPU[{}] particleTarget[{}] Initialized.\n", did, target_ID);
+              }
             }
             target_ID += 1; // TODO : Count targets using static variable in a structure
             fmt::print(fmt::emphasis::bold,
