@@ -1212,8 +1212,8 @@ void parse_scene(std::string fn,
         if (it->value.IsArray()) {
           fmt::print(fg(cyan), "Scene file has [{}] particle models. \n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
-            int gpu_id = CheckInt(model, std::string{"gpu"}, 0);
-            int model_id = CheckInt(model, std::string{"model"}, 0);
+            int gpu_id = CheckInt(model, "gpu", 0);
+            int model_id = CheckInt(model, "model", 0);
             int total_id = model_id + gpu_id * mn::config::g_models_per_gpu;
             if (gpu_id >= mn::config::g_device_cnt) {
               fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds GPUs reserved by g_device_cnt[{}] (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", model_id, gpu_id, mn::config::g_device_cnt);
@@ -1231,7 +1231,7 @@ void parse_scene(std::string fn,
             }
 
             //std::string constitutive{model["constitutive"].GetString()};
-            std::string constitutive = CheckString(model, std::string{"constitutive"}, std::string{"JFluid"});
+            std::string constitutive = CheckString(model, "constitutive", std::string{"JFluid"});
             fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
@@ -1242,24 +1242,24 @@ void parse_scene(std::string fn,
             std::vector<std::vector<PREC>> attributes; //< Initial attributes (not incl. position)
 
             mn::config::AlgoConfigs algoConfigs;
-            algoConfigs.use_FEM = CheckBool(model,std::string{"use_FEM"}, false);
-            algoConfigs.use_ASFLIP = CheckBool(model, std::string{"use_ASFLIP"}, true);
-            algoConfigs.ASFLIP_alpha = CheckDouble(model, std::string{"alpha"}, 0.);
-            algoConfigs.ASFLIP_beta_min = CheckDouble(model, std::string{"beta_min"}, 0.);
-            algoConfigs.ASFLIP_beta_max = CheckDouble(model, std::string{"beta_max"}, 0.);
-            algoConfigs.use_FBAR = CheckBool(model, std::string{"use_FBAR"}, true);
-            algoConfigs.FBAR_ratio = CheckDouble(model, std::string{"FBAR_ratio"}, 0.25);
+            algoConfigs.use_FEM = CheckBool(model, "use_FEM", false);
+            algoConfigs.use_ASFLIP = CheckBool(model, "use_ASFLIP", true);
+            algoConfigs.ASFLIP_alpha = CheckDouble(model, "alpha", 0.);
+            algoConfigs.ASFLIP_beta_min = CheckDouble(model, "beta_min", 0.);
+            algoConfigs.ASFLIP_beta_max = CheckDouble(model, "beta_max", 0.);
+            algoConfigs.use_FBAR = CheckBool(model, "use_FBAR", true);
+            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.25);
 
             mn::config::MaterialConfigs materialConfigs;
-            materialConfigs.ppc = CheckDouble(model, std::string{"ppc"}, 8.0); 
-            materialConfigs.rho = CheckDouble(model, std::string{"rho"}, 1e3); 
+            materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); 
+            materialConfigs.rho = CheckDouble(model, "rho", 1e3); 
 
             auto initModel = [&](auto &positions, auto &velocity) {
               bool algo_error = false, mat_error  = false;
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
-                materialConfigs.bulk = CheckDouble(model, std::string{"bulk_modulus"}, 2e7); 
-                materialConfigs.gamma = CheckDouble(model, std::string{"gamma"}, 7.1); 
-                materialConfigs.visco = CheckDouble(model, std::string{"viscosity"}, 0.001);
+                materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); 
+                materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); 
+                materialConfigs.visco = CheckDouble(model, "viscosity", 0.001);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity);                    
@@ -1291,8 +1291,8 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
-                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7);
-                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
+                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7);
+                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity);
@@ -1318,8 +1318,8 @@ void parse_scene(std::string fn,
               } 
               else if (constitutive == "NeoHookean" || constitutive == "neohookean" || 
                       constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
-                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
-                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
+                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
@@ -1330,13 +1330,13 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
-                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
-                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
-                materialConfigs.logJp0 = CheckDouble(model, std::string{"logJp0"}, 0.0);
-                materialConfigs.frictionAngle = CheckDouble(model, std::string{"friction_angle"}, 30.0);
-                materialConfigs.cohesion = CheckDouble(model, std::string{"cohesion"}, 0.0);
-                materialConfigs.beta = CheckDouble(model, std::string{"beta"}, 0.5);
-                materialConfigs.volumeCorrection = CheckBool(model, std::string{"SandVolCorrection"}, true); 
+                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
+                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity); 
@@ -1347,13 +1347,13 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
-                materialConfigs.E = CheckDouble(model, std::string{"youngs_modulus"}, 1e7); 
-                materialConfigs.nu = CheckDouble(model, std::string{"poisson_ratio"}, 0.2);
-                materialConfigs.logJp0 = CheckDouble(model, std::string{"logJp0"}, 0.0);
-                materialConfigs.xi = CheckDouble(model, std::string{"xi"}, 0.8);
-                materialConfigs.frictionAngle = CheckDouble(model, std::string{"friction_angle"}, 30.0);
-                materialConfigs.beta = CheckDouble(model, std::string{"beta"}, 0.5);
-                materialConfigs.hardeningOn = CheckBool(model, std::string{"hardeningOn"}, true); 
+                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                materialConfigs.xi = CheckDouble(model, "xi", 0.8);
+                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                materialConfigs.hardeningOn = CheckBool(model, "hardeningOn", true); 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity);
@@ -1374,9 +1374,9 @@ void parse_scene(std::string fn,
             };
 
             mn::vec<PREC, 3> velocity, partition_start, partition_end;
-            velocity = CheckDoubleArray(model, std::string{"velocity"}, mn::pvec3{0.,0.,0.});
-            partition_start = CheckDoubleArray(model, std::string{"partition_start"}, mn::pvec3{0.,0.,0.});
-            partition_end = CheckDoubleArray(model, std::string{"partition_end"}, domain);
+            velocity = CheckDoubleArray(model, "velocity", mn::pvec3{0.,0.,0.});
+            partition_start = CheckDoubleArray(model, "partition_start", mn::pvec3{0.,0.,0.});
+            partition_end = CheckDoubleArray(model, "partition_end", domain);
             for (int d = 0; d < 3; ++d) {
               velocity[d] = velocity[d] / l;
               partition_start[d]  = partition_start[d] / l + o;
@@ -1387,10 +1387,10 @@ void parse_scene(std::string fn,
                 fmt::print(fg(red), "GPU[{}] ERROR: Zero volume partition (Element of partition_end == partition_start). Fix and Retry.", gpu_id); getchar();
               }
             }
-            output_attribs = CheckStringArray(model, std::string{"output_attribs"}, std::vector<std::string> {{"ID"}});
-            track_attribs = CheckStringArray(model, std::string{"track_attribs"}, std::vector<std::string> {{"Position_Y"}});
-            track_particle_id = CheckIntArray(model, std::string{"track_particle_id"}, mn::vec<int, 1> {0});
-            target_attribs = CheckStringArray(model, std::string{"target_attribs"}, std::vector<std::string> {{"Position_Y"}});
+            output_attribs = CheckStringArray(model, "output_attribs", std::vector<std::string> {{"ID"}});
+            track_attribs = CheckStringArray(model, "track_attribs", std::vector<std::string> {{"Position_Y"}});
+            track_particle_id = CheckIntArray(model, "track_particle_id", mn::vec<int, 1> {0});
+            target_attribs = CheckStringArray(model, "target_attribs", std::vector<std::string> {{"Position_Y"}});
             if (output_attribs.size() > mn::config::g_max_particle_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] output_attribs value supported.\n", gpu_id, mn::config::g_max_particle_attribs); }
             if (track_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] track_attribs value supported currently.\n", gpu_id); }
             if (sizeof(track_particle_id) / sizeof(int) > 1) { fmt::print(fg(red), "ERROR: Only [1] track__particle_id value supported currently.\n"); }
@@ -1403,19 +1403,19 @@ void parse_scene(std::string fn,
               if (geo->value.IsArray()) {
                 fmt::print(fg(blue),"GPU[{}] MODEL[{}] has [{}] particle geometry operations to perform. \n", gpu_id, model_id, geo->value.Size());
                 for (auto &geometry : geo->value.GetArray()) {
-                  std::string operation = CheckString(geometry, std::string{"operation"}, std::string{"add"});
-                  std::string type = CheckString(geometry, std::string{"object"}, std::string{"box"});
+                  std::string operation = CheckString(geometry, "operation", std::string{"add"});
+                  std::string type = CheckString(geometry, "object", std::string{"box"});
                   fmt::print(fg(white), "GPU[{}] MODEL[{}] Begin operation[{}] with object[{}]... \n", gpu_id, model_id, operation, type);
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
                   mn::vec<PREC, 3> geometry_rotate, geometry_fulcrum, geometry_shear;
-                  geometry_span = CheckDoubleArray(geometry, std::string{"span"}, domain);
-                  geometry_offset = CheckDoubleArray(geometry, std::string{"offset"}, mn::pvec3{0.,0.,0.});
-                  geometry_array = CheckIntArray(geometry, std::string{"array"}, mn::ivec3{1,1,1});
-                  geometry_spacing = CheckDoubleArray(geometry, std::string{"spacing"}, mn::pvec3{0.,0.,0.});
-                  geometry_rotate = CheckDoubleArray(geometry, std::string{"rotate"}, mn::pvec3{0.,0.,0.});
-                  geometry_fulcrum = CheckDoubleArray(geometry, std::string{"fulcrum"}, mn::pvec3{0.,0.,0.});           
+                  geometry_span = CheckDoubleArray(geometry, "span", domain);
+                  geometry_offset = CheckDoubleArray(geometry, "offset", mn::pvec3{0.,0.,0.});
+                  geometry_array = CheckIntArray(geometry, "array", mn::ivec3{1,1,1});
+                  geometry_spacing = CheckDoubleArray(geometry, "spacing", mn::pvec3{0.,0.,0.});
+                  geometry_rotate = CheckDoubleArray(geometry, "rotate", mn::pvec3{0.,0.,0.});
+                  geometry_fulcrum = CheckDoubleArray(geometry, "fulcrum", mn::pvec3{0.,0.,0.});           
                   for (int d = 0; d < 3; ++d) {
                     geometry_span[d]    = geometry_span[d]    / l;
                     geometry_offset[d]  = geometry_offset[d]  / l + o;
@@ -1451,8 +1451,8 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
-                    PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
-                    std::string geometry_axis = CheckString(geometry, std::string{"axis"}, std::string{"X"});
+                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.);
+                    std::string geometry_axis = CheckString(geometry, "axis", std::string{"X"});
 
                     if (operation == "Add" || operation == "add") {
                       make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
@@ -1461,7 +1461,7 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
-                    PREC geometry_radius = CheckDouble(geometry, std::string{"radius"}, 0.);
+                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.);
                     if (operation == "Add" || operation == "add") {
                       make_sphere(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
@@ -1478,7 +1478,7 @@ void parse_scene(std::string fn,
                   else if (type == "File" || type == "file") 
                   {
                     // * NOTE : Assumes geometry "file" specified by scene.json is in  AssetDirPath/, e.g. for AssetDirPath = ~/claymore/Data/, then use ~/claymore/Data/file
-                    std::string geometry_file = CheckString(geometry, std::string{"file"}, std::string{"MpmParticles/yoda.sdf"});
+                    std::string geometry_file = CheckString(geometry, "file", std::string{"MpmParticles/yoda.sdf"});
                     std::string geometry_fn = std::string(AssetDirPath) + geometry_file;
                     fs::path geometry_file_path{geometry_fn};
                     if (geometry_file_path.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
@@ -1490,8 +1490,8 @@ void parse_scene(std::string fn,
                     if (operation == "Add" || operation == "add") {
                       if (geometry_file_path.extension() == ".sdf") 
                       {
-                        PREC geometry_scaling_factor = CheckDouble(geometry, std::string{"scaling_factor"}, 1);
-                        int geometry_padding = CheckInt(geometry, std::string{"padding"}, 1);
+                        PREC geometry_scaling_factor = CheckDouble(geometry, "scaling_factor", 1);
+                        int geometry_padding = CheckInt(geometry, "padding", 1);
                         if (geometry_scaling_factor <= 0) {
                           fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); getchar(); }
                         if (geometry_padding < 1) {
@@ -1511,8 +1511,8 @@ void parse_scene(std::string fn,
                           geometry_file_path.extension() == ".pdb" ||
                           geometry_file_path.extension() == ".ptc") 
                       {
-                        has_attributes = CheckBool(geometry, std::string{"has_attributes"}, false);
-                        input_attribs = CheckStringArray(geometry, std::string{"input_attribs"}, std::vector<std::string> {{"ID"}});
+                        has_attributes = CheckBool(geometry, "has_attributes", false);
+                        input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
                         if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
                         if (input_attribs.size() > mn::config::g_max_particle_attribs) {
                           fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); getchar();
