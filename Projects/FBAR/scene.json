@@ -1,6 +1,6 @@
 {
 	"simulation": {
-		"fps": 10,
+		"fps": 20,
 		"frames": 40,
 		"default_dt": 7e-5,
 		"default_dx": 0.05,

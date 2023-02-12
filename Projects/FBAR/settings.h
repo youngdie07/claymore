@@ -110,7 +110,7 @@ constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
 
 // Grid set-up
 #define BLOCK_BITS 2 //< Bits for grid block resolution. 2 -> 4x4x4 grid-nodes. 
-#define DOMAIN_BITS 8 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
+#define DOMAIN_BITS 11 //< Bits for domain resolution. 8 -> 2^8x2^8x2^8 grid-nodes. Increase for more grid-nodes.
 #define DXINV (1.f * (1 << DOMAIN_BITS))
 constexpr int g_domain_bits = DOMAIN_BITS; //< Bits for grid block resolution.
 constexpr int g_domain_size = (1 << DOMAIN_BITS); //< Max grid-nodes in domain direction.
@@ -152,7 +152,7 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain 
 /// * Preallocate GPU memory for particles, grids, finite elements, grid-targets, etc
 /// ------------------
 // * Grids
-#define GBPCB 16
+#define GBPCB 8
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;

@@ -47,7 +47,7 @@ function(add_cuda_executable binary)
     add_executable(${binary} ${ARGN})
     # seems not working
     target_compile_options(${binary} 
-      PRIVATE     $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread --fmad=true -lineinfo --ptxas-options=-allow-expensive-optimizations=true>
+      PRIVATE     $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread --fmad=true -lineinfo --ptxas-options=-allow-expensive-optimizations=true --maxrregcount=96> #--maxrregcount=128
     )
     target_compile_features(${binary} PRIVATE cuda_std_14)
     set_target_properties(${binary}
@@ -68,7 +68,7 @@ function(add_cuda_library library)
     add_library(${library} ${ARGN})
     # Seems to not be working
     target_compile_options(${library} 
-      PUBLIC        $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread -lineinfo --fmad=true --ptxas-options=-allow-expensive-optimizations=true>
+      PUBLIC        $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread -lineinfo --fmad=true --ptxas-options=-allow-expensive-optimizations=true --maxrregcount=96> #--maxrregcount=128
     )
     #target_link_options(${library} 
     #  PRIVATE       $<$<LINKER_LANGUAGE:CUDA>:-arch=sm_75>
