@@ -1,12 +1,12 @@
-#include "read_scene_input.h"
 #include "mgsp_benchmark.cuh"
+#include "read_scene_input.h"
 #include "partition_domain.h"
+
 #include <MnBase/Geometry/GeometrySampler.h>
 #include <MnBase/Math/Vec.h>
+#include <MnSystem/Cuda/Cuda.h>
 #include <MnSystem/IO/IO.h>
 #include <MnSystem/IO/ParticleIO.hpp>
-
-#include <MnSystem/Cuda/Cuda.h>
 
 #include <cxxopts.hpp>
 #include <fmt/color.h>
@@ -37,6 +37,8 @@ int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
   
+  IO;
+
   Cuda::startup(); //< Start CUDA GPUs if available.
   // ---------------- Read JSON input file for simulation ---------------- 
   cxxopts::Options options("Scene_Loader", "Read simulation scene");
@@ -69,8 +71,11 @@ int main(int argc, char *argv[]) {
   
   // ---------------- Shutdown GPU / CUDA
   Cuda::shutdown();
-  fmt::print(fg(fmt::color::green),"Simulation finished. Shut-down CUDA GPUs.\n");
+  fmt::print(fg(fmt::color::green),"Shut-down CUDA GPU communication.\n");
+  cudaDeviceReset();
+  fmt::print(fg(fmt::color::green),"Reset CUDA GPUs.\n");
 
   // ---------------- Finish application
+  fmt::print(fg(fmt::color::green),"Application finished.\n");
   return 0;
 }

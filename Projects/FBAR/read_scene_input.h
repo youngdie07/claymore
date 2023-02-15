@@ -2,8 +2,8 @@
 #define __READ_SCENE_INPUT_H_
 #include "mgsp_benchmark.cuh"
 #include "partition_domain.h"
-#include <MnBase/Geometry/GeometrySampler.h>
 #include <MnBase/Math/Vec.h>
+#include <MnBase/Geometry/GeometrySampler.h>
 #include <MnSystem/IO/IO.h>
 #include <MnSystem/IO/ParticleIO.hpp>
 
@@ -1066,12 +1066,16 @@ void parse_scene(std::string fn,
             fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-16*sim_default_dx));
             fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
           } 
+          // uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil(domain[0] / l * (mn::config::g_grid_size) + 8*mn::config::g_bc)) * static_cast<uint64_t>(std::ceil(domain[1] / l * (mn::config::g_grid_size) + 8*mn::config::g_bc)) * static_cast<uint64_t>(std::ceil(domain[2] / l * (mn::config::g_grid_size) + 8*mn::config::g_bc));
+          uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil(domain[0] / l * (mn::config::g_grid_size_x))) * static_cast<uint64_t>(std::ceil(domain[1] / domain[1] * (mn::config::g_grid_size_y))) * static_cast<uint64_t>(std::ceil(domain[2] / domain[2] * (mn::config::g_grid_size_z)));
+          float reduction = 100.f * ( 1.f - domainBlockCnt / (mn::config::g_grid_size * mn::config::g_grid_size * mn::config::g_grid_size));
+          fmt::print("Saving [{}] percent memory on GPU by reducing preallocated partition _indexTable domainBlockCnt from [{}] to run-time [{}].\n", reduction, mn::config::g_grid_size * mn::config::g_grid_size * mn::config::g_grid_size, domainBlockCnt);
           fmt::print(fg(cyan),
-              "Scene simulation parameters: Domain Length [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}], save_suffix[{}]\n",
-              l, sim_default_dx, sim_default_dt,
+              "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}], save_suffix[{}]\n",
+              l, domainBlockCnt, sim_default_dx, sim_default_dt,
               sim_fps, sim_frames, sim_gravity, save_suffix);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
-              l, sim_default_dt,
+              l, domainBlockCnt, sim_default_dt,
               sim_fps, sim_frames, sim_gravity, save_suffix);
           fmt::print(fmt::emphasis::bold,
               "-----------------------------------------------------------"
@@ -1441,13 +1445,13 @@ void parse_scene(std::string fn,
                   if (type == "Box" || type == "box")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_box(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                      make_box(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_box(models[gpu_id], geometry_span, geometry_offset_updated); }
+                      subtract_box(models[total_id], geometry_span, geometry_offset_updated); }
                     else if (operation == "Union" || operation == "union") { fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") { fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") { fmt::print(fg(red),"Operation not implemented...\n");}
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] geometry operation[{}] invalid! \n", gpu_id, model_id, operation); getchar(); }
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
@@ -1455,23 +1459,23 @@ void parse_scene(std::string fn,
                     std::string geometry_axis = CheckString(geometry, "axis", std::string{"X"});
 
                     if (operation == "Add" || operation == "add") {
-                      make_cylinder(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
-                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[gpu_id], geometry_radius, geometry_axis, geometry_span, geometry_offset_updated); }
+                      make_cylinder(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                    else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[total_id], geometry_radius, geometry_axis, geometry_span, geometry_offset_updated); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
                     PREC geometry_radius = CheckDouble(geometry, "radius", 0.);
                     if (operation == "Add" || operation == "add") {
-                      make_sphere(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                      make_sphere(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
-                      subtract_sphere(models[gpu_id], geometry_radius, geometry_offset_updated); }
+                      subtract_sphere(models[total_id], geometry_radius, geometry_offset_updated); }
                     else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
                   else if (type == "OSU LWF" || type == "OSU Water")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[gpu_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                      make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
@@ -1496,14 +1500,14 @@ void parse_scene(std::string fn,
                           fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); getchar(); }
                         if (geometry_padding < 1) {
                           fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files require [padding] of atleast [1] (padding is empty exterior cells on sides of model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files.\n"); getchar();}
-                        mn::read_sdf(geometry_fn, models[gpu_id], materialConfigs.ppc,
+                        mn::read_sdf(geometry_fn, models[total_id], materialConfigs.ppc,
                             (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
                             partition_start, partition_end, rotation_matrix, geometry_fulcrum, geometry_scaling_factor, geometry_padding);
                       }
                       else if (geometry_file_path.extension() == ".csv") 
                       {
                         load_csv_particles(geometry_fn, ',', 
-                                            models[gpu_id], geometry_offset_updated, 
+                                            models[total_id], geometry_offset_updated, 
                                             partition_start, partition_end, rotation_matrix, geometry_fulcrum);
                       }
                       else if (geometry_file_path.extension() == ".bgeo" ||
@@ -1518,14 +1522,14 @@ void parse_scene(std::string fn,
                           fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); getchar();
                         }
                         attributes.resize(0, std::vector<PREC>(input_attribs.size()));
-                        mn::read_partio_general<PREC>(geometry_fn, models[gpu_id], attributes, input_attribs.size(), input_attribs); 
+                        mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
                         fmt::print("Size of attributes after reading in initial data: Particles {}, Attributess {}\n", attributes.size(), attributes[0].size());
                         fmt::print("First element: {} \n", attributes[0][0]);
 
                         // Scale particle positions to 1x1x1 simulation
-                        for (int part=0; part < models[gpu_id].size(); part++) {
+                        for (int part=0; part < models[total_id].size(); part++) {
                           for (int d = 0; d<3; d++) {
-                            models[gpu_id][part][d] = models[gpu_id][part][d] / l + geometry_offset_updated[d];
+                            models[total_id][part][d] = models[total_id][part][d] / l + geometry_offset_updated[d];
                           }
                           // Scale length based attributes to 1x1x1 simulation (e.g. Velocity)
                           for (int d = 0; d < input_attribs.size(); d++) {
@@ -1733,25 +1737,22 @@ void parse_scene(std::string fn,
             std::vector<std::array<PREC_G, mn::config::g_grid_target_attribs>> h_gridTarget(mn::config::g_grid_target_cells, std::array<PREC_G, mn::config::g_grid_target_attribs> {0.0});
             mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
 
-            if (0) // TODO : Implement attribute selection for grid-target
-            {
-              std::string attribute{model["attribute"].GetString()};
-              if      (attribute == "Force"  || attribute == "force")  target[0] = 0;
-              else if (attribute == "Velocity" || attribute == "velocity") target[0] = 1;
-              else if (attribute == "Momentum" || attribute == "momentum") target[0] = 2;
-              else if (attribute == "Mass"  || attribute == "mass")  target[0] = 3;
-              else if (attribute == "JBar" || attribute == "J Bar") target[0] = 4;
-              else if (attribute == "Volume" || attribute == "volume") target[0] = 5;
-              else if (attribute == "X"  || attribute == "x")  target[0] = 6;
-              else if (attribute == "Z-" || attribute == "z-") target[0] = 7;
-              else if (attribute == "Z+" || attribute == "z+") target[0] = 8;
-              else {
-                target[0] = -1;
-                fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
-              }
+            std::string attribute = CheckString(model,"attribute", std::string{"force"});
+            if      (attribute == "Force"  || attribute == "force")  target[0] = 0;
+            else if (attribute == "Velocity" || attribute == "velocity") target[0] = 1;
+            else if (attribute == "Momentum" || attribute == "momentum") target[0] = 2;
+            else if (attribute == "Mass"  || attribute == "mass")  target[0] = 3;
+            else if (attribute == "JBar" || attribute == "J Bar") target[0] = 4;
+            else if (attribute == "Volume" || attribute == "volume") target[0] = 5;
+            else if (attribute == "X"  || attribute == "x")  target[0] = 6;
+            else if (attribute == "Z-" || attribute == "z-") target[0] = 7;
+            else if (attribute == "Z+" || attribute == "z+") target[0] = 8;
+            else {
+              target[0] = -1;
+              fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
             }
-
-            std::string direction{model["direction"].GetString()};
+            
+            std::string direction = CheckString(model,"direction", std::string{"X"});
             if      (direction == "X"  || direction == "x")  target[0] = 0;
             else if (direction == "X-" || direction == "x-") target[0] = 1;
             else if (direction == "X+" || direction == "x+") target[0] = 2;
@@ -1776,9 +1777,9 @@ void parse_scene(std::string fn,
             // * NOTE: Checks for zero length target dimensions, grows by 1 grid-cell if so
             for (int d=0; d < 3; ++d)
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
-            PREC_G freq = model["output_frequency"].GetFloat();
+            PREC_G freq = CheckDouble(model, "output_frequency", 60.);
 
-            mn::config::GridTargetConfigs gridTargetConfigs((int)target[6], (int)target[6], (int)target[6], make_float3((float)target[1], (float)target[2], (float)target[3]), make_float3((float)target[4], (float)target[5], (float)target[6]), (float)freq);
+            // mn::config::GridTargetConfigs gridTargetConfigs((int)target[6], (int)target[6], (int)target[6], make_float3((float)target[1], (float)target[2], (float)target[3]), make_float3((float)target[4], (float)target[5], (float)target[6]), (float)freq);
 
             // * Loop through GPU devices to initialzie
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
@@ -1802,13 +1803,10 @@ void parse_scene(std::string fn,
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
-            std::vector<std::array<PREC, mn::config::g_particle_target_attribs>> h_particleTarget(mn::config::g_particle_target_cells, 
-                                                            std::array<PREC, mn::config::g_particle_target_attribs>{0.f,0.f,0.f,
-                                                            0.f,0.f,0.f,
-                                                            0.f,0.f,0.f,0.f});
+            std::vector<std::array<PREC, mn::config::g_particle_target_attribs>> h_particleTarget(mn::config::g_particle_target_cells,std::array<PREC,          mn::config::g_particle_target_attribs>{0.f});
             mn::vec<PREC, 7> target; // TODO : Make structure for particle-target data
             // TODO : Implement attribute selection for particle-targets (only elevation currently)
-            std::string operation{model["operation"].GetString()};
+            std::string operation = CheckString(model,"operation", std::string{"max"});
             if      (operation == "Maximum" || operation == "maximum" || operation == "Max" || operation == "max") target[0] = 0;
             else if (operation == "Minimum" || operation == "minimum" || operation == "Min" || operation == "min") target[0] = 1;
             else if (operation == "Add" || operation == "add" || operation == "Sum" || operation == "sum") target[0] = 2;
@@ -1828,9 +1826,9 @@ void parse_scene(std::string fn,
               target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
 
-            PREC freq = model["output_frequency"].GetDouble();
+            PREC freq = CheckDouble(model, "output_frequency", 60.);
 
-            mn::config::ParticleTargetConfigs particleTargetConfigs((int)target[6], (int)target[6], (int)target[6], {(float)target[1], (float)target[2], (float)target[3]}, {(float)target[4], (float)target[5], (float)target[6]}, (float)freq);
+            // mn::config::ParticleTargetConfigs particleTargetConfigs((int)target[6], (int)target[6], (int)target[6], {(float)target[1], (float)target[2], (float)target[3]}, {(float)target[4], (float)target[5], (float)target[6]}, (float)freq);
 
 
             // Initialize on GPUs
@@ -1864,8 +1862,10 @@ void parse_scene(std::string fn,
             for (int d = 0; d < 3; ++d) {
               h_boundary[d+3] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
-            std::string object{model["object"].GetString()};
-            std::string contact{model["contact"].GetString()};
+            std::string object = CheckString(model,"object", std::string{"box"});
+
+            std::string contact = CheckString(model,"contact", std::string{"Sticky"});
+
 
             if (object == "Wall" || object == "wall")
             {

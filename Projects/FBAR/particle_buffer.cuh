@@ -2,8 +2,13 @@
 #define __PARTICLE_BUFFER_CUH_
 #include "settings.h"
 #include "constitutive_models.cuh"
+#include "utility_funcs.hpp"
+#include <MnBase/Math/Vec.h>
 #include <MnBase/Meta/Polymorphism.h>
-#include "MnBase/Meta/TypeMeta.h"
+#include <MnSystem/Cuda/HostUtils.hpp>
+#include <MnBase/Meta/TypeMeta.h>
+
+
 namespace mn {
 
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
@@ -159,13 +164,24 @@ using particle_buffer_ =
                          structural_padding_policy::compact>,
                ParticleBufferDomain, attrib_layout::aos, ParticleBin>;
 
-
-
 template <material_e mt>
 struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   static constexpr material_e materialType = mt;
   using base_t = Instance<particle_buffer_<particle_bin_<mt>>>;
+  std::size_t _numActiveBlocks;
+  int *_ppcs, *_ppbs;
+  int *_cellbuckets, *_blockbuckets;
+  int *_binsts;
 
+  // Constructor
+  template <typename Allocator>
+  ParticleBufferImpl(Allocator allocator, std::size_t count)
+      : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
+            allocator, count)},
+        _numActiveBlocks{0}, _ppcs{nullptr}, _ppbs{nullptr},
+        _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {
+              std::cout << "Constructing ParticleBufferImpl." << "\n";
+            }
   // Constructor
   template <typename Allocator>
   ParticleBufferImpl(Allocator allocator)
@@ -173,7 +189,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
             allocator)} {
               std::cout << "Constructing ParticleBufferImpl." << "\n";
             }
-  
+
   // Check if particle buffer can hold n particle blocks, resize if not
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
@@ -266,34 +282,13 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else return out_:: INVALID_RT;
   }
 
-  // // given vector of strings of attribute names, return vector of indices
-  // // for the attribute prefix (string before underscore) and the attribute
-  // // suffix (string after underscore)
-  // void getAttributePrefixSuffix(std::vector<std::string> names, std::vector<std::string> &prefix, std::vector<std::string> &suffix) {
-  //   for (auto n : names)
-  //   {
-  //     auto pos = n.find("_");
-  //     if (pos != std::string::npos)
-  //     {
-  //       prefix.emplace_back(n.substr(0, pos));
-  //       suffix.emplace_back(n.substr(pos+1));
-  //     }
-  //     else
-  //     {
-  //       prefix.emplace_back(n);
-  //       suffix.emplace_back("");
-  //     }
-  //   }
-  // }
-
   int track_ID = 0;
   vec<int, 1> track_attribs;
   std::vector<std::string> track_labels;   
   void updateTrack(std::vector<std::string> names, int trackID=0) {
     track_ID = trackID;
     int i = 0;
-    for (auto n : names)
-    {
+    for (auto n : names) {
       track_labels.emplace_back(n);
       track_attribs[i] = static_cast<int>(mapAttributeStringToIndex(n));
       i = i+1;
@@ -305,8 +300,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   std::vector<std::string> output_labels;   
   void updateOutputs(std::vector<std::string> names) {
     int i = 0;
-    for (auto n : names)
-    {
+    for (auto n : names) {
       if (i>=mn::config::g_max_particle_attribs) continue;
       output_labels.emplace_back(n);
       output_attribs_dyn[i] = static_cast<int>(mapAttributeStringToIndex(n));
@@ -319,13 +313,75 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   std::vector<std::string> target_labels;   
   void updateTargets(std::vector<std::string> names) {
     int i = 0;
-    for (auto n : names)
-    {
+    for (auto n : names) {
       target_labels.emplace_back(n);
       target_attribs[i] = static_cast<int>(mapAttributeStringToIndex(n));
       i++;
     }
   }
+
+  template <typename Allocator>
+  void reserveBuckets(Allocator allocator, std::size_t numBlockCnt) {
+    if (_binsts) {
+      allocator.deallocate(_ppcs, sizeof(int) * _numActiveBlocks *
+                                      config::g_blockvolume);
+      allocator.deallocate(_ppbs, sizeof(int) * _numActiveBlocks);
+      allocator.deallocate(_cellbuckets, sizeof(int) * _numActiveBlocks *
+                                             config::g_blockvolume *
+                                             config::g_max_ppc);
+      allocator.deallocate(_blockbuckets, sizeof(int) * _numActiveBlocks *
+                                              config::g_particle_num_per_block);
+      allocator.deallocate(_binsts, sizeof(int) * _numActiveBlocks);
+    }
+    _numActiveBlocks = numBlockCnt;
+    _ppcs = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
+                                      config::g_blockvolume);
+    _ppbs = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks);
+    _cellbuckets =
+        (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
+                                  config::g_blockvolume * config::g_max_ppc);
+    _blockbuckets = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
+                                              config::g_particle_num_per_block);
+    _binsts = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks);
+    resetPpcs();
+  }
+  void resetPpcs() {
+    checkCudaErrors(cudaMemset(
+        _ppcs, 0, sizeof(int) * _numActiveBlocks * config::g_blockvolume));
+  }
+  void copy_to(ParticleBufferImpl &other, std::size_t blockCnt,
+               cudaStream_t stream) const {
+    checkCudaErrors(cudaMemcpyAsync(other._binsts, _binsts,
+                                    sizeof(int) * (blockCnt + 1),
+                                    cudaMemcpyDefault, stream));
+    checkCudaErrors(cudaMemcpyAsync(other._ppbs, _ppbs, sizeof(int) * blockCnt,
+                                    cudaMemcpyDefault, stream));
+  }
+  // __forceinline__ __device__ void add_advection(Partition<1> &table,
+  //                                               Partition<1>::key_t cellid,
+  //                                               int dirtag,
+  //                                               int pidib) noexcept {
+  //   using namespace config;
+  //   Partition<1>::key_t blockid = cellid / g_blocksize;
+  //   int blockno = table.query(blockid);
+
+  //   if (blockno == -1) {
+  //     ivec3 offset{};
+  //     dir_components(dirtag, offset);
+  //     printf("loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n", cellid[0],
+  //            cellid[1], cellid[2], offset[0], offset[1], offset[2], pidib);
+  //     return;
+  //   }
+
+  //   int cellno = ((cellid[0] & g_blockmask) << (g_blockbits << 1)) |
+  //                ((cellid[1] & g_blockmask) << g_blockbits) |
+  //                (cellid[2] & g_blockmask);
+  //   int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1);
+  //   _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+  //                pidic] = (dirtag * g_particle_num_per_block) | pidib;
+  // }
+
+
 };
 
 
@@ -448,6 +504,10 @@ struct ParticleBuffer<material_e::JFluid>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 template <>
@@ -568,6 +628,10 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 
@@ -691,6 +755,10 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 
@@ -851,6 +919,10 @@ struct ParticleBuffer<material_e::JBarFluid>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 template <>
@@ -985,6 +1057,10 @@ struct ParticleBuffer<material_e::FixedCorotated>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 template <>
@@ -1121,6 +1197,10 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 
@@ -1258,6 +1338,10 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 
@@ -1395,6 +1479,10 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 template <>
@@ -1555,6 +1643,10 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 template <>
@@ -1721,6 +1813,10 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 
@@ -1825,6 +1921,10 @@ struct ParticleBuffer<material_e::Meshed>
   
   template <typename Allocator>
   ParticleBuffer(Allocator allocator) : base_t{allocator} {}
+
+  template <typename Allocator>
+  ParticleBuffer(Allocator allocator, std::size_t count)
+      : base_t{allocator, count} {}
 };
 
 /// Reference: http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0608r3.html
@@ -1967,6 +2067,7 @@ struct ParticleArray : Instance<particle_array_> {
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
+  //ParticleArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 
 template <num_attribs_e N> struct particle_attrib_;
@@ -1998,45 +2099,17 @@ struct ParticleAttrib: Instance<particle_attrib_<N>> {
   
   template <typename Allocator>
   ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
-      std::cout << "ParticleAttrib constructor called." << "\n";
+      std::cout << "ParticleAttrib constructor with an allocator." << "\n";
     }
-
-  // // Destructor
-  // // Undefined in device code
-  // ~ParticleAttrib() {
-  //   std::cout << "ParticleAttrib destructor called." << "\n";
-  // }
-  
-  // /// @brief  Copy constructor.
-  // ParticleAttrib(const ParticleAttrib &other) : base_t{other} {
-  //   fmt::print("ParticleAttrib copy constructed.\n");
-  // }
-
-  // /// @brief  Copy assignment operator.
-  // ParticleAttrib &operator=(const ParticleAttrib &other) {
-  //   base_t::operator=(other);
-  //   fmt::print("ParticleAttrib copy assigned.\n");
-  //   return *this;
-  // }
-
-  // /// @brief  Move constructor.
-  // ParticleAttrib(ParticleAttrib &&other) : base_t{other} {
-  //   fmt::print("ParticleAttrib move constructed.\n");
-  // }
-
-  // /// @brief  Move assignment operator.
-  // ParticleAttrib &operator=(ParticleAttrib &&other) {
-  //   base_t::operator=(other);
-  //   fmt::print("ParticleAttrib move assigned.\n");
-  //   return *this;
-  // }
-
-  // /// @brief  Move assignment operator.
-  // ParticleAttrib &operator=(base_t &&instance) {
-  //   static_cast<base_t &>(*this) = instance;
-  //   return *this;
-  // }
-
+  ParticleAttrib &operator=(base_t &&instance) {
+    std::cout << "ParticleAttrib move assignment operator called." << "\n";
+    static_cast<base_t &>(*this) = instance;
+    return *this;
+  }
+  ParticleAttrib(base_t &&instance) { 
+    std::cout << "ParticleAttrib move constructor called." << "\n";
+    static_cast<base_t &>(*this) = instance; 
+    }
 
   template <num_attribs_e ATTRIBUTE, typename T>
    __device__ PREC

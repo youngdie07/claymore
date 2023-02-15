@@ -134,12 +134,12 @@ struct structural_traits {
   }
   template <typename Allocator> void deallocate(Allocator allocator) {
     std::cout << "Deallocate structural_traits, size: " << self::size << "\n";
-    allocator.deallocate(_handle.ptr, self::size);
+    if (self::size && _handle.ptr) allocator.deallocate(_handle.ptr, self::size);
     _handle.ptr = nullptr;
   }
   template <typename Allocator>
   void deallocate(Allocator allocator, std::size_t s) {
-    allocator.deallocate(_handle.ptr, s);
+    if (s && _handle.ptr) allocator.deallocate(_handle.ptr, s);
     std::cout << "Deallocated structural_traits, size: " << s << "\n";
     _handle.ptr = nullptr;
   }
@@ -239,11 +239,21 @@ struct structural<structural_type::hash, Decoration, Domain, Layout,
   void allocate_table(Allocator allocator, value_t capacity) {
     _capacity = capacity;
     _cnt = static_cast<value_t *>(allocator.allocate(sizeof(value_t)));
-    std::cout << "Allocated structural hash _cnt., size: " << sizeof(value_t) << "\n";
+    std::cout << "Allocated structural hash _cnt., size in bytes: " << sizeof(value_t) << "\n";
     _activeKeys = static_cast<key_t *>(allocator.allocate(sizeof(key_t) * capacity));
     std::cout << "Allocated structural hash _activeKeys, size: " << (sizeof(key_t) * capacity) << "\n";
     _indexTable = static_cast<value_t *>(allocator.allocate(sizeof(value_t) * Domain::extent));
     std::cout << "Allocated structural hash _indexTable, size: " << (sizeof(value_t) * Domain::extent) << "\n";
+  }
+  template <typename Allocator>
+  void allocate_table(Allocator allocator, value_t capacity, value_t runtime_extent) {
+    _capacity = capacity;
+    _cnt = static_cast<value_t *>(allocator.allocate(sizeof(value_t)));
+    std::cout << "Allocated structural hash _cnt., size: " << sizeof(value_t) << "\n";
+    _activeKeys = static_cast<key_t *>(allocator.allocate(sizeof(key_t) * capacity));
+    std::cout << "Allocated structural hash _activeKeys, size: " << (sizeof(key_t) * capacity) << "\n";
+    _indexTable = static_cast<value_t *>(allocator.allocate(sizeof(value_t) * runtime_extent));
+    std::cout << "Allocated structural hash _indexTable, runtime size: " << (sizeof(value_t) * runtime_extent) << "\n";
   }
   template <typename Allocator>
   void resize_table(Allocator allocator, std::size_t capacity) {
@@ -258,6 +268,20 @@ struct structural<structural_type::hash, Decoration, Domain, Layout,
     std::cout << "Deallocated structural hash _activeKeys, size:" << (sizeof(key_t) * _capacity) << "\n";
     allocator.deallocate(_indexTable, sizeof(value_t) * Domain::extent);
     std::cout << "Deallocated structural hash _indexTable, size: " << ( sizeof(value_t) * Domain::extent) << "\n";
+    base_t::deallocate(allocator); // Maybe unneccesary, unclear
+    std::cout << "Deallocated structural hash base_t." << "\n";
+    _capacity = 0;
+    _cnt = nullptr;
+    _activeKeys = nullptr;
+    _indexTable = nullptr;
+  }
+  template <typename Allocator> void deallocate(Allocator allocator, value_t runtime_extent) {
+    allocator.deallocate(_cnt, sizeof(value_t));
+    std::cout << "Deallocated structural hash _cnt, size:" << sizeof(value_t) << "\n";
+    allocator.deallocate(_activeKeys, sizeof(key_t) * _capacity);
+    std::cout << "Deallocated structural hash _activeKeys, size:" << (sizeof(key_t) * _capacity) << "\n";
+    allocator.deallocate(_indexTable, sizeof(value_t) * runtime_extent);
+    std::cout << "Deallocated structural hash _indexTable, runtimesize: " << ( sizeof(value_t) * runtime_extent) << "\n";
     base_t::deallocate(allocator); // Maybe unneccesary, unclear
     std::cout << "Deallocated structural hash base_t." << "\n";
     _capacity = 0;

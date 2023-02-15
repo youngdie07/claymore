@@ -126,11 +126,6 @@ struct GridTarget : Instance<grid_target_> {
   // template <typename Allocator>
   // GridTarget(Allocator allocator) : base_t{allocator} {}
 
-  // // Destructor
-  // ~GridTarget() {
-  //   if (this->val_1d(_0, 0) != nullptr)
-  //     checkCudaErrors(cudaFree(this->val_1d(0, 0)));
-  // }
 
   /// @brief  Move constructor
   GridTarget(base_t &&instance) { 

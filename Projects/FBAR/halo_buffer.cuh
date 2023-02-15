@@ -63,11 +63,11 @@ struct HaloGridBlocks {
   void temp_deallocate(Allocator allocator) {
     fmt::print("HaloGridBlocks temp_deallocate.\n");
     for (int did = 0; did < numTargets; ++did){
-      _buffers[did]._grid.deallocate(allocator);
+      _buffers[did]._grid.deallocate(allocator, sizeof(ivec3) * h_counts[did]);
       fmt::print("Deallocated temp _buffers[{}]._grid\n", did);
       if (_buffers[did]._blockids) { 
         allocator.deallocate( _buffers[did]._blockids, h_counts[did] * sizeof(ivec3));
-        _buffers[did]._blockids = nullptr;
+        //_buffers[did]._blockids = nullptr;
         fmt::print("Deallocate temp _buffers[{}]._blockids\n", did);
       }
       else fmt::print("Already nullptr temp _buffers[{}]._blockids\n", did);
@@ -94,6 +94,13 @@ struct HaloGridBlocks {
     checkCudaErrors(
         cudaMemsetAsync(_counts, 0, sizeof(uint32_t) * numTargets, stream));
   }
+  void resetBlocks(uint32_t blockCount, cudaStream_t stream) {
+    for (int did = 0; did < numTargets; ++did) {
+      checkCudaErrors(
+          cudaMemsetAsync(_buffers[did]._blockids, 0, sizeof(ivec3) * blockCount, stream));//JB
+    }
+  }
+
   void retrieveCounts(cudaStream_t stream) {
     checkCudaErrors(cudaMemcpyAsync(h_counts.data(), _counts,
                                     sizeof(uint32_t) * numTargets,
