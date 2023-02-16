@@ -67,7 +67,6 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(other._haloBlocks, _haloBlocks,
                                     sizeof(ivec3) * blockCnt, cudaMemcpyDefault,
                                     stream));
-    // resetOverlapMarks(blockCnt, stream); // see if this fixes unintialzied memcpy error around .copy_to     JB
   }
   // Resize Halo Partition for number of active Halo Blocks
   template <typename Allocator>
@@ -149,8 +148,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   Partition(Allocator allocator, int maxBlockCnt, int runtimeExtent)
       : halo_base_t{allocator, maxBlockCnt} {
     _runtimeExtent = runtimeExtent;
-    fmt::print("Partition sizeof(value_t)[{}]\n", sizeof(value_t));
-    //fmt::print("Partition compiled domain::offset[{}]\n", domain::offset);
+    // fmt::print("Partition sizeof(value_t)[{}]\n", sizeof(value_t));
     fmt::print("Partition compiled domain::extent[{}]\n", domain::extent);
     fmt::print("Partition _runtimeExtent[{}]\n", _runtimeExtent);
 
@@ -179,15 +177,25 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   template <typename Allocator>
   void resizePartition(Allocator allocator, std::size_t capacity) {
     halo_base_t::resizePartition(allocator, this->_capacity, capacity);
+    fmt::print("Resized partitions::halo_base_t capacity from [{}] to [{}] blocks.\n", this->_capacity, capacity);
     allocator.deallocate(_ppcs,
                          sizeof(int) * this->_capacity * config::g_blockvolume);
+    fmt::print("Deallocated _ppcs bytes[{}].\n", sizeof(int) * this->_capacity *
+                                                   config::g_blockvolume);
     allocator.deallocate(_ppbs, sizeof(int) * this->_capacity);
+    fmt::print("Deallocated _ppbs bytes[{}].\n", sizeof(int) * this->_capacity);
     allocator.deallocate(_cellbuckets, sizeof(int) * this->_capacity *
                                            config::g_blockvolume *
                                            config::g_max_ppc);
+    fmt::print("Deallocated _cellbuckets bytes[{}].\n", sizeof(int) * this->_capacity *
+                                                          config::g_blockvolume *
+                                                          config::g_max_ppc);
     allocator.deallocate(_blockbuckets,
                          sizeof(int) * this->_capacity * config::g_particle_num_per_block);// config::g_blockvolume * config::g_max_ppc); // Changed (JB)
+    fmt::print("Deallocated _blockbuckets bytes[{}].\n", sizeof(int) * this->_capacity *
+                                                           config::g_particle_num_per_block);
     allocator.deallocate(_binsts, sizeof(int) * this->_capacity);
+    fmt::print("Deallocated _binsts bytes[{}].\n", sizeof(int) * this->_capacity);
     _ppcs = (int *)allocator.allocate(sizeof(int) * capacity *
                                       config::g_blockvolume);
     fmt::print("Allocated _ppcs bytes[{}].\n", sizeof(int) * capacity *
@@ -206,6 +214,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     _binsts = (int *)allocator.allocate(sizeof(int) * capacity);
     fmt::print("Allocated _binsts bytes[{}].\n", sizeof(int) * capacity);
     resize_table(allocator, capacity);
+    fmt::print("Resized partitions hash-table capacity to [{}] blocks.\n", capacity);
   }
   ~Partition() {
     //std::cout << "Partition destructor.\n";
@@ -238,20 +247,24 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
 
   // Reset Partition's Block count and particles-per-each-cell
   void reset() {
+
     checkCudaErrors(cudaMemset(this->_cnt, 0, sizeof(value_t)));
     checkCudaErrors(
         cudaMemset(this->_indexTable, 0xff, sizeof(value_t) * _runtimeExtent));
+    fmt::print("Reset partitions _indextable values to [{}]\n", 0xff);
     checkCudaErrors(cudaMemset(
         this->_ppcs, 0, sizeof(int) * this->_capacity * config::g_blockvolume));
     checkCudaErrors(cudaMemset(
         this->_ppbs, 0, sizeof(int) * this->_capacity));
     checkCudaErrors(cudaMemset(
         this->_binsts, 0, sizeof(int) * this->_capacity));
+    fmt::print("Reset partitions _cnt, _ppcs, _ppbs, _binsts values to [{}]\n", 0);
   }
   // Reset Partition index-table (maps 1D - 3D Block coordinates)
   void resetTable(cudaStream_t stream) {
     checkCudaErrors(cudaMemsetAsync(this->_indexTable, 0xff,
-                                    sizeof(value_t) * _runtimeExtent, stream));
+                                    sizeof(value_t) * _runtimeExtent));
+    fmt::print("Reset partitions _indexTable values to [{}] over [{}] bytes\n", 0xff, sizeof(value_t) * _runtimeExtent);
   }
   // Build Particle Block Buckets 
   template <typename CudaContext>
@@ -313,17 +326,16 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
     if (blockno == -1) {
       ivec3 offset{};
       dir_components(dirtag, offset);
-      printf("Error in hash_table.cuh! cell-id(%d, %d, %d) offset_dir(%d, %d, %d) particle-id-in-block(%d)\n",
+      printf("Error in hash_table.cuh! Cell-ID(%d, %d, %d) offset_dir(%d, %d, %d) particle-ID-in-block(%d).\n",
              cellid[0], cellid[1], cellid[2], offset[0], offset[1], offset[2],
              pidib);
-      printf("Possible a particle exited valid simulation domain or time-step is too large. Poorly implemented material laws or incorrectly set material parameters can cause this, as well as errors in the Partition data-structure.\n");       
+      printf("Possible a particle exited simulation domain or time-step is too large. Poorly implemented material laws or incorrectly set material parameters can cause this, as well as errors in the Partition data-structure allocation, deallocation, copies, etc.\n");       
       return;
     }
-
     value_t cellno = ((cellid[0] & g_blockmask) << (g_blockbits << 1)) |
                      ((cellid[1] & g_blockmask) << g_blockbits) |
                      (cellid[2] & g_blockmask);
-    int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); // Increment particles-in-cell count
+    int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); // ++particles-in-cell count
     _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
                  pidic] = (dirtag * g_particle_num_per_block) | pidib; // Update cell-bucket
   }
