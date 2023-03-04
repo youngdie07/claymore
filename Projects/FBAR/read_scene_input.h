@@ -1062,12 +1062,13 @@ void parse_scene(std::string fn,
           
 
           l = sim_default_dx * mn::config::g_dx_inv_d; 
-          if (domain[0] > (l-16*sim_default_dx) || domain[1] > (l-16*sim_default_dx) || domain[2] > (l-16*sim_default_dx)) {
-            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-16*sim_default_dx));
+          if (domain[0] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[1] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[2] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx)) {
+            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx));
             fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
           } 
           uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil(domain[0] / l * (mn::config::g_grid_size_x))) * static_cast<uint64_t>(std::ceil(domain[1] / domain[1] * (mn::config::g_grid_size_y))) * static_cast<uint64_t>(std::ceil(domain[2] / domain[2] * (mn::config::g_grid_size_z)));
           double reduction = 100. * ( 1. - domainBlockCnt / (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z));
+          domainBlockCnt = (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z); // Force full domain, fix later
           fmt::print(fg(yellow),"Partitions _indexTable data-structure: Saved [{}] percent memory of preallocated partition _indexTable by reudcing domainBlockCnt from [{}] to run-time of [{}] using domain input relative to DOMAIN_BITS and default_dx.\n", reduction, mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z, domainBlockCnt);
           fmt::print(fg(cyan),
               "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}], save_suffix[{}]\n",

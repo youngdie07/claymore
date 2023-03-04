@@ -168,26 +168,20 @@ template <material_e mt>
 struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   static constexpr material_e materialType = mt;
   using base_t = Instance<particle_buffer_<particle_bin_<mt>>>;
-  std::size_t _numActiveBlocks;
-  int *_ppcs, *_ppbs;
-  int *_cellbuckets, *_blockbuckets;
-  int *_binsts;
 
   // Constructor
   template <typename Allocator>
   ParticleBufferImpl(Allocator allocator, std::size_t count)
       : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
-            allocator, count)},
-        _numActiveBlocks{0}, _ppcs{nullptr}, _ppbs{nullptr},
-        _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {
-              std::cout << "Constructing ParticleBufferImpl." << "\n";
+            allocator, count)}, _numActiveBlocks{0}, _ppcs{nullptr}, _ppbs{nullptr},
+            _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {
+              std::cout << "Constructing ParticleBufferImpl with buckets." << "\n";
             }
-  // Constructor
   template <typename Allocator>
   ParticleBufferImpl(Allocator allocator)
       : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
             allocator)} {
-              std::cout << "Constructing ParticleBufferImpl." << "\n";
+              std::cout << "Constructing ParticleBufferImpl without buckets." << "\n";
             }
 
   // Check if particle buffer can hold n particle blocks, resize if not
@@ -320,35 +314,54 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
     }
   }
 
+
+  template <typename Allocator>
+  void deallocateBuckets(Allocator allocator) {
+    if (config::g_buckets_on_particle_buffer && _binsts) {
+      allocator.deallocate(_ppcs, sizeof(int) * _numActiveBlocks *
+                                            config::g_blockvolume);
+      allocator.deallocate(_ppbs, sizeof(int) * _numActiveBlocks);
+      allocator.deallocate(_cellbuckets, sizeof(int) * _numActiveBlocks *
+                                            config::g_blockvolume *
+                                            config::g_max_ppc);
+      allocator.deallocate(_blockbuckets, sizeof(int) * _numActiveBlocks *
+                                            config::g_particle_num_per_block);
+      allocator.deallocate(_binsts, sizeof(int) * _numActiveBlocks);
+    }
+  }
+
   template <typename Allocator>
   void reserveBuckets(Allocator allocator, std::size_t numBlockCnt) {
     if (_binsts) {
       allocator.deallocate(_ppcs, sizeof(int) * _numActiveBlocks *
-                                      config::g_blockvolume);
+                                             config::g_blockvolume);
       allocator.deallocate(_ppbs, sizeof(int) * _numActiveBlocks);
       allocator.deallocate(_cellbuckets, sizeof(int) * _numActiveBlocks *
                                              config::g_blockvolume *
                                              config::g_max_ppc);
       allocator.deallocate(_blockbuckets, sizeof(int) * _numActiveBlocks *
-                                              config::g_particle_num_per_block);
+                                             config::g_particle_num_per_block);
       allocator.deallocate(_binsts, sizeof(int) * _numActiveBlocks);
     }
     _numActiveBlocks = numBlockCnt;
     _ppcs = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
-                                      config::g_blockvolume);
+                                             config::g_blockvolume);
     _ppbs = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks);
-    _cellbuckets =
-        (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
-                                  config::g_blockvolume * config::g_max_ppc);
+    _cellbuckets = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
+                                             config::g_blockvolume * 
+                                             config::g_max_ppc);
     _blockbuckets = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks *
-                                              config::g_particle_num_per_block);
+                                             config::g_particle_num_per_block);
     _binsts = (int *)allocator.allocate(sizeof(int) * _numActiveBlocks);
     resetPpcs();
   }
+  // Reset particle per cell to zero on GPU
   void resetPpcs() {
-    checkCudaErrors(cudaMemset(
-        _ppcs, 0, sizeof(int) * _numActiveBlocks * config::g_blockvolume));
+    checkCudaErrors(cudaMemset( _ppcs, 0, sizeof(int) * _numActiveBlocks 
+                                                      * config::g_blockvolume));
+    printf("Reset particleBins._ppcs to zero.\n");
   }
+  // Stream copy bin starts and particle per block to other buffer for next step
   void copy_to(ParticleBufferImpl &other, std::size_t blockCnt,
                cudaStream_t stream) const {
     checkCudaErrors(cudaMemcpyAsync(other._binsts, _binsts,
@@ -356,32 +369,40 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
                                     cudaMemcpyDefault, stream));
     checkCudaErrors(cudaMemcpyAsync(other._ppbs, _ppbs, sizeof(int) * blockCnt,
                                     cudaMemcpyDefault, stream));
+    printf("Copied particleBins._binsts to other._binsts.\n");
+    printf("Copied particleBins._ppbs to other._ppbs.\n");
   }
-  // __forceinline__ __device__ void add_advection(Partition<1> &table,
-  //                                               Partition<1>::key_t cellid,
-  //                                               int dirtag,
-  //                                               int pidib) noexcept {
-  //   using namespace config;
-  //   Partition<1>::key_t blockid = cellid / g_blocksize;
-  //   int blockno = table.query(blockid);
+  // 
+  template<typename Partition> // May want to put this in mpmpm_kernels.cuh
+  __forceinline__ __device__ void add_advection(Partition &table,
+                                                ivec3 cellid,
+                                                int dirtag,
+                                                int pidib) noexcept {
+    using namespace config;
+    ivec3 blockid = cellid / g_blocksize;
+    int blockno = table.query(blockid); // Get block number from 3D block ID
+#if 1
+    if (blockno == -1) {
+      ivec3 offset{};
+      dir_components(dirtag, offset);
+      printf("loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n", cellid[0],
+             cellid[1], cellid[2], offset[0], offset[1], offset[2], pidib);
+      return;
+    }
+#endif
+    int cellno = ((cellid[0] & g_blockmask) << (g_blockbits << 1)) |
+                 ((cellid[1] & g_blockmask) << g_blockbits) |
+                 (cellid[2] & g_blockmask);
+    // +1 particle to particles per cell. pidic = old value particle ID in cell    
+    int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); 
+    _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+                 pidic] = (dirtag * g_particle_num_per_block) | pidib; 
+  }
 
-  //   if (blockno == -1) {
-  //     ivec3 offset{};
-  //     dir_components(dirtag, offset);
-  //     printf("loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n", cellid[0],
-  //            cellid[1], cellid[2], offset[0], offset[1], offset[2], pidib);
-  //     return;
-  //   }
-
-  //   int cellno = ((cellid[0] & g_blockmask) << (g_blockbits << 1)) |
-  //                ((cellid[1] & g_blockmask) << g_blockbits) |
-  //                (cellid[2] & g_blockmask);
-  //   int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1);
-  //   _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-  //                pidic] = (dirtag * g_particle_num_per_block) | pidib;
-  // }
-
-
+  std::size_t _numActiveBlocks;
+  int *_ppcs, *_ppbs;
+  int *_cellbuckets, *_blockbuckets;
+  int *_binsts;
 };
 
 

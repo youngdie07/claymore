@@ -3,7 +3,7 @@
 		"fps": 1,
 		"frames": 18,
 		"default_dt": 7.5e-5,
-		"default_dx": 0.025,
+		"default_dx": 0.1,
 		"domain": [90, 4.5, 1.825],
 		"gravity": -9.81,
 		"save_path": "./",

@@ -20,54 +20,55 @@ using namespace placeholder;
 template <typename ParticleArray, typename Partition>
 __global__ void activate_blocks(uint32_t particleCount, ParticleArray parray,
                                 Partition partition) {
-  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (parid >= particleCount)
-    return;
+  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
+  if (parid >= particleCount) return; // Return if global ID exceeds particle count
   ivec3 blockid{
-      int(std::lround(parray.val(_0, parid) * g_dx_inv) - 2) / g_blocksize,
-      int(std::lround(parray.val(_1, parid) * g_dx_inv) - 2) / g_blocksize,
-      int(std::lround(parray.val(_2, parid) * g_dx_inv) - 2) / g_blocksize};
-  partition.insert(blockid);
+      int(std::lround(parray.val(_0, parid) * g_dx_inv) - g_bc) / g_blocksize,
+      int(std::lround(parray.val(_1, parid) * g_dx_inv) - g_bc) / g_blocksize,
+      int(std::lround(parray.val(_2, parid) * g_dx_inv) - g_bc) / g_blocksize};
+  partition.insert(blockid); // Insert block ID into partition's hash-table
 }
+
+// Used to associate particles with grid-cells. 
+// Cell bucket array fills each bucket with contained particles' IDs in respective cell
 template <typename ParticleArray, typename Partition>
 __global__ void build_particle_cell_buckets(uint32_t particleCount,
                                             ParticleArray parray,
                                             Partition partition) {
-  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (parid >= particleCount)
-    return;
+  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
+  if (parid >= particleCount) return; // Return if global ID exceeds particle count
   ivec3 coord{int(std::lround(parray.val(_0, parid) * g_dx_inv) - 2),
               int(std::lround(parray.val(_1, parid) * g_dx_inv) - 2),
               int(std::lround(parray.val(_2, parid) * g_dx_inv) - 2)};
   int cellno = (coord[0] & g_blockmask) * g_blocksize * g_blocksize +
                (coord[1] & g_blockmask) * g_blocksize +
-               (coord[2] & g_blockmask);
-  coord = coord / g_blocksize;
-  auto blockno = partition.query(coord);
-  auto pidic = atomicAdd(partition._ppcs + blockno * g_blockvolume + cellno, 1);
-  partition._cellbuckets[blockno * g_particle_num_per_block +
-                         cellno * g_max_ppc + pidic] = parid;
+               (coord[2] & g_blockmask); // Cell number
+  coord = coord / g_blocksize; // Block 3D coordinate
+  auto blockno = partition.query(coord); // Block number
+  auto pidic = atomicAdd(partition._ppcs + blockno * g_blockvolume + cellno, 1); // ID in cell
+  partition._cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc + 
+                         pidic] = parid; // Store particle ID in cell bucket. Max IDs: g_max_ppc
 }
-// template <typename ParticleArray, typename ParticleBuffer, typename Partition>
-// __global__ void
-// build_particle_cell_buckets(uint32_t particleCount, ParticleArray parray,
-//                             ParticleBuffer pbuffer, Partition partition) {
-//   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
-//   if (parid >= particleCount)
-//     return;
-//   ivec3 coord{int(std::lround(parray.val(_0, parid) / g_dx) - 2),
-//               int(std::lround(parray.val(_1, parid) / g_dx) - 2),
-//               int(std::lround(parray.val(_2, parid) / g_dx) - 2)};
-//   int cellno = (coord[0] & g_blockmask) * g_blocksize * g_blocksize +
-//                (coord[1] & g_blockmask) * g_blocksize +
-//                (coord[2] & g_blockmask);
-//   coord = coord / g_blocksize;
-//   auto blockno = partition.query(coord);
-//   auto pidic = atomicAdd(pbuffer._ppcs + blockno * g_blockvolume + cellno, 1);
-//   pbuffer._cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-//                        pidic] = parid;
-// }
+template <typename ParticleArray, typename ParticleBuffer, typename Partition>
+__global__ void
+build_particle_cell_buckets(uint32_t particleCount, ParticleArray parray,
+                            ParticleBuffer pbuffer, Partition partition) {
+  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
+  if (parid >= particleCount) return; // Return if global ID exceeds particle count
+  ivec3 coord{int(std::lround(parray.val(_0, parid) / g_dx) - g_bc),
+              int(std::lround(parray.val(_1, parid) / g_dx) - g_bc),
+              int(std::lround(parray.val(_2, parid) / g_dx) - g_bc)}; // Grid-cell 3D coordinate
+  int cellno = (coord[0] & g_blockmask) * g_blocksize * g_blocksize +
+               (coord[1] & g_blockmask) * g_blocksize +
+               (coord[2] & g_blockmask); // Cell number
+  coord = coord / g_blocksize; // Block 3D coordinate
+  auto blockno = partition.query(coord); // Block number
+  auto pidic = atomicAdd(pbuffer._ppcs + blockno * g_blockvolume + cellno, 1); // ID in cell
+  pbuffer._cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+                        pidic] = parid; // Store par. ID in cell bucket. Max IDs: g_max_ppc
+}
 
+// GMPM
 __global__ void cell_bucket_to_block(int *_ppcs, int *_cellbuckets, int *_ppbs,
                                      int *_buckets) {
   int cellno = threadIdx.x & (g_blockvolume - 1);
@@ -82,52 +83,54 @@ __global__ void cell_bucket_to_block(int *_ppcs, int *_cellbuckets, int *_ppbs,
     __syncthreads();
   }
 }
+// Compute num. particle bins needed per block. Used to bin particles, i.e. memory allocation
 __global__ void compute_bin_capacity(uint32_t blockCount, int const *_ppbs,
                                      int *_bincaps) {
   uint32_t blockno = blockIdx.x * blockDim.x + threadIdx.x;
-  if (blockno >= blockCount)
-    return;
+  if (blockno >= blockCount) return;
   _bincaps[blockno] = (_ppbs[blockno] + g_bin_capacity - 1) / g_bin_capacity;
 }
+// Init. block buckets with particle IDs, no advection (movement) for first time-step
 __global__ void init_adv_bucket(const int *_ppbs, int *_buckets) {
   auto pcnt = _ppbs[blockIdx.x]; // Particle count in this block
-  auto bucket = _buckets + blockIdx.x * g_particle_num_per_block; // Block bucket for IDs
-  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
-    bucket[pidib] =
-        (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) | pidib;
-  }
+  auto bucket = _buckets + blockIdx.x * g_particle_num_per_block; // Block bucket start adress
+  // Put particle ID in block bucket. No advecting particles so offset {0,0,0} blocks
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
+    bucket[pidib] = (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) | pidib; 
 }
 template <typename Grid> __global__ void clear_grid(Grid grid) {
   auto gridblock = grid.ch(_0, blockIdx.x);
   for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) {
-    // Mass, Mass*(vel + dt * fint)
-    gridblock.val_1d(std::integral_constant<unsigned, 0>{}, cidib) = 0.0;
-    gridblock.val_1d(_1, cidib) = 0.0;
-    gridblock.val_1d(_2, cidib) = 0.0;
-    gridblock.val_1d(_3, cidib) = 0.0;
+    // Mass, Mass*(vel + dt * fint) [MLS-MPM]
+    gridblock.val_1d(_0, cidib) = 0.f;
+    gridblock.val_1d(_1, cidib) = 0.f;
+    gridblock.val_1d(_2, cidib) = 0.f;
+    gridblock.val_1d(_3, cidib) = 0.f;
     // Mass*vel [ASFLIP, FLIP]
-    gridblock.val_1d(_4, cidib) = 0.0;
-    gridblock.val_1d(_5, cidib) = 0.0;
-    gridblock.val_1d(_6, cidib) = 0.0;
-    // Vol, JBar [Simple FBar]
-    gridblock.val_1d(_7, cidib) = 0.0;
-    gridblock.val_1d(_8, cidib) = 0.0; 
+    gridblock.val_1d(_4, cidib) = 0.f;
+    gridblock.val_1d(_5, cidib) = 0.f;
+    gridblock.val_1d(_6, cidib) = 0.f;
+    // Vol, JBar [Simple FBAR]
+    gridblock.val_1d(_7, cidib) = 0.f;
+    gridblock.val_1d(_8, cidib) = 0.f; 
   }
 }
 template <typename Grid> __global__ void clear_grid_FBar(Grid grid) {
   auto gridblock = grid.ch(_0, blockIdx.x);
   for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) {
     // Vol, JBar [Simple FBar]
-    gridblock.val_1d(_7, cidib) = 0.0;
-    gridblock.val_1d(_8, cidib) = 0.0;
+    gridblock.val_1d(_7, cidib) = 0.f;
+    gridblock.val_1d(_8, cidib) = 0.f;
   }
 }
+// Update partition's hash-table with neighbor blocks of active particle blocks. 
+// Neighbor grid-blocks needed for grid-to-particle MPM interp. of particle block.
+// Neighbor grid-blocks encase a given particle block (shifted half-block, so 2x2x2 neighbors).
 template <typename Partition>
-__global__ void register_neighbor_blocks(uint32_t blockCount,
-                                         Partition partition) {
+__global__ void 
+register_neighbor_blocks(uint32_t blockCount, Partition partition) {
   uint32_t blockno = blockIdx.x * blockDim.x + threadIdx.x;
-  if (blockno >= blockCount)
-    return;
+  if (blockno >= blockCount) return;
   auto blockid = partition._activeKeys[blockno];
 #pragma unroll 2
   for (char i = 0; i < 2; ++i)
@@ -137,12 +140,14 @@ __global__ void register_neighbor_blocks(uint32_t blockCount,
       for (char k = 0; k < 2; ++k)
         partition.insert(ivec3{blockid[0] + i, blockid[1] + j, blockid[2] + k});
 }
+// Update partition's hash-table with exterior blocks of active particle blocks. 
+// Exterior grid-blocks needed for particle advection and sharing GPU halo grid-blocks.
+// Exterior grid-blocks encase a given particle block + any possible advection (3x3x3 exteriors).
 template <typename Partition>
-__global__ void register_exterior_blocks(uint32_t blockCount,
-                                         Partition partition) {
+__global__ void 
+register_exterior_blocks(uint32_t blockCount, Partition partition) {
   uint32_t blockno = blockIdx.x * blockDim.x + threadIdx.x;
-  if (blockno >= blockCount)
-    return;
+  if (blockno >= blockCount) return;
   auto blockid = partition._activeKeys[blockno];
 #pragma unroll 3
   for (char i = -1; i < 2; ++i)
@@ -157,8 +162,7 @@ __global__ void register_exterior_blocks(uint32_t blockCount,
 template <typename ParticleBuffer, typename ParticleArray, typename Grid, typename Partition>
 __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, const ParticleArray parray, Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (parid >= particleCount)
-    return;
+  if (parid >= particleCount) return;
   PREC length = pbuffer.length;
   PREC mass = pbuffer.mass;
   PREC volume = pbuffer.volume;
@@ -194,7 +198,6 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, 
                           int(std::lround(local_pos[2] * g_dx_inv) - 1)};
   local_pos = local_pos - global_base_index * g_dx;
   vec<vec<PREC, 3>, 3> dws;
-  //pvec3x3 dws;
   for (int d = 0; d < 3; ++d)
     dws[d] = bspline_weight((PREC)local_pos[d]);
   for (int i = 0; i < 3; ++i)
@@ -235,18 +238,15 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, 
         atomicAdd(
             &grid_block.val(_4, local_index[0], local_index[1], local_index[2]),
             wm * (vel[0] + Dp_inv * (C[0] * xixp[0] + C[3] * xixp[1] +
-                           C[6] * xixp[2]) )
-                             );
+                           C[6] * xixp[2]) ) );
         atomicAdd(
             &grid_block.val(_5, local_index[0], local_index[1], local_index[2]),
             wm * (vel[1] + Dp_inv * (C[1] * xixp[0] + C[4] * xixp[1] +
-                           C[7] * xixp[2]) )
-                              );
+                           C[7] * xixp[2]) ) );
         atomicAdd(
             &grid_block.val(_6, local_index[0], local_index[1], local_index[2]),
             wm * (vel[2] + Dp_inv * (C[2] * xixp[0] + C[5] * xixp[1] +
-                           C[8] * xixp[2]) )
-                              );
+                           C[8] * xixp[2]) ) );
         // Simple FBar: Vol, Vol JBar
         atomicAdd(
             &grid_block.val(_7, local_index[0], local_index[1], local_index[2]),
@@ -275,6 +275,8 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
   PREC J = 1.0;  // Volume ratio, Det def. gradient. 1 for t0 
   unsigned i = 0;
   PREC val = 0;
+
+  // TODO : Clean this up to use a loop and enums
   getParticleAttrib(pattrib, i, parid, val); 
   i=i+1;
   PREC sJ = val; J = 1-sJ;
@@ -298,7 +300,8 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
   getParticleAttrib(pattrib, i, parid, val); 
   PREC sJBar = val;
 
-  PREC pressure =  (6e7 /7.1) * (  pow((1.0-sJBar), -7.1) - 1.0 );
+  // TODO : Init. with material's Cauchy stress, not just pressure for fluid
+  PREC pressure =  (6e7 / 7.1) * (  pow((1.0-sJBar), -7.1) - 1.0 );
   PREC voln = J * volume;
   contrib[0] = - pressure * voln;
   contrib[4] = - pressure * voln;
@@ -312,12 +315,8 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
     contrib[4] = - pressure * voln;
     contrib[8] = - pressure * voln;
   }
-  // // Leap-frog init vs symplectic Euler
+  // * Leap-frog init vs symplectic Euler
   // /if (1) dt = dt / 2.0;
-
-  // vel[0] = setParticleAttribpattribs(_1, parid);
-  // vel[1] = pattribs(_2, parid);
-  // vel[2] = pattribs(_3, parid);
 
   // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
   PREC Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
@@ -329,7 +328,6 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
                           int(std::lround(local_pos[2] * g_dx_inv) - 1)};
   local_pos = local_pos - global_base_index * g_dx;
   vec<vec<PREC, 3>, 3> dws;
-  //pvec3x3 dws;
   for (int d = 0; d < 3; ++d)
     dws[d] = bspline_weight((PREC)local_pos[d]);
   for (int i = 0; i < 3; ++i)
@@ -545,13 +543,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -565,13 +568,18 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttribs pattribs,
                                 ParticleBuffer<material_e::JFluid> pbuffer,
                                 Partition partition) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -585,13 +593,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -611,13 +624,18 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs
                                 ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -635,12 +653,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid); // x
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid); // y
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid); // z
@@ -657,12 +681,18 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs
                                 ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid); // x
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid); // y
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid); // z
@@ -677,13 +707,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::JBarFluid> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -705,13 +740,18 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs
                                 ParticleBuffer<material_e::JBarFluid> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -733,13 +773,18 @@ array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::FixedCorotated> pbuffer,
                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -763,13 +808,18 @@ array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -798,13 +848,18 @@ array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> pbuffer,
                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// Position
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -836,13 +891,18 @@ array_to_buffer(ParticleArray parray,
                 ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> pbuffer,
                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// Position
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -872,13 +932,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::Sand> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -906,13 +971,18 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::NACC> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -940,17 +1010,19 @@ __global__ void array_to_buffer(ParticleArray parray,
                                 ParticleBuffer<material_e::Meshed> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
-  int pcnt = partition._ppbs[blockno];
-  auto bucket = partition._blockbuckets + blockno * g_particle_num_per_block;
+  int pcnt = (g_buckets_on_particle_buffer) 
+              ? pbuffer._ppbs[blockno] 
+              : partition._ppbs[blockno];
+  auto bucket = (g_buckets_on_particle_buffer) 
+                ? pbuffer._blockbuckets + blockno * g_particle_num_per_block 
+                : partition._blockbuckets + blockno * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto parid = bucket[pidib];
-    if (parid >= g_max_fem_vertice_num) {
-      printf("Particle %d incorrect ID!\n", parid);
-      break;
-    }
-    auto pbin =
-        pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
-    /// pos
+    auto pbin = (g_buckets_on_particle_buffer) 
+                ? pbuffer.ch(_0, pbuffer._binsts[blockno] + pidib / g_bin_capacity)
+                : pbuffer.ch(_0, partition._binsts[blockno] + pidib / g_bin_capacity);
+    if (parid >= g_max_fem_vertice_num) { printf("FEM Particle %d invalid ID! Bigger than g_max_fem_vertice_num, increase and recompile.\n", parid); break; }
+    /// Position of particle (x,y,z) in 3D dimensionless grid-space [0, 1]
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid);
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
@@ -975,29 +1047,25 @@ __global__ void array_to_buffer(ParticleArray parray,
 template <typename Grid, typename Partition, int boundary_cnt>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
-                                               float *maxVel, float curTime,
-                                               float grav, 
-                                               vec<vec7, boundary_cnt> boundary_array, vec3 boundary_motion, 
-                                               PREC length
-                                               ) 
+                                               float *maxVel, float curTime, float grav, 
+                                               vec<vec7, boundary_cnt> boundary_array, 
+                                               vec3 boundary_motion, PREC length) 
 {
   constexpr int bc = g_bc;
   constexpr int numWarps =
-      g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block;
-  constexpr unsigned activeMask = 0xffffffff;
-  //__shared__ float sh_maxvels[g_blockvolume * g_num_grid_blocks_per_cuda_block
-  /// 32];
-  extern __shared__ float sh_maxvels[];
-  if (threadIdx.x < numWarps) sh_maxvels[threadIdx.x] = 0.0f;
+      g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block; // Num. warps per block
+  constexpr unsigned activeMask = 0xffffffff; // Active mask for all threads
+  extern __shared__ float sh_maxvels[]; // Shared memory for max. velocity reduction
+  if (threadIdx.x < numWarps) sh_maxvels[threadIdx.x] = 0.0f; // Zero shared memory
   __syncthreads();
 
   std::size_t blockno = blockIdx.x * g_num_grid_blocks_per_cuda_block +
-                        threadIdx.x / 32 / g_num_warps_per_grid_block;
+                        threadIdx.x / 32 / g_num_warps_per_grid_block; 
 
   PREC_G o = g_offset; // Domain offset [ ], for Quad. B-Splines (Off-by-2, Wang 2020)
   PREC_G l = length; // Length of domain [m]
 
-  /// within-warp computations
+  /// Within-warp computations
   if (blockno < blockCount) 
   {
     auto blockid = partition._activeKeys[blockno];
@@ -1019,9 +1087,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         int j = (cidib >> g_blockbits) & g_blockmask;
         int k =  cidib & g_blockmask;
         // Grid node position [x,y,z] in entire domain
-        PREC_G xc = (g_blocksize * blockid[0] + i) * g_dx; // Node x position [1]
-        PREC_G yc = (g_blocksize * blockid[1] + j) * g_dx; // Node y position [1]
-        PREC_G zc = (g_blocksize * blockid[2] + k) * g_dx; // Node z position [1]
+        PREC_G xc = (g_blocksize * blockid[0] + i) * g_dx; // Node x position [0,1]
+        PREC_G yc = (g_blocksize * blockid[1] + j) * g_dx; // Node y position [0,1]
+        PREC_G zc = (g_blocksize * blockid[2] + k) * g_dx; // Node z position [0,1]
         // PREC_G x  = (g_dx * (g_blocksize * blockid[0] + i) - o) * l; // Node x position [m]
         // PREC_G y  = (g_dx * (g_blocksize * blockid[1] + j) - o) * l; // Node y position [m]
         // PREC_G z  = (g_dx * (g_blocksize * blockid[2] + k) - o) * l; // Node z position [m]
@@ -1036,23 +1104,27 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         int isInBound = 0;
 
+        // ! TODO : move into scopes to save registers
         PREC_G tol = g_dx * 0.0078125f; // Tolerance 1/128 grid-cell
         tol = 0.f;
-        PREC_G layer = 0.0 * g_dx + tol; // Slip layer thickness for box
+        PREC_G layer = 0.f * g_dx + tol; // Slip layer thickness for box
         int isOutFlume, isSlipFlume, isSepFlume;
-        int isOutStruct, isOnStruct;
+        int isOutStruct, isOnStruct; 
 
-        for (int g = 0; g < 4; g++)
+        vec7 boundary;
+// #pragma unroll g_max_grid_boundaries
+        for (int g = 0; g < g_max_grid_boundaries; g++)
         {
-          vec7 boundary;
+          isOutFlume = isSlipFlume = isSepFlume = isOnStruct = 0;
+// #pragma unroll 7
           for (int d = 0; d < 7; d++) boundary[d] = boundary_array[g][d];
           if (boundary[6] == -1) continue;
 
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;
-          boundary_dim[0] = boundary[3] - boundary[0];//6.0f;  // Length
-          boundary_dim[1] = boundary[4] - boundary[1];//6.0f;  // Depth
-          boundary_dim[2] = boundary[5] - boundary[2];//0.08f; // 0.08f; // Width
+          boundary_dim[0] = boundary[3] - boundary[0]; // Length
+          boundary_dim[1] = boundary[4] - boundary[1]; // Depth
+          boundary_dim[2] = boundary[5] - boundary[2]; // Width
           boundary_pos[0] = boundary[0];
           boundary_pos[1] = boundary[1];
           boundary_pos[2] = boundary[2];
@@ -1141,21 +1213,19 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             isOnStructFace[5] = ((xc >= boundary_pos[0] && vel[0] > 0.f && xc < boundary_pos[0] + t) << 2) | 
                                 ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
                                 (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
-            // Reduce results from box faces to single result
+            // TODO: Make below box collider a function
+            // Combine box face collisions (isOnStructFace[]) into isOnStruct, efficient
+            // Check if 111 (i.e. within box = 7, all flags), otherwise set 000 (no collision)
+            // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
             isOnStruct = 0; // Collision reduction variable
+#pragma unroll 6
             for (int iter=0; iter<6; iter++) {
-              if (isOnStructFace[iter] != 7) {
-                // Check if 111 (7, all flags), set 000 (0, now no flags) otherwise
-                isOnStructFace[iter] = 0;
-              } else {
-                // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
-                isOnStructFace[iter] = (1 << iter / 2);
-              }
-              isOnStruct |= isOnStructFace[iter]; // OR reduces face results into one int
+              isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
+              isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
             }
-            if (isOnStruct == 6 || isOnStruct == 5 ) isOnStruct = 4; // Overlaps on front (XY, XZ -> (X)
-            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on (YZ, XYZ) -> (None)
-            isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
+            if (isOnStruct == 6 || isOnStruct == 5 ) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
+            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
+            isInBound |= isOnStruct; // OR reduce box sticky collision into isInBound, efficient
           }
           else if (boundary[6]==5) {
             PREC_G t = 1.0 * g_dx + tol; // Slip layer thickness for box
@@ -1197,57 +1267,57 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                 (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
             // Reduce results from box faces to single result
             isOnStruct = 0; // Collision reduction variable
+#pragma unroll 6
             for (int iter=0; iter<6; iter++) {
-              if (isOnStructFace[iter] != 7) {
-                // Check if 111 (7, all flags), set 000 (0, now no flags) otherwise
-                isOnStructFace[iter] = 0;
-              } else {
-                // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
-                isOnStructFace[iter] = (1 << iter / 2);
-              }
-              isOnStruct |= isOnStructFace[iter]; // OR reduces face results into one int
+              isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
+              isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
             }
-            if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps on front (XY, XZ) -> (X)
-            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps on (YZ, XYZ)-> (None)
+            if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
+            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
             isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
           }
 
-
+          // TODO : Reimplement timed boundaries
           // // Wall boundary, releases after wait time
-          // if (0) {
-          //   PREC_G gate = (4.f + o) / l; // Gate position [m]
-          //   PREC_G wait = 0.25f; // Time til release [sec]
-          //   if (curTime < wait && xc >= gate - tol) {
-          //       vel[0] = 0.f; 
-          //       vel_FLIP[0] = 0.f;
-          //   }
-          // }
+          // PREC_G gate = (4.f + o) / l; // Gate position [m]
+          // PREC_G wait = 0.25f; // Time til release [sec]
+          // if (curTime < wait && xc >= gate - tol) 
+          //     vel[0] = vel_FLIP[0] = 0.f;
         }
 
-#if 1
-        ///< Slip contact        
-        // Set grid node velocity
+#if 0   ///< Sticky contact only
+        if (isInBound) vel.set(0.f);
+#endif
+
+#if 1   ///< Allow all contact types    
+        // Set grid-node regular vel. (PIC, yes affine, yes internal forces, yes body forces)
+        vel[0]  = isInBound & 4 ? 0.0 : vel[0] * mass; //< vx = mvx / m 
+        vel[1]  = isInBound & 2 ? 0.0 : vel[1] * mass; //< vy = mvy / m
+        // vel[1] += grav / l * dt;  //< fg = dt * g, Grav. force
+        // vel[1] += isInBound & 2 ? 0.f : (grav / l) * dt;  //< fg = dt * g, Grav. force
+        vel[2]  = isInBound & 1 ? 0.0 : vel[2] * mass; //< vz = mvz / m
+
+        // Set grid-node internal force (reclaim from MLS-MPM fused vel. + int. force write)
         // PREC fint[3];
         // fint[0] = (vel[0] - vel_FLIP[0]) * mass;
         // fint[1] = (vel[1] - vel_FLIP[1]) * mass;
         // fint[2] = (vel[2] - vel_FLIP[2]) * mass;
-        //// vel[1] += isInBound & 2 ? 0.f : (grav / l) * dt;  //< fg = dt * g, Grav. force
 
-        vel[0]  = isInBound & 4 ? 0.0 : vel[0] * mass; //< vx = mvx / m 
-        vel[1]  = isInBound & 2 ? 0.0 : vel[1] * mass; //< vy = mvy / m
-        //vel[1] += grav / l * dt;  //< fg = dt * g, Grav. force
-        vel[2]  = isInBound & 1 ? 0.0 : vel[2] * mass; //< vz = mvz / m
-
-        // vel_FLIP[0] = isInBound & 4 ? 0.0 : vel_FLIP[0] * mass; //< vx = mvx / m
-        // vel_FLIP[1] = isInBound & 2 ? 0.0 : vel_FLIP[1] * mass; //< vy = mvy / m
-        // vel_FLIP[2] = isInBound & 1 ? 0.0 : vel_FLIP[2] * mass; //< vz = mvz / m
-        vel_FLIP[0] = vel_FLIP[0] * mass; //< vx = mvx / m
-        vel_FLIP[1] = vel_FLIP[1] * mass; //< vy = mvy / m
-        vel_FLIP[2] = vel_FLIP[2] * mass; //< vz = mvz / m
+        // Set FLIP velocity (yes affine, no internal forces, no body forces)
+        if (0) { // Collision for FLIP velocity
+          vel_FLIP[0] = isInBound & 4 ? 0.0 : vel_FLIP[0] * mass; //< vx = mvx / m
+          vel_FLIP[1] = isInBound & 2 ? 0.0 : vel_FLIP[1] * mass; //< vy = mvy / m
+          vel_FLIP[2] = isInBound & 1 ? 0.0 : vel_FLIP[2] * mass; //< vz = mvz / m
+        } else { // No collisions for FLIP velocity
+          vel_FLIP[0] = vel_FLIP[0] * mass; //< vx = mvx / m
+          vel_FLIP[1] = vel_FLIP[1] * mass; //< vy = mvy / m
+          vel_FLIP[2] = vel_FLIP[2] * mass; //< vz = mvz / m
+        }
         //PREC_G vol = isInBound == 7 ? 1.0 : 0.0;
         //PREC_G JBar = isInBound == 7 ? 0.0 : 1.0;
 #endif        
-
+        // TODO : Reduce register usage for performance. Put boundaries in shared mem.?
+#pragma unroll 4
         for (int g = 0; g < 4; g++)
         {
           vec7 boundary;
@@ -1255,179 +1325,135 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           if (boundary[6] == -1) continue;
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;
-          boundary_dim[0] = boundary[3] - boundary[0];//6.0f;  // Length
-          boundary_dim[1] = boundary[4] - boundary[1];//6.0f;  // Depth
-          boundary_dim[2] = boundary[5] - boundary[2];//0.08f; // 0.08f; // Width
+          boundary_dim[0] = boundary[3] - boundary[0]; // Length
+          boundary_dim[1] = boundary[4] - boundary[1]; // Depth
+          boundary_dim[2] = boundary[5] - boundary[2]; // Width
           boundary_pos[0] = boundary[0];
           boundary_pos[1] = boundary[1];
           boundary_pos[2] = boundary[2];
           if (boundary[6] == 9)
           {
-            PREC_G wave_maker_neutral = - 2.0;          
-
+            PREC_G wave_maker_neutral = -2.f; // Wave-maker neutral X pos. [m] at OSU LWF        
+            PREC_G ys=0.f, xo=0.f, yo=0.f;
             vec3 ns; //< Ramp boundary surface normal
-            ns.set(0.f);
-            PREC_G ys=0;
-            PREC_G xo=0;
-            PREC_G yo=0;
+            ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
 
-            // Start ramp segment definition for OSU flume
-            // Based on bathymetry diagram, February
+            // Ramp segment bounds for OSU flume, Used diagram, Dakota Mascarenas Feb. 2021
             if (xc < ((14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // Flat, 0' elev., 0' - 46'10
-              ns[0] = 0.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              //xo = offset;
-              yo = (0)/l + o;
-              //ys = 1.f/72.f * (xc -xo) + yo;
-              ys = yo;
-            } 
-            else if (xc >= ((14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o){
+              xo = (0.0 - wave_maker_neutral) / l + o;
+              yo = 0.f / l + o;
+              ys = 0.f * (xc-xo) + yo;
+            } else if (xc >= ((14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o){
               // Flat (adjustable), 0' elev., 46'10 - 58'10
-              ns[0] = 0.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              //xo = (bathx[1] / g_length) + offset;
-              yo = (0.226)/l + o;
-              //yo = (0.2)/l + o; // TODO: Reavaluate treatment of flat bathymetry panels, i.e. no decay
+              xo = (14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (0.226) / l + o;
+              //yo = (0.2)/l + o; // TODO: Reavaluate treatment of flat bathymetry panels, i.e. no decay?
               ys = yo;
-
             } else if (xc >= ((3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:12, 0' elev., 58'10 - 94'10
-              ns[0] = -1.f/12.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              xo = ((3.658 + 14.275 + 0.0 - wave_maker_neutral) / l) + o;
+              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
               yo = (0.226) / l + o;
               ys = 1.f/12.f * (xc - xo) + yo;
 
             } else if (xc >= ((10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:24, 3' elev., 94'10 - 142'10
-              ns[0] = -1.f/24.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              xo = ((10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l)+o;
-              yo = ((1.14) / l)+o;
+              ns[0] = -1.f/24.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (1.14) / l + o;
               ys = 1.f/24.f * (xc - xo) + yo;
 
             } else if (xc >= ((14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // Flat, 5' elev., 142'10 - 262'10
-              ns[0] = 0.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              //xo = (bathx[4] / g_length) + offset;
-              yo = ((1.75)/ l)+o;
+              xo = (14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (1.75)/ l + o;
               ys = yo;
 
             } else if (xc >= ((36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((7.354 + 36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:12, 5' elev., 262'10 - 286'10
-              ns[0] = -1.f/12.f;
-              ns[1] = 1.f;
-              ns[2] = 0.f;
-              xo = ((36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l)+o;
-              yo = ((1.75) / l)+o;
+              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (1.75) / l + o;
               ys = 1.f/12.f * (xc - xo) + yo;
-
             } else {
               // Flat, 7' elev., 286'10 onward
-              ns[0]=0.f;
-              ns[1]=1.f;
-              ns[2]=0.f;
-              yo = ((2.362833) / l)+o;
+              xo = (36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o; // Maybe change, recheck OSU LWF bathymetry far downstream
+              yo = (2.362833 / l) + o;
               ys = yo;        
             }
 
-            //float ns_mag = sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-            //for (int d=0; d<3; d++) ns = ns[d] / sqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+            {
+              PREC_G normal_inv_magnitude = rsqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+              for (int d=0; d<3; d++) ns[d] *= normal_inv_magnitude;
+            }
             PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
 
-            // Boundary thickness and cell distance
-            //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-            //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
-
-            // Decay coefficient
-            PREC_G ySF;
-            if (yc >= ys + 1.0 * g_dx) ySF = 0.f; // Above decay layer
-            else if (yc <= ys && yc > (ys - 1.5*g_dx)) ySF = 1.f; // Below surface
-            else if (yc <= (ys - 1.5*g_dx)) ySF = 2.f;
-            else ySF = ((g_dx - (yc - ys)) / g_dx) * ((g_dx - (yc - ys)) / g_dx); // In decay layer
-            
-
-            // fbc = -fint - fext - (1/dt)*p
-            // a = (1 / mass) * (fint + fext + ySf*fbc) 
-
-            // Adjust velocity relative to surface
-            if (0) {
-              // Normal adjustment in decay layer, fix below
-              if (ySF == 1.f) {
-                vel[0] = vel[1] = vel[2] = 0.f;
-              } else if (ySF > 0.f && ySF < 1.f) {
-                vel[0] = vel[0] - ySF * (vel[0] - vdotns * ns[0]);
-                vel[1] = vel[1] - ySF * (vel[1] - vdotns * ns[1]);
-                vel[2] = vel[2] - ySF * (vel[2] - vdotns * ns[2]);  
-              }
-            }
-            if (0) {
-              if (ySF == 1.f) {
-                // Fix below surface
-                vel[0] = vel[1] = vel[2] = 0.f;
-              } else if (ySF > 0.f && ySF < 1.f && vdotns < 0.f) {
-                // Normal adjusted in decay layer, seperable condition
-                vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-                vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-                vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-              }
-            }
-
-            if (1) {
-              if (ySF > 1.f) {
-                // Fix deep below surface
-                vel[0] = vel[1] = vel[2] = 0.f;
-              } 
-              else if (ySF == 1.f) {
-                // Slip below surface
-                vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-                vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-                vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-              } 
-              else if (ySF > 0.f && ySF < 1.f && vdotns < 0.f) {
-                // Normal adjusted in decay layer, seperable condition
-                vel[0] = vel[0] - ySF * (vdotns * ns[0]);
-                vel[1] = vel[1] - ySF * (vdotns * ns[1]);
-                vel[2] = vel[2] - ySF * (vdotns * ns[2]);
-              }
-            }
-            // * Cap beneath the raised bathymetry slab, avoid water leaks
-            if (xc >= ((14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((14.275 + 0.2 - wave_maker_neutral)/l) + o) 
+            // --------- Wen-Chia Yang's disseration, UW 2016, p. 50? ---------
             {
-              if (yc < (0.226/l)+o && vel[0] > 0.f) 
-                vel[0] = 0.f;
-              //else if (yc >= (0.2/l)+o && yc < )
+              // f_boundary = -f_internal - f_external - (1/dt)*p
+              // Node accel. = (f_internal + f_external + ySf*f_boundary) / mass
+              // TODO : Reimplement for all Wen-Chia Yang boundary conditions (e.g. linear, quadratic, sinusoidal, etc.)
+              // In throw-away scope for register reuse
+
+              // Boundary thickness and cell distance
+              //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+              //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+              // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
+              // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
+              PREC_G ySF=0.f; // Boundary decay coef. 
+              // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
+              if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
+              else if (yc <= ys && yc > (ys - 1.5f*g_dx)) ySF = 1.f; // Below boundary surface
+              else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
+              else { ySF = (g_dx - (yc - ys)) / g_dx ; ySF *= ySF; } // Decay layer, quadratic
+
+#pragma unroll 3
+              for (int d=0; d<3; ++d) {
+                // Adjust grid-node velocity via decay layer coef. and surface normal
+                if (ySF > 1.f) // Fix vel. rigidly if deep below boundary surf.
+                  vel[d] = 0.f;
+                else if (ySF == 1.f) // Slip vel. below boundary surf. (NO seperable)
+                  vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                else // Adjust vel. normal if in decay layer (YES seperable)
+                  if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);
+              } 
             }
-
-
+            // * Cap flow below the raised OSU LWF bathymetry slab to prevent water leaks
+            // ! Recheck Andrew Winter's OSU LWF papers for better boundary condition
+            // TODO : Can fit better to grid-resolution
+            // No X vel. (streamwise) below raised slab (Elev. 0" to 7.5" = 0.226m, Dist. 14.275m to 14.475m + 4 grid-cell buffer <- relative to wave-maker neutral) 
+            if (xc >= (14.275 - wave_maker_neutral)/l+o && xc < (14.275 - wave_maker_neutral)/l + o + 4.f*g_dx) {
+              if (yc < (0.226/l)+o && vel[0] > 0.f) vel[0] = 0.f; 
+              // else if (yc >= (0.2/l)+o && yc < ) // Decay layer. Needed?
+            }
           }
-          else if (boundary[6] == 12) 
+          else if (boundary[6] == 12) // Moveable boundary - OSU LWF wave-maker
           {
             // OSU Wave-Maker - CSV Controlled
-            PREC_G wave_maker_neutral = - 2.0;          
+            PREC_G wave_maker_neutral = -2.f; // Streamwise offset from origin (m)
             if (xc <= (boundary_motion[1] - wave_maker_neutral) / l + o) {
-              if (vel[0] < (boundary_motion[2] / l) ) vel[0] = (boundary_motion[2] / l);
-              //vel[0] = (boundary_motion[2] / l);
-              //vel[1] = vel[2] = 0;
+              // TODO: Add reflection and/or decay layer?
+#if 1 // Slip vel. (YES seperable)
+              if (vel[0] < boundary_motion[2] / l) vel[0] = boundary_motion[2] / l; 
+              // if (vel[1] < boundary_motion.vy / l) vel[1] = boundary_motion.vy / l;
+              // if (vel[2] < boundary_motion.vz / l) vel[2] = boundary_motion.vz / l;
+#else // Slip vel. (NO seperable) 
+              vel[0] = (boundary_motion[2] / l); // Slip vel. (NO seperable)
+#endif
             }
           }
         } //< End boundaries
 
+        // * External body forces applied (i.e. gravity)
+        // ! May need to be moved after all boundary conditions, or before initial update
+#if 1
         vel[1] += grav / l * dt;  //< fg = dt * g, Grav. force
-
-
-#if 0
-        ///< Sticky contact
-        if (isInBound) ///< sticky
-          vel.set(0.f);
+#else 
+        for (int d=0; d<3; d++) vel[d] += grav[d] / l * dt; // 
 #endif
+
 
         velSqr = 0.f;
         velSqr += vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
@@ -1731,10 +1757,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::JFluid> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -1749,8 +1776,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     
     PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
@@ -1778,10 +1806,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -1797,8 +1826,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     
     PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
@@ -1828,10 +1858,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::JBarFluid> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -1847,8 +1878,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     
     PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
@@ -1885,10 +1917,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -1903,8 +1936,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     
     PREC elevation = (source_bin.val(_1, _source_pidib) - o) * l;
@@ -1930,10 +1964,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::FixedCorotated> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -1948,8 +1983,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     pvec9 F;
     F.set(0.0);
@@ -1986,10 +2022,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -2005,8 +2042,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     pvec9 F;
     F.set(0.0);
@@ -2045,10 +2083,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -2064,8 +2103,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     pvec9 F;
     F.set(0.0);
@@ -2106,10 +2146,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -2125,8 +2166,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     pvec9 F;
     F.set(0.0);
@@ -2171,10 +2213,11 @@ template <typename Partition>
 __global__ void query_energy_particles(Partition partition, Partition prev_partition,
                               ParticleBuffer<material_e::Sand> pbuffer,
                               PREC_G *kinetic_energy, PREC_G *gravity_energy, PREC_G *strain_energy, float grav)  {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
   PREC_G thread_kinetic_energy = (PREC_G)0;
   PREC_G thread_gravity_energy = (PREC_G)0;
@@ -2190,8 +2233,9 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
     pvec9 F;
     F.set(0.0);
@@ -2269,16 +2313,23 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
 
+  // Load G2P global grid data into shared memory. All particles in block will interpolate from it
+  // Pull in G2P attributes per grid-node (e.g. velocity) in each grid-block in the grid-arena
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
     auto blockno = partition.query(
@@ -2287,7 +2338,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
     auto grid_block = grid.ch(_0, blockno);
     int channelid = base % numViPerBlock;
-    char c = channelid & 0x3f;
+    char c = channelid & 0x3f; // channelid % g_blockvolume
     char cz = channelid & g_blockmask;
     char cy = (channelid >>= g_blockbits) & g_blockmask;
     char cx = (channelid >>= g_blockbits) & g_blockmask;
@@ -2305,6 +2356,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
   }
   __syncthreads();
+  // Zero out shared memory for P2G grid-data (filled later)
   for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
     int loc = base;
     char z = loc & arenamask;
@@ -2313,21 +2365,24 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
   __syncthreads();
-
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
+  // 
+  for (int pidib = threadIdx.x; pidib < ppb;
        pidib += blockDim.x) {
+  // for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
+  //      pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;
     PREC J;
@@ -2417,8 +2472,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       }
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -2430,7 +2486,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -2544,15 +2603,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -2595,20 +2659,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = g_buckets_on_particle_buffer
+          ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+          : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block;// & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = g_buckets_on_particle_buffer
+          ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+          : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec3 vel_p; //< Particle vel. at n
@@ -2717,8 +2781,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       // Merged affine matrix and stress contribution for MLS-MPM P2G
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
@@ -2733,7 +2798,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -2874,16 +2942,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
-  // auto blockid = partition._activeKeys[blockIdx.x];
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -2920,20 +2992,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
   __syncthreads();
 
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;
     {
@@ -3016,8 +3088,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       PREC ID = source_particle_bin.val(_12, source_pidib % g_bin_capacity);
       matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -3042,7 +3115,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -3156,15 +3232,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
   
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -3206,20 +3288,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos, vel_p;
     {
@@ -3318,8 +3400,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
       pos += dt * (vel + beta * pbuffer.alpha * (vel_p - vel_FLIP)); //< pos update
       vel += pbuffer.alpha * (vel_p - vel_FLIP); //< vel update
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -3346,7 +3429,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -3479,15 +3565,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -3530,20 +3622,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
   __syncthreads();
 
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos, vel_p;
     {
@@ -3649,8 +3741,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                           pbuffer.cohesion, pbuffer.beta, pbuffer.yieldSurface,
                           pbuffer.volumeCorrection, logJp, F, contrib);
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -3678,7 +3771,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
     // dws[d] = bspline_weight(local_pos[d]);
 
@@ -3812,15 +3908,21 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -3863,20 +3965,20 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
   }
   __syncthreads();
 
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;
     pvec3 vel_p;
@@ -3982,8 +4084,9 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
                           pbuffer.bm, pbuffer.xi, pbuffer.beta, pbuffer.Msqr,
                           pbuffer.hardeningOn, logJp, F, contrib);
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -4010,7 +4113,10 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
     // dws[d] = bspline_weight(local_pos[d]);
 
@@ -4143,15 +4249,21 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -4186,20 +4298,20 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
              [cz + (local_block_id & 1 ? g_blocksize : 0)] = val;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
@@ -4350,15 +4462,21 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -4394,20 +4512,20 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
   }
 
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
@@ -5060,15 +5178,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -5101,23 +5225,23 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     char z = loc & arenamask;
     char y = (loc >>= arenabits) & arenamask;
     char x = (loc >>= arenabits) & arenamask;
-    p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
+    p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.f;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     PREC sJ;   //< Particle volume ratio at n
@@ -5265,15 +5389,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -5309,20 +5439,20 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     PREC sJ;   //< Particle volume ratio at n
@@ -5516,15 +5646,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -5560,20 +5696,20 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     //PREC sJ;   //< Particle volume ratio at n
@@ -5750,15 +5886,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -5794,20 +5936,20 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     //PREC sJ;   //< Particle volume ratio at n
@@ -5984,15 +6126,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -6028,20 +6176,20 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec9 F;
@@ -6199,15 +6347,21 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -6243,20 +6397,20 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     p2gbuffer[loc >> arenabits][x][y][z] = (PREC_G)0.0;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec9 F;
@@ -6423,15 +6577,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -6472,20 +6632,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     PREC sJ, sJBar, ID; //< (1-J), (1-JBar), Particle ID
@@ -6647,8 +6807,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       // Merged affine matrix and stress contribution for MLS-MPM P2G
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
@@ -6662,7 +6823,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -6778,15 +6942,25 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  int ppb; 
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+    ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    src_blockno = blockIdx.x; // Non-halo block number
+    ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
   }
+  if (ppb == 0) return; // Return early if no particles
+  // if (src_blockno < 0) return; // Return early if negative block number
+  //  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -6831,20 +7005,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec3 vel_p; //< Particle vel. at n
@@ -6963,8 +7137,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       // Merged affine matrix and stress contribution for MLS-MPM P2G
       contrib = (C * pbuffer.mass - contrib * newDt) * Dp_inv;
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z
@@ -6981,7 +7156,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -7172,8 +7350,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 //   }
 //   __syncthreads();
 //   // Start Grid-to-Particle, threads are particle
-//   for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-//        pidib += blockDim.x) {
+//   for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
 //     int source_blockno, source_pidib;
 //     ivec3 base_index;
 //     {
@@ -7457,15 +7634,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -7512,20 +7695,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec3 vel_p; //< Particle vel. at n
@@ -7657,8 +7840,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
         //JVol = ((1.0 - FBAR_ratio) * 1.0 + FBAR_ratio * rcbrt(J / (1.0 - sJBar_new)));
       PREC J_Scale = cbrt((1.0 - sJBar_new) / J);
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -7692,7 +7876,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -7827,15 +8014,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -7882,20 +8075,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     pvec3 vel_p; //< Particle vel. at n
@@ -8024,8 +8217,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       PREC J_Scale = cbrt((1.0 - sJBar_new) / J);
 
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -8060,7 +8254,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -8196,15 +8393,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -8251,20 +8454,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     {
@@ -8393,8 +8596,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       compute_stress_sand(pbuffer.volume, pbuffer.mu, pbuffer.lambda, pbuffer.cohesion,
       pbuffer.beta, pbuffer.yieldSurface, pbuffer.volumeCorrection, logJp, F, contrib);
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -8425,7 +8629,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -8559,15 +8766,21 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -8614,20 +8827,20 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
   }
   __syncthreads();
   // Start Grid-to-Particle, threads are particle
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     {
@@ -8750,8 +8963,9 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
       compute_stress_nacc(pbuffer.volume, pbuffer.mu, pbuffer.lambda, pbuffer.bm, pbuffer.xi, pbuffer.beta, pbuffer.Msqr, pbuffer.hardeningOn, logJp,
                                     F, contrib);
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0];
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1];
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2];
@@ -8782,7 +8996,10 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -8929,15 +9146,21 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -8980,20 +9203,20 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     pvec3 pos;  //< Particle position at n
     int ID; // Vertice ID for mesh
@@ -9150,8 +9373,9 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
     {
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x [ ]
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y [ ]
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z [ ]
@@ -9170,7 +9394,10 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -9316,15 +9543,21 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 
   ivec3 blockid;
   int src_blockno;
-  if (blocks != nullptr) {
-    blockid = blocks[blockIdx.x];
-    src_blockno = partition.query(blockid);
-  } else {
-    if (partition._haloMarks[blockIdx.x])
-      return;
-    blockid = partition._activeKeys[blockIdx.x];
-    src_blockno = blockIdx.x;
+  if (blocks != nullptr) { 
+    blockid = blocks[blockIdx.x]; // Halo block ID
+    src_blockno = partition.query(blockid); // Halo block number
+  } else { 
+    if (partition._haloMarks[blockIdx.x]) return; // Return early if halo block
+    blockid = partition._activeKeys[blockIdx.x]; // Non-halo block ID
+    src_blockno = blockIdx.x; // Non-halo block number
   }
+  if (src_blockno < 0) return; // Return early if negative block number
+//  else if (src_blockno > blockcnt) return; // Return early if excessive block number
+  int ppb = g_buckets_on_particle_buffer
+            ? next_pbuffer._ppbs[src_blockno] 
+            : partition._ppbs[src_blockno]; // Particles in block
+  if (ppb == 0) return; // Return early if no particles
+
 
   for (int base = threadIdx.x; base < numViInArena; base += blockDim.x) {
     char local_block_id = base / numViPerBlock;
@@ -9367,20 +9600,20 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     p2gbuffer[loc >> arenabits][x][y][z] = 0.f;
   }
   __syncthreads();
-  for (int pidib = threadIdx.x; pidib < partition._ppbs[src_blockno];
-       pidib += blockDim.x) {
+  for (int pidib = threadIdx.x; pidib < ppb; pidib += blockDim.x) {
     int source_blockno, source_pidib;
     ivec3 base_index;
     {
-      int advect =
-          partition
-              ._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
+      int advect = (g_buckets_on_particle_buffer)
+                    ? next_pbuffer._blockbuckets[src_blockno * g_particle_num_per_block + pidib]
+                    : partition._blockbuckets[src_blockno * g_particle_num_per_block + pidib];
       dir_components(advect / g_particle_num_per_block, base_index);
       base_index += blockid;
       source_blockno = prev_partition.query(base_index);
       source_pidib = advect % g_particle_num_per_block; // & (g_particle_num_per_block - 1);
-      source_blockno = prev_partition._binsts[source_blockno] +
-                       source_pidib / g_bin_capacity;
+      source_blockno = (g_buckets_on_particle_buffer)
+                        ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+                        : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     }
     int ID; // Vertice ID for mesh
     pvec3 pos;  //< Particle position at n
@@ -9534,8 +9767,9 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 
     {
       {
-        auto particle_bin = next_pbuffer.ch(_0, partition._binsts[src_blockno] +
-                                                    pidib / g_bin_capacity);
+        auto particle_bin = g_buckets_on_particle_buffer 
+            ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
+            : next_pbuffer.ch(_0, partition._binsts[src_blockno] + pidib / g_bin_capacity);
         particle_bin.val(_0, pidib % g_bin_capacity) = pos[0]; //< x [ ]
         particle_bin.val(_1, pidib % g_bin_capacity) = pos[1]; //< y [ ]
         particle_bin.val(_2, pidib % g_bin_capacity) = pos[2]; //< z [ ]
@@ -9555,7 +9789,10 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
     {
       int direction_tag = dir_offset((base_index - 1) / g_blocksize -
                               (local_base_index - 1) / g_blocksize);
-      partition.add_advection(local_base_index - 1, direction_tag, pidib);
+      if (g_buckets_on_particle_buffer)
+        next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
+      else 
+        partition.add_advection(local_base_index - 1, direction_tag, pidib);
     }
 
 #pragma unroll 3
@@ -9656,6 +9893,7 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
   }
 }
 
+// MGSP
 template <typename Grid>
 __global__ void mark_active_grid_blocks(uint32_t blockCount, const Grid grid,
                                         int *_marks) {
@@ -9667,13 +9905,53 @@ __global__ void mark_active_grid_blocks(uint32_t blockCount, const Grid grid,
     _marks[blockno] = 1;
 }
 
+
+// // GMPM
+// template <typename Grid>
+// __global__ void mark_active_grid_blocks(uint32_t blockCount, const Grid grid,
+//                                         int *_marks) {
+//   auto idx = blockIdx.x * blockDim.x + threadIdx.x;
+//   int blockno = idx / g_blockvolume, cellno = idx % g_blockvolume;
+//   if (blockno >= blockCount)
+//     return;
+//   if (grid.ch(_0, blockno).val_1d(_0, cellno) != 0.f)
+//     _marks[blockno] = 1;
+// }
+
 __global__ void mark_active_particle_blocks(uint32_t blockCount,
                                             const int *__restrict__ _ppbs,
                                             int *_marks) {
   std::size_t blockno = blockIdx.x * blockDim.x + threadIdx.x;
   if (blockno >= blockCount)
     return;
-  _marks[blockno] = _ppbs[blockno] > 0 ? 1 : 0;
+  if (g_buckets_on_particle_buffer){ // GMPM ParticlBins Buckets
+    if (_ppbs[blockno] > 0)
+      _marks[blockno] = 1;
+  } else { // MGSP Partition Buckets
+    _marks[blockno] = _ppbs[blockno] > 0 ? 1 : 0; // Wouldn't this not work for multiple models calling kernel? Maybe use OR?
+  }
+}
+
+
+
+template <typename ParticleBuffer>
+__global__ void
+update_buckets(uint32_t blockCount, const int *__restrict__ _sourceNos,
+               const ParticleBuffer pbuffer, ParticleBuffer next_pbuffer) {
+  __shared__ std::size_t sourceNo[1];
+  std::size_t blockno = blockIdx.x;
+  if (blockno >= blockCount)
+    return;
+  if (threadIdx.x == 0) {
+    sourceNo[0] = _sourceNos[blockno];
+    next_pbuffer._ppbs[blockno] = pbuffer._ppbs[sourceNo[0]];
+  }
+  __syncthreads();
+
+  auto pcnt = next_pbuffer._ppbs[blockno];
+  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x)
+    next_pbuffer._blockbuckets[blockno * g_particle_num_per_block + pidib] =
+        pbuffer._blockbuckets[sourceNo[0] * g_particle_num_per_block + pidib];
 }
 
 template <typename Partition>
@@ -9681,22 +9959,33 @@ __global__ void
 update_partition(uint32_t blockCount, const int *__restrict__ _sourceNos,
                  const Partition partition, Partition next_partition) {
   __shared__ std::size_t sourceNo[1];
-  std::size_t blockno = blockIdx.x;
+  std::size_t blockno = (g_buckets_on_particle_buffer) 
+                        ? blockIdx.x * blockDim.x + threadIdx.x
+                        : blockIdx.x; //recheck..
   if (blockno >= blockCount)
     return;
-  if (threadIdx.x == 0) {
-    sourceNo[0] = _sourceNos[blockno];
-    auto sourceBlockid = partition._activeKeys[sourceNo[0]];
+
+  if (g_buckets_on_particle_buffer) {
+    //uint32_t sourceNo = _sourceNos[blockno];
+    auto sourceBlockid = partition._activeKeys[(uint32_t)_sourceNos[blockno]];
     next_partition._activeKeys[blockno] = sourceBlockid;
     next_partition.reinsert(blockno);
-    next_partition._ppbs[blockno] = partition._ppbs[sourceNo[0]];
   }
-  __syncthreads();
-
-  auto pcnt = next_partition._ppbs[blockno];
-  for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x)
-    next_partition._blockbuckets[blockno * g_particle_num_per_block + pidib] =
-        partition._blockbuckets[sourceNo[0] * g_particle_num_per_block + pidib];
+  else{
+    if (threadIdx.x == 0) {
+      sourceNo[0] = _sourceNos[blockno];
+      auto sourceBlockid = partition._activeKeys[sourceNo[0]];
+      next_partition._activeKeys[blockno] = sourceBlockid;
+      next_partition.reinsert(blockno);
+      next_partition._ppbs[blockno] = partition._ppbs[sourceNo[0]];
+    }
+    __syncthreads();
+    auto pcnt = next_partition._ppbs[blockno];
+    for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x)
+      next_partition._blockbuckets[blockno * g_particle_num_per_block + pidib] =
+          partition._blockbuckets[sourceNo[0] * g_particle_num_per_block + pidib];
+    // ! This shouldnt cause warp divergence, but double-check
+  }
 }
 
 template <typename Partition, typename Grid>
@@ -9729,11 +10018,10 @@ __global__ void copy_selected_grid_blocks(
 template <typename Partition>
 __global__ void check_table(uint32_t blockCount, Partition partition) {
   uint32_t blockno = blockIdx.x * blockDim.x + threadIdx.x;
-  if (blockno >= blockCount)
-    return;
+  if (blockno >= blockCount) return;
   auto blockid = partition._activeKeys[blockno];
   if (partition.query(blockid) != blockno)
-    printf("DAMN, partition table is wrong!\n");
+    printf("ERROR: Partition hash-table is wrong! Block 3D ID and block 1D number not related properly.\n");
 }
 template <typename Grid> __global__ void sum_grid_mass(Grid grid, PREC_G *sum) {
   atomicAdd(sum, (float)grid.ch(_0, blockIdx.x).val_1d(_0, threadIdx.x));
@@ -9742,11 +10030,9 @@ template <typename Grid> __global__ void sum_grid_mass(Grid grid, PREC_G *sum) {
 template <typename Grid> __global__ void sum_grid_volume(Grid grid, PREC_G *sum) {
   atomicAdd(sum, (PREC_G)grid.ch(_0, blockIdx.x).val_1d(_7, threadIdx.x));
 }
-__global__ void sum_particle_count(uint32_t count, int *__restrict__ _cnts,
-                                   int *sum) {
+__global__ void sum_particle_count(uint32_t count, int *__restrict__ _cnts, int *sum) {
   auto idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= count)
-    return;
+  if (idx >= count) return;
   atomicAdd(sum, _cnts[idx]);
 }
 
@@ -9757,12 +10043,12 @@ __global__ void check_partition(uint32_t blockCount, Partition partition) {
     return;
   ivec3 blockid = partition._activeKeys[idx];
   if (blockid[0] == 0 || blockid[1] == 0 || blockid[2] == 0)
-    printf("\tDAMN, encountered zero block record\n");
+    printf("\tERROR: Encountered zero block record\n");
   if (partition.query(blockid) != idx) {
     int id = partition.query(blockid);
     ivec3 bid = partition._activeKeys[id];
-    printf("\t\tcheck partition %d, (%d, %d, %d), feedback index %d, (%d, %d, "
-           "%d)\n",
+    printf("\t\tERROR: Check partition index[%d], produced block ID (%d, %d, %d), produced feedback index[%d], produced feedback block ID (%d, %d, "
+           "%d). Feedback and originals should be identical if partition query is working.\n",
            idx, (int)blockid[0], (int)blockid[1], (int)blockid[2], id, bid[0],
            bid[1], bid[2]);
   }
@@ -9778,7 +10064,7 @@ __global__ void check_partition_domain(uint32_t blockCount, int did,
   ivec3 blockid = partition._activeKeys[idx];
   if (domain.inside(blockid)) {
     printf(
-        "%d-th block (%d, %d, %d) is in domain[%d] (%d, %d, %d)-(%d, %d, %d)\n",
+        "Partition block[%d] (%d, %d, %d) in domain[%d], mins-maxs: (%d, %d, %d)-(%d, %d, %d)\n",
         idx, blockid[0], blockid[1], blockid[2], did, domain._min[0],
         domain._min[1], domain._min[2], domain._max[0], domain._max[1],
         domain._max[2]);
@@ -9788,9 +10074,7 @@ __global__ void check_partition_domain(uint32_t blockCount, int did,
 
 template<num_attribs_e N, typename I, typename T>
 __device__ void setParticleAttrib(ParticleAttrib<N> pattrib, I i, T parid, PREC val)
-{
-
-}
+{ }
 template<typename I, typename T>
 __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Zero> pattrib, I i, T parid, PREC val) { }
 template<typename I, typename T>
@@ -9999,9 +10283,7 @@ __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Thirteen> pattri
 
 template<num_attribs_e N, typename I, typename T>
 __device__ void getParticleAttrib(ParticleAttrib<N> pattrib, I i, T parid, PREC& val)
-{
-
-}
+{ }
 template<typename I, typename T>
 __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Zero> pattrib, I i, T parid, PREC&val) { }
 template<typename I, typename T>
@@ -10176,57 +10458,57 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
 
     switch (idx) {
       case output_e_::ID:
-        val = pbuffer.getAttribute<attribs_e_::ID>(_source_bin, _source_pidib); return; break;// ID 
+        val = pbuffer.getAttribute<attribs_e_::ID>(_source_bin, _source_pidib); return; // ID 
       case output_e_::Mass:
-        val = pbuffer.mass; return; break;// Mass [kg]
+        val = pbuffer.mass; return; // Mass [kg]
       case output_e_::Volume:
-        val = pbuffer.volume * pbuffer.getAttribute<attribs_e_::J>(_source_bin, _source_pidib); return; break;// Volume [m^3]
+        val = pbuffer.volume * pbuffer.getAttribute<attribs_e_::J>(_source_bin, _source_pidib); return; // Volume [m^3]
       case output_e_::Position_X:
-        val = (pbuffer.getAttribute<attribs_e_::Position_X>(_source_bin, _source_pidib) - o) * l; return; break;// Position_X [m]
+        val = (pbuffer.getAttribute<attribs_e_::Position_X>(_source_bin, _source_pidib) - o) * l; return; // Position_X [m]
       case output_e_::Position_Y:
-        val = (pbuffer.getAttribute<attribs_e_::Position_Y>(_source_bin, _source_pidib) - o) * l; return; break;// Position_Y [m]
+        val = (pbuffer.getAttribute<attribs_e_::Position_Y>(_source_bin, _source_pidib) - o) * l; return; // Position_Y [m]
       case output_e_::Position_Z:
-        val = (pbuffer.getAttribute<attribs_e_::Position_Z>(_source_bin, _source_pidib) - o) * l; return; break; // Position_Z [m]
+        val = (pbuffer.getAttribute<attribs_e_::Position_Z>(_source_bin, _source_pidib) - o) * l; return; // Position_Z [m]
       case output_e_::Velocity_X:
-        val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; return; break; // Velocity_X [m/s]
+        val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; return; // Velocity_X [m/s]
       case output_e_::Velocity_Y:
-        val = pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l; return; break;// Velocity_Y [m/s]
+        val = pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l; return; // Velocity_Y [m/s]
       case output_e_::Velocity_Z:
-        val = pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; return; break;// Velocity_Z [m/s]
+        val = pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; return; // Velocity_Z [m/s]
       case output_e_::DefGrad_XX:
-        val = F[0]; return; break;// DefGrad_XX
+        val = F[0]; return; // DefGrad_XX
       case output_e_::DefGrad_XY:
-        val = F[1]; return; break;// DefGrad_XY
+        val = F[1]; return; // DefGrad_XY
       case output_e_::DefGrad_XZ:
-        val = F[2]; return; break;// DefGrad_XZ
+        val = F[2]; return; // DefGrad_XZ
       case output_e_::DefGrad_YX:
-        val = F[3]; return; break;// DefGrad_YX
+        val = F[3]; return; // DefGrad_YX
       case output_e_::DefGrad_YY:
-        val = F[4]; return; break;// DefGrad_YY
+        val = F[4]; return; // DefGrad_YY
       case output_e_::DefGrad_YZ:
-        val = F[5]; return; break;// DefGrad_YZ
+        val = F[5]; return; // DefGrad_YZ
       case output_e_::DefGrad_ZX:
-        val = F[6]; return; break;// DefGrad_ZX
+        val = F[6]; return; // DefGrad_ZX
       case output_e_::DefGrad_ZY:
-        val = F[7]; return; break; // DefGrad_ZY
+        val = F[7]; return; // DefGrad_ZY
       case output_e_::DefGrad_ZZ:
-        val = F[8]; return; break;// DefGrad_ZZ
+        val = F[8]; return; // DefGrad_ZZ
       case output_e_::DefGrad_Determinant:
-        val = matrixDeterminant3d(F.data()); return; break;// J, V/Vo, det| F |
+        val = matrixDeterminant3d(F.data()); return; // J, V/Vo, det| F |
       case output_e_::DefGrad_Determinant_FBAR:
-        val = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib); return; break;// JBar, V/Vo, det| FBar |
+        val = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib); return; // JBar
       case output_e_::logJp:
-        val = pbuffer.getAttribute<attribs_e_::logJp>(_source_bin, _source_pidib); return; break;
+        val = pbuffer.getAttribute<attribs_e_::logJp>(_source_bin, _source_pidib); return; 
       case output_e_::DefGrad_Invariant1:
-        val = compute_Invariant_1_from_3x3_Tensor(F.data()); return; break;// Def. Grad. Invariant 1
+        val = compute_Invariant_1_from_3x3_Tensor(F.data()); return; // Def. Grad. Invariant 1
       case output_e_::DefGrad_Invariant2:
-        val = compute_Invariant_2_from_3x3_Tensor(F.data()); return; break;// Def. Grad. Invariant 2
+        val = compute_Invariant_2_from_3x3_Tensor(F.data()); return; // Def. Grad. Invariant 2
       case output_e_::DefGrad_Invariant3:
-        val = compute_Invariant_3_from_3x3_Tensor(F.data()); return; break;// Def. Grad. Invariant 3
+        val = compute_Invariant_3_from_3x3_Tensor(F.data()); return; // Def. Grad. Invariant 3
       case output_e_::EMPTY:
-        val = 0.0; return; break; // val = zero if EMPTY requested, used to buffer output columns
+        val = 0.0; return; // val = zero if EMPTY requested, used to buffer output columns
       case output_e_::INVALID_CT:
-        val = -2; return; break; // Invalid compile-time request, e.g. Specifically disallowed output
+        val = -2; return; // Invalid compile-time request, e.g. Specifically disallowed output
     }
 
     pvec9 C; 
@@ -10235,42 +10517,42 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
     compute_Invariants_from_3x3_Tensor(C.data(), Invariants.data());
     switch (idx) {
       case output_e_::StressCauchy_XX:
-        val = C[0]; return; break;// StressCauchy_XX
+        val = C[0]; return; // StressCauchy_XX
       case output_e_::StressCauchy_XY:
-        val = C[1]; return; break;// StressCauchy_XY
+        val = C[1]; return; // StressCauchy_XY
       case output_e_::StressCauchy_XZ:
-        val = C[2]; return; break;// StressCauchy_XZ
+        val = C[2]; return; // StressCauchy_XZ
       case output_e_::StressCauchy_YX:
-        val = C[3]; return; break;// StressCauchy_YX
+        val = C[3]; return; // StressCauchy_YX
       case output_e_::StressCauchy_YY:
-        val = C[4]; return; break;// StressCauchy_YY
+        val = C[4]; return; // StressCauchy_YY
       case output_e_::StressCauchy_YZ:
-        val = C[5]; return; break;// StressCauchy_YZ
+        val = C[5]; return; // StressCauchy_YZ
       case output_e_::StressCauchy_ZX:
-        val = C[6]; return; break;// StressCauchy_ZX
+        val = C[6]; return; // StressCauchy_ZX
       case output_e_::StressCauchy_ZY:
-        val = C[7]; return; break;// StressCauchy_ZY
+        val = C[7]; return; // StressCauchy_ZY
       case output_e_::StressCauchy_ZZ:
-        val = C[8]; return; break;// StressCauchy_ZZ
+        val = C[8]; return; ;// StressCauchy_ZZ
       case output_e_::Pressure:
-        val = compute_MeanStress_from_StressCauchy(C.data()); return; break;// Pressure [Pa], Mean Stress
+        val = compute_MeanStress_from_StressCauchy(C.data()); return; // Pressure [Pa], Mean Stress
       case output_e_::VonMisesStress:
-        val = compute_VonMisesStress_from_StressCauchy(C.data()); return; break; // Von Mises Stress [Pa]
+        val = compute_VonMisesStress_from_StressCauchy(C.data()); return; // Von Mises Stress [Pa]
       case output_e_::StressCauchy_Invariant1:
-        val = compute_Invariant_1_from_3x3_Tensor(C.data()); return; break;// Cauchy Stress Invariant 1
+        val = compute_Invariant_1_from_3x3_Tensor(C.data()); return; // Cauchy Stress Invariant 1
       case output_e_::StressCauchy_Invariant2:
-        val = compute_Invariant_2_from_3x3_Tensor(C.data()); return; break; // Cauchy Stress Invariant 2
+        val = compute_Invariant_2_from_3x3_Tensor(C.data()); return; // Cauchy Stress Invariant 2
       case output_e_::StressCauchy_Invariant3:
-        val = compute_Invariant_3_from_3x3_Tensor(C.data()); return; break; // Cauchy Stress Invariant 3
+        val = compute_Invariant_3_from_3x3_Tensor(C.data()); return;// Cauchy Stress Invariant 3
       case output_e_::StressCauchy_1:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[0]; return; break;// Cauchy Stress Principal 1
+        val = Principals[0]; return; // Cauchy Stress Principal 1
       case output_e_::StressCauchy_2:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[1]; return; break;// Cauchy Stress Principal 2
+        val = Principals[1]; return; // Cauchy Stress Principal 2
       case output_e_::StressCauchy_3:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[2]; return; break;// Cauchy Stress Principal 3
+        val = Principals[2]; return; // Cauchy Stress Principal 3
     }
 
     pvec9 e; 
@@ -10279,42 +10561,42 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
     compute_Invariants_from_3x3_Tensor(e.data(), Invariants.data());
     switch (idx) {
       case output_e_::StrainSmall_XX:
-        val = C[0]; return; break;// StressCauchy_XX
+        val = C[0]; return; // StressCauchy_XX
       case output_e_::StrainSmall_XY:
-        val = C[1]; return; break;// StressCauchy_XY
+        val = C[1]; return; // StressCauchy_XY
       case output_e_::StrainSmall_XZ:
-        val = C[2]; return; break;// StressCauchy_XZ
+        val = C[2]; return; // StressCauchy_XZ
       case output_e_::StrainSmall_YX:
-        val = C[3]; return; break;// StressCauchy_YX
+        val = C[3]; return; // StressCauchy_YX
       case output_e_::StrainSmall_YY:
-        val = C[4]; return; break;// StressCauchy_YY
+        val = C[4]; return; // StressCauchy_YY
       case output_e_::StrainSmall_YZ:
-        val = C[5]; return; break;// StressCauchy_YZ
+        val = C[5]; return; // StressCauchy_YZ
       case output_e_::StrainSmall_ZX:
-        val = C[6]; return; break;// StressCauchy_ZX
+        val = C[6]; return; // StressCauchy_ZX
       case output_e_::StrainSmall_ZY:
-        val = C[7]; return; break;// StressCauchy_ZY
+        val = C[7]; return; // StressCauchy_ZY
       case output_e_::StrainSmall_ZZ:
-        val = C[8]; return; break;// StressCauchy_ZZ
+        val = C[8]; return; // StressCauchy_ZZ
       case output_e_::VonMisesStrain:
-        val = compute_VonMisesStrain_from_StrainSmall(e.data()); return; break; // Von Mises Stress [Pa]
+        val = compute_VonMisesStrain_from_StrainSmall(e.data()); return; // Von Mises Stress [Pa]
       case output_e_::StrainSmall_Invariant1:
-        val = compute_Invariant_1_from_3x3_Tensor(e.data()); return; break;// Cauchy Stress Invariant 1
+        val = compute_Invariant_1_from_3x3_Tensor(e.data()); return; // Cauchy Stress Invariant 1
       case output_e_::StrainSmall_Invariant2:
-        val = compute_Invariant_2_from_3x3_Tensor(e.data()); return; break; // Cauchy Stress Invariant 2
+        val = compute_Invariant_2_from_3x3_Tensor(e.data()); return; // Cauchy Stress Invariant 2
       case output_e_::StrainSmall_Invariant3:
-        val = compute_Invariant_3_from_3x3_Tensor(e.data()); return; break; // Cauchy Stress Invariant 3
+        val = compute_Invariant_3_from_3x3_Tensor(e.data()); return; // Cauchy Stress Invariant 3
       case output_e_::StrainSmall_1:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[0]; return; break;// Cauchy Stress Principal 1
+        val = Principals[0]; return; // Cauchy Stress Principal 1
       case output_e_::StrainSmall_2:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[1]; return; break;// Cauchy Stress Principal 2
+        val = Principals[1]; return; // Cauchy Stress Principal 2
       case output_e_::StrainSmall_3:
         compute_Principals_from_Invariants_3x3_Sym_Tensor(Invariants.data(), Principals.data()); 
-        val = Principals[2]; return; break;// Cauchy Stress Principal 3
+        val = Principals[2]; return; // Cauchy Stress Principal 3
       default:
-        val = -1; return; break; // Invalid run-time request, e.g. Incorrect output attributes name
+        val = -1; return; // Invalid run-time request, e.g. Incorrect output attributes name
     }
   }
 
@@ -10326,11 +10608,13 @@ __global__ void retrieve_particle_buffer(Partition partition,
                                          ParticleArray parray, 
                                          PREC *trackVal, 
                                          int *_parcnt) {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   // auto particle_offset = partition._binsts[blockIdx.x];
+  // auto particle_offset = pbuffer._binsts[blockIdx.x];
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
     ivec3 source_blockid;
@@ -10338,8 +10622,9 @@ __global__ void retrieve_particle_buffer(Partition partition,
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
 
     auto parid = atomicAdd(_parcnt, 1);
@@ -10379,10 +10664,11 @@ retrieve_particle_buffer_attributes_general(Partition partition,
                                         PREC *valAgg, 
                                         const vec7 target, 
                                         int *_targetcnt, bool output_pt=false) {
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   //uint32_t blockno = blockIdx.x;
 
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
@@ -10392,11 +10678,13 @@ retrieve_particle_buffer_attributes_general(Partition partition,
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
-    auto _source_bin = prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity;
+    auto _source_bin = g_buckets_on_particle_buffer
+          ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
+          : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
     using attribs_e_ = typename ParticleBuffer<mt>::attribs_e;
     using output_e_ = particle_output_attribs_e;
 
@@ -10513,10 +10801,11 @@ retrieve_particle_buffer_attributes(Partition partition,
                                          const vec7 target, 
                                          int *_targetcnt, bool output_pt=false) {
   if (output_pt) { return; }
-  int pcnt = partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  auto advection_bucket =
-      partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
+  auto advection_bucket = g_buckets_on_particle_buffer
+      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
     ivec3 source_blockid;
@@ -10524,8 +10813,9 @@ retrieve_particle_buffer_attributes(Partition partition,
     source_blockid += blockid;
     auto source_blockno = prev_partition.query(source_blockid);
     auto source_pidib = advect % g_particle_num_per_block;
-    auto source_bin = pbuffer.ch(_0, prev_partition._binsts[source_blockno] +
-                                         source_pidib / g_bin_capacity);
+    auto source_bin = g_buckets_on_particle_buffer
+          ? pbuffer.ch(_0, pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity)
+          : pbuffer.ch(_0, prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity);
     auto _source_pidib = source_pidib % g_bin_capacity;
 
     /// Increase particle ID
