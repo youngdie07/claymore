@@ -1,23 +1,25 @@
 {
 	"simulation": {
-		"gpuid": 0,
-		"gravity": -9.81,
 		"fps": 20,
 		"frames": 60,
-		"CFL": 0.5,
 		"default_dt": 3e-5,
 		"default_dx": 0.05,
-		"domain": [6.4, 6.4, 0.4],
+		"domain": [3.2, 6.4, 0.4],
+		"gravity": -9.81,
 		"save_path": "./",
 		"save_suffix": ".bgeo"
 	},
 	"models": [
 		{
 			"gpu": 0,
+			"model": 0,
 			"type": "particles",
 			"color": "blue",
 			"constitutive": "JFluid",
 			"output_attribs": ["J", "JBar", "Pressure"],
+			"track_particle_id": [0],
+			"track_attribs": ["Velocity_X"],
+			"target_attribs": ["Position_Y"],
 			"ppc": 8,
 			"CFL": 0.5,
 			"rho": 1000,
@@ -30,23 +32,16 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.5,
+			"FBAR_ratio": 1,
 			"velocity": [0, 0, 0],
 			"partition_start": [0,0,0],
 			"partition_end": [3.2,3.2,0.05],
-			"inter_a": [0,0,0],
-			"inter_b": [0,0,0],
-			"track_particle_id": [0],
-			"track_attribs": ["Velocity_X"],
-			"target_attribs": ["Position_Y"],
 			"geometry": [
 				{
 					"object": "Box",
 					"operation": "Add",
 					"span": [3.2, 3.2, 0.05],
-					"offset": [0.0, 0.0, 0.0],
-					"array": [1, 1, 1],
-					"spacing": [0, 0, 0]
+					"offset": [0.0, 0.0, 0.0]
 				}
 			]
 		}

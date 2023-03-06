@@ -85,26 +85,6 @@ constexpr int g_log_level = 2; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnin
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
 constexpr int g_fps = 60; //< Default frames-per-second
 
-constexpr material_e get_material_type(int did) noexcept {
-  material_e type{material_e::JFluid}; return type; }
-
-constexpr fem_e get_element_type(int did) noexcept {
-  fem_e type{fem_e::Tetrahedron}; return type;}
-
-// Default material parameters, overrided at run-time
-#define DENSITY 1000       //< Default density [kg/m^3]
-#define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
-#define POISSON_RATIO 0.3 // Default Poisson Ratio
-#define MODEL_PPC 1.0 //< Default particles-per-cell
-#define CFL 0.5
-constexpr float g_model_ppc = MODEL_PPC; //< Default particles-per-cell
-constexpr float cfl = CFL; //< Default CFL Condition Coefficient
-
-// Ambient parameters
-#define PI_AS_A_DOUBLE 3.14159265358979323846
-#define PI_AS_A_FLOAT  3.14159265358979323846f
-#define GRAVITY -9.81 //< Default gravity (m/s^2)
-constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
 
 // Grid set-up
 #define DOMAIN_BITS 9 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
@@ -162,7 +142,7 @@ constexpr int g_max_active_block = 10000; //< Max active blocks in gridBlocks. P
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 900000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 1100000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -211,6 +191,27 @@ constexpr std::size_t g_block_resize_ratio = 110;
 constexpr std::size_t g_bin_check_ratio = 90;
 constexpr std::size_t g_bin_resize_ratio = 110;
 
+// Default material parameters, overrided at run-time
+#define DENSITY 1000       //< Default density [kg/m^3]
+#define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
+#define POISSON_RATIO 0.3 // Default Poisson Ratio
+#define CFL 0.5
+#define MODEL_PPC 1.0 //< Default particles-per-cell
+constexpr float cfl = CFL; //< Default CFL Condition Coefficient
+constexpr float g_model_ppc = MODEL_PPC; //< Default particles-per-cell
+
+// Ambient parameters
+#define PI_AS_A_DOUBLE 3.14159265358979323846
+#define PI_AS_A_FLOAT  3.14159265358979323846f
+#define GRAVITY -9.81 //< Default gravity (m/s^2)
+constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
+
+// Utility functions
+constexpr material_e get_material_type(int did) noexcept {
+  material_e type{material_e::JFluid}; return type; }
+
+constexpr fem_e get_element_type(int did) noexcept {
+  fem_e type{fem_e::Tetrahedron}; return type;}
 struct SimulatorConfigs {
   int dim;
   float dx, dxInv;

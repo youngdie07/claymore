@@ -12,9 +12,10 @@ namespace mn {
 /// * Isotropic Tait-Murnaghan fluid, uses the deformation gradient determinant J
 template <typename T = double>
 __forceinline__ __device__ void
-compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T J, T &pressure)
+compute_pressure_jfluid(T volume, T bulk, T bulk_wrt_pressure, T sJ, T &pressure)
 {
-  pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+  //pressure =  (bulk / bulk_wrt_pressure) * (  pow(J, -bulk_wrt_pressure) - 1.0 );
+  pressure = (bulk / bulk_wrt_pressure) * expm1(-bulk_wrt_pressure*log1p(-sJ));
 }
 template <>
 __forceinline__ __device__ void

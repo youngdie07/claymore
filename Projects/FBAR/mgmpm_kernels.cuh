@@ -6792,7 +6792,8 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
     contrib.set(0.0);
     {
       PREC voln = (1.0 - sJ) * pbuffer.volume;
-      PREC pressure = (pbuffer.bulk / pbuffer.gamma) * (pow((1.0 - sJBar_new), -pbuffer.gamma) - 1.0);
+      // PREC pressure = (pbuffer.bulk / pbuffer.gamma) * (pow((1.0 - sJBar_new), -pbuffer.gamma) - 1.0);
+      PREC pressure = (pbuffer.bulk / pbuffer.gamma) * expm1(-pbuffer.gamma*log1p(-sJBar_new));
       {
         contrib[0] = ((C[0] + C[0]) * Dp_inv * pbuffer.visco - pressure) * voln ;
         contrib[1] = (C[1] + C[3]) * Dp_inv *  pbuffer.visco * voln ;
@@ -10455,7 +10456,7 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
     Principals.set(0.); Invariants.set(0.);
     pbuffer.getDefGrad(_source_bin, _source_pidib, F.data());
     PREC J =  matrixDeterminant3d(F.data());
-
+    PREC sJBar = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib);
     switch (idx) {
       case output_e_::ID:
         val = pbuffer.getAttribute<attribs_e_::ID>(_source_bin, _source_pidib); return; // ID 
@@ -10513,7 +10514,15 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
 
     pvec9 C; 
     C.set(0.); 
-    pbuffer.getStress_Cauchy((1/J), F, C);
+    pvec9 FBar;
+
+    if (pbuffer.use_FBAR) {
+      PREC J_Scale = cbrt((1.0-sJBar) / J);
+      for (int d=0; d<9; d++) FBar[d] = F[d] * ((1. - pbuffer.FBAR_ratio) + pbuffer.FBAR_ratio * J_Scale);
+      pbuffer.getStress_Cauchy(1., FBar, C);
+    }
+    else 
+      pbuffer.getStress_Cauchy((1/J), F, C);
     compute_Invariants_from_3x3_Tensor(C.data(), Invariants.data());
     switch (idx) {
       case output_e_::StressCauchy_XX:
@@ -10535,7 +10544,7 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
       case output_e_::StressCauchy_ZZ:
         val = C[8]; return; ;// StressCauchy_ZZ
       case output_e_::Pressure:
-        val = compute_MeanStress_from_StressCauchy(C.data()); return; // Pressure [Pa], Mean Stress
+        val = compute_MeanStress_from_StressCauchy(C.data()); return; // Pressure [Pa], Mean Stress 
       case output_e_::VonMisesStress:
         val = compute_VonMisesStress_from_StressCauchy(C.data()); return; // Von Mises Stress [Pa]
       case output_e_::StressCauchy_Invariant1:
@@ -10602,19 +10611,16 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
 
 
 template <typename Partition, typename ParticleBuffer, typename ParticleArray>
-__global__ void retrieve_particle_buffer(Partition partition,
-                                         Partition prev_partition,
-                                         ParticleBuffer pbuffer,
+__global__ void retrieve_particle_buffer(Partition partition, Partition prev_partition,
+                                         ParticleBuffer pbuffer, ParticleBuffer next_pbuffer,
                                          ParticleArray parray, 
                                          PREC *trackVal, 
                                          int *_parcnt) {
-  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket = g_buckets_on_particle_buffer
-      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      ? next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
       : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
-  // auto particle_offset = partition._binsts[blockIdx.x];
-  // auto particle_offset = pbuffer._binsts[blockIdx.x];
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
     ivec3 source_blockid;
@@ -10639,7 +10645,7 @@ template <typename Partition, typename ParticleBuffer, typename ParticleArray, n
 __global__ void
 retrieve_particle_buffer_attributes_general(Partition partition,
                                         Partition prev_partition,
-                                        ParticleBuffer pbuffer,
+                                        ParticleBuffer pbuffer, ParticleBuffer next_pbuffer,
                                         ParticleArray parray, 
                                         ParticleAttrib<N> pattrib,
                                         PREC *trackVal, 
@@ -10655,7 +10661,7 @@ template <typename Partition, material_e mt, typename ParticleArray, num_attribs
 __global__ void
 retrieve_particle_buffer_attributes_general(Partition partition,
                                         Partition prev_partition,
-                                        ParticleBuffer<mt> pbuffer,
+                                        ParticleBuffer<mt> pbuffer, ParticleBuffer<mt> next_pbuffer,
                                         ParticleArray parray, 
                                         ParticleAttrib<N> pattrib,
                                         PREC *trackVal, 
@@ -10664,10 +10670,10 @@ retrieve_particle_buffer_attributes_general(Partition partition,
                                         PREC *valAgg, 
                                         const vec7 target, 
                                         int *_targetcnt, bool output_pt=false) {
-  int pcnt = g_buckets_on_particle_buffer ? pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
+  int pcnt = g_buckets_on_particle_buffer ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
   auto advection_bucket = g_buckets_on_particle_buffer
-      ? pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
+      ? next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
       : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   //uint32_t blockno = blockIdx.x;
 
