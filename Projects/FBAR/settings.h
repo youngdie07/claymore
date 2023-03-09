@@ -87,7 +87,7 @@ constexpr int g_fps = 60; //< Default frames-per-second
 
 
 // Grid set-up
-#define DOMAIN_BITS 9 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -115,18 +115,18 @@ constexpr float g_offset = g_dx * 8; //< Offset in grid-cells of sim origin from
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 16.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
 constexpr double g_grid_ratio_z = g_length_z / g_length + 0.0 * g_dx; //< Domain z ratio
-// constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) ; //< Domain x grid-blocks
-// constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) ; //< Domain y grid-blocks
-// constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain z grid-blocks
-constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
-constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
-constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
+constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) ; //< Domain x grid-blocks
+constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) ; //< Domain y grid-blocks
+constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain z grid-blocks
+//constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
+//constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
+//constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
 
 
 /// ------------------
@@ -142,7 +142,7 @@ constexpr int g_max_active_block = 10000; //< Max active blocks in gridBlocks. P
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 1100000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 1500000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -241,6 +241,48 @@ struct AlgoConfigs {
   PREC FBAR_ratio;
   AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0.), ASFLIP_beta_min(0.), ASFLIP_beta_max(0.), FBAR_ratio(0.) {}
   ~AlgoConfigs() {}
+};
+
+
+enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate};
+enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, OSU_LWF_RAMP, OSU_LWF_PADDLE, USGS_RAMP, USGS_GATE };
+
+struct GridBoundaryConfigs {
+  int _ID; //< Specific grid-target ID, [0, number_of_targets)
+  vec<float, 3> _domain_start; //< Start of domain
+  vec<float, 3> _domain_end; //< End of domain
+  boundary_object_t _object;
+  boundary_contact_t _contact;
+  float _friction_static, _friction_dynamic;
+  vec<float, 2> _time;
+  vec3 _normal;
+  vec3 _trans, _transVel;
+  vec3x3 _rotMat;
+  vec3 _omega; 
+  // Default constructor
+  GridBoundaryConfigs() {
+    _ID = 0;
+    _domain_start.set(0.f);
+    _domain_end.set(0.f);
+    _object = boundary_object_t::Walls;
+    _contact = boundary_contact_t::Sticky;
+    _friction_static = 0.f;
+    _friction_dynamic = 0.f;
+    _time.set(0.f);
+    _normal.set(0.f);
+    _rotMat.set(0.f);
+    _rotMat(0, 0) = _rotMat(1, 1) = _rotMat(2, 2) = 1.f;
+    _trans.set(0.f);
+    _transVel.set(0.f);
+    _omega.set(0.f);
+  }
+  // Copy constructor
+  GridBoundaryConfigs(const GridBoundaryConfigs& other) = default;
+  // Copy assignment
+  GridBoundaryConfigs& operator=( const GridBoundaryConfigs& ) = default;
+  // Default destructor
+  ~GridBoundaryConfigs() {}
+
 };
 
 struct GridTargetConfigs 

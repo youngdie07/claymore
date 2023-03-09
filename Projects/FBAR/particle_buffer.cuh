@@ -868,24 +868,41 @@ struct ParticleBuffer<material_e::JBarFluid>
 
   template <typename T>
    __device__ constexpr void
-  getDefGrad(T bin, T particle_id_in_bin, PREC & J) {
+  getDefGrad(const T bin, const T particle_id_in_bin, PREC& J) {
     J = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
   }
-
   template <typename T>
    __device__ constexpr void
-  getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) {
+  getDefGrad(T bin, T particle_id_in_bin, PREC * DefGrad) { 
     PREC DefGrad_Det_cbrt = cbrt(1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin));
     DefGrad[0] = DefGrad[4] = DefGrad[8] = DefGrad_Det_cbrt;
     DefGrad[1] = DefGrad[2] = DefGrad[3] = DefGrad[5] = DefGrad[6] = DefGrad[7] = 0.; 
   }
+
   template <typename T = PREC>
-   __device__ void
-  getPressure(const T bin, const T particle_id_in_bin, PREC& pressure){
-    PREC Jp = 1.0 - this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, attribs_e::J>{}, particle_id_in_bin);
+   __device__ constexpr void
+  getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
+    //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
+    PREC Jp = F[0]*F[4]*F[8];
+    PREC pressure;
     compute_pressure_jfluid(volume, bulk, gamma, Jp, pressure);
+    PF[0] = PF[4] = PF[8] = pressure;
+  }
+  template <typename T = PREC>
+   __device__ constexpr void
+  getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
+    //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
+    PREC Jp = 1. - F[0]*F[4]*F[8];
+    PREC pressure;
+    compute_pressure_jfluid(vol, bulk, gamma, Jp, pressure);
+    PF[0] = PF[4] = PF[8] = pressure;
   }
 
+  template <typename T = PREC>
+   __device__ void
+  getPressure(T sJ, T& pressure){
+    compute_pressure_jfluid(volume, bulk, gamma, sJ, pressure);
+  }
   // TODO : Make getStress accurate to JFluid for APIC
   template <typename T = PREC>
    __device__ void
@@ -907,25 +924,6 @@ struct ParticleBuffer<material_e::JBarFluid>
     P[0] = P[4] = P[8] = pressure;
   }
 
-  template <typename T = PREC>
-   __device__ constexpr void
-  getStress_Cauchy(const vec<T,9>& F, vec<T,9>& PF){
-    //compute_stress_PK1_jfluid(volume, bulk, gamma, F, P);
-    PREC Jp = F[0]*F[4]*F[8];
-    PREC pressure;
-    compute_pressure_jfluid(volume, bulk, gamma, Jp, pressure);
-    PF[0] = PF[4] = PF[8] = pressure;
-  }
-  template <typename T = PREC>
-   __device__ constexpr void
-  getStress_Cauchy(T vol, const vec<T,9>& F, vec<T,9>& PF){
-    //compute_stress_PK1_jfluid(vol, bulk, gamma, F, P);
-    PREC Jp = F[0]*F[4]*F[8];
-    PREC pressure;
-    compute_pressure_jfluid(vol, bulk, gamma, Jp, pressure);
-    PF[0] = PF[4] = PF[8] = pressure;
-  }
-  
   template <typename T = PREC>
    __device__ void
   getStrainEnergy(T J, T& strain_energy){

@@ -2,8 +2,8 @@
 	"simulation": {
 		"fps": 20,
 		"frames": 60,
-		"default_dt": 3e-5,
-		"default_dx": 0.05,
+		"default_dt": 1e-5,
+		"default_dx": 0.025,
 		"domain": [3.2, 6.4, 0.4],
 		"gravity": -9.81,
 		"save_path": "./",
@@ -23,7 +23,7 @@
 			"ppc": 8,
 			"CFL": 0.5,
 			"rho": 1000,
-			"bulk_modulus": 2.2e8,
+			"bulk_modulus": 2.2e9,
 			"gamma": 7.1,
 			"viscosity": 0.001,
 			"use_ASFLIP": false,
@@ -32,15 +32,15 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 1,
+			"FBAR_ratio": 0.9,
 			"velocity": [0, 0, 0],
 			"partition_start": [0,0,0],
-			"partition_end": [3.2,3.2,0.05],
+			"partition_end": [3.2,3.2,0.025],
 			"geometry": [
 				{
 					"object": "Box",
 					"operation": "Add",
-					"span": [3.2, 3.2, 0.05],
+					"span": [3.2, 3.2, 0.025],
 					"offset": [0.0, 0.0, 0.0]
 				}
 			]
@@ -51,7 +51,7 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [3.2, 6.4, 0.05],
+			"domain_end": [3.2, 6.4, 0.025],
 			"time": [0, 60]
 		}
 	],

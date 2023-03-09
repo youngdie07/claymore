@@ -133,7 +133,7 @@ struct mgsp_benchmark {
     // Loop and initialize each device/CUDA context.
     if constexpr (GPU_ID + 1 < g_device_cnt) initParticles<GPU_ID + 1>();
   }
-  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), float dt = 1e-4, uint64_t fp = 24, uint64_t frames = 60, float g = -9.81f, std::string suffix = ".bgeo")
+  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), float dt = 1e-4, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, std::string suffix = ".bgeo")
       : length(l), domainCellCnt(dCC), dtDefault(dt), curTime(0.f), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), bRunning(true) {
 
     fmt::print(fg(fmt::color::white),"Entered simulation object. Start GPU data-structure initialization... \n");
@@ -471,11 +471,13 @@ struct mgsp_benchmark {
   /// Initialize basic boundaries on the grid
   void initGridBoundaries(int GPU_ID,
                       const vec<PREC_G, g_grid_boundary_attribs> &host_gridBoundary,
+                      const mn::config::GridBoundaryConfigs &gridBoundaryConfigs,
                       int boundary_ID) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initGridBoundaries in simulator.\n");
     // Initialize placeholder boundaries
+
     if (boundary_ID == 0)
     {
       for (int b=0; b<g_max_grid_boundaries; b++)
@@ -724,7 +726,7 @@ struct mgsp_benchmark {
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
                 gridBlocks[0][did], partitions[rollid][did], dt,
-                (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime, grav);
+                (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime, grav[1]);
           else { // If using basic geometry boundaries
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
@@ -740,7 +742,7 @@ struct mgsp_benchmark {
               cuDev.compute_launch(
                   {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) / g_num_grid_blocks_per_cuda_block, g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
                   query_energy_grid, (uint32_t)nbcnt[did],
-                  gridBlocks[0][did], partitions[rollid][did], dt, d_kinetic_energy_grid, d_gravity_energy_grid, curTime, grav, gridBoundary, d_motionPath, length);
+                  gridBlocks[0][did], partitions[rollid][did], dt, d_kinetic_energy_grid, d_gravity_energy_grid, curTime, grav[1], gridBoundary, d_motionPath, length);
             }
           }
           cuDev.syncStream<streamIdx::Compute>();
@@ -1077,8 +1079,9 @@ struct mgsp_benchmark {
                 // g2p F-Bar - Non-Halo
                 timer.tick();
                 checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                int shmem = (3*216 + 2*512) * (sizeof(PREC_G));
                 cuDev.compute_launch(
-                    {pbcnt[did], g_particle_batch, (512 * 3 * sizeof(PREC_G)) + (512 * 2 * sizeof(PREC_G))}, 
+                    {pbcnt[did], g_particle_batch, shmem}, 
                     g2p_FBar, dt, nextDt, 
                     (const ivec3 *)nullptr, pb,
                     get<typename std::decay_t<decltype(pb)>>(
@@ -1103,9 +1106,9 @@ struct mgsp_benchmark {
                                       curFrame, curStep));
               } //< End Non-Halo F-Bar 
 
-              // Grid-to-Particle - Update F-Bar - Particle-to-Grid 
+              // Grid-to-Particle - Update F-Bar - Particle-to-Grid ASFLIP
               else if (pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
-                // g2p F-Bar - Non-Halo
+                // g2p F-Bar ASFLIP - Non-Halo
                 timer.tick();
                 int shmem = (3 + 2) * (g_arenavolume * sizeof(PREC_G));
                 checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
@@ -1548,7 +1551,7 @@ struct mgsp_benchmark {
       match(particleBins[rollid ^ 1][did][mid])([&](const auto &pb) {
         cuDev.compute_launch({pbcnt[did], 128}, query_energy_particles,
                             partitions[rollid ^ 1][did], partitions[rollid][did],
-                            pb, d_kinetic_energy_particles, d_gravity_energy_particles, d_strain_energy_particles, grav);
+                            pb, d_kinetic_energy_particles, d_gravity_energy_particles, d_strain_energy_particles, grav[1]);
       });
     }
     //cuDev.syncStream<streamIdx::Compute>();
@@ -2178,12 +2181,12 @@ struct mgsp_benchmark {
             if (flag_pi[did][mid]) {
               cuDev.compute_launch({(pcnt[did][mid] + 255) / 256, 256}, rasterize, pcnt[did][mid],
                                   pb, particles[did][mid],  pi, gridBlocks[0][did],
-                                  partitions[rollid][did], dt, vel0[did][mid], (PREC)grav);
+                                  partitions[rollid][did], dt, vel0[did][mid], (PREC)grav[1]);
               fmt::print("GPU[{}] MODEl[{}] Rasterized init. attributes to grid.\n", did, mid);
             } else {
               cuDev.compute_launch({(pcnt[did][mid] + 255) / 256, 256}, rasterize, pcnt[did][mid],
                               pb, particles[did][mid], gridBlocks[0][did],
-                              partitions[rollid][did], dt, vel0[did][mid], (PREC)grav); 
+                              partitions[rollid][did], dt, vel0[did][mid], (PREC)grav[1]); 
             }
           });
           match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
@@ -2198,12 +2201,12 @@ struct mgsp_benchmark {
           if (flag_pi[did][mid]) {
               cuDev.compute_launch({(pcnt[did][mid] + 255) / 256, 256}, rasterize, pcnt[did][mid],
                                   pb, particles[did][mid],  pi, gridBlocks[0][did],
-                                  partitions[rollid][did], dt, vel0[did][mid], (PREC)grav);
+                                  partitions[rollid][did], dt, vel0[did][mid], (PREC)grav[1]);
             fmt::print("GPU[{}] Rasterized init. attributes to grid.\n", did);
           } else {
             cuDev.compute_launch({(pcnt[did][mid] + 255) / 256, 256}, rasterize, pcnt[did][mid],
                             pb, particles[did][mid], gridBlocks[0][did],
-                            partitions[rollid][did], dt, vel0[did][mid], (PREC)grav); 
+                            partitions[rollid][did], dt, vel0[did][mid], (PREC)grav[1]); 
           }
         });
         cuDev.compute_launch({pbcnt[did], 128}, init_adv_bucket,
@@ -2436,7 +2439,8 @@ struct mgsp_benchmark {
   // * Declare Simulation basic run-time settings
   PREC length;
   uint64_t domainCellCnt;
-  float dt, nextDt, dtDefault, curTime, nextTime, maxVel, grav;
+  float dt, nextDt, dtDefault, curTime, nextTime, maxVel;
+  pvec3 grav;
   uint64_t curFrame, curStep, fps, nframes;
   pvec3 vel0[g_device_cnt][g_models_per_gpu]; ///< Sets initial velocities per gpu model, not individual particles
 
