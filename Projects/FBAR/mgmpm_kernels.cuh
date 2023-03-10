@@ -301,7 +301,7 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
   PREC sJBar = val;
 
   // TODO : Init. with material's Cauchy stress, not just pressure for fluid
-  PREC pressure =  (6e7 / 7.1) * (  pow((1.0-sJBar), -7.1) - 1.0 );
+  PREC pressure =  (2.2e8 / 7.1) * (  pow((1.0-sJBar), -7.1) - 1.0 );
   PREC voln = J * volume;
   contrib[0] = - pressure * voln;
   contrib[4] = - pressure * voln;
@@ -10187,70 +10187,70 @@ __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Nine> pattrib, I
 }
 
 
-template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Ten> pattrib, I i, T parid, PREC val)
-{
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-}
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Ten> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+// }
 
-template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Eleven> pattrib, I i, T parid, PREC val)
-{
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 11) pattrib.val(_10, parid) = val; 
-}
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Eleven> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 11) pattrib.val(_10, parid) = val; 
+// }
 
-template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Twelve> pattrib, I i, T parid, PREC val)
-{
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 10) pattrib.val(_10, parid) = val; 
-  else if (i == 11) pattrib.val(_11, parid) = val; 
-}
-template<typename I, typename T>
-__device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Thirteen> pattrib, I i, T parid, PREC val)
-{
-  if      (i == 0) pattrib.val(_0, parid) = val; 
-  else if (i == 1) pattrib.val(_1, parid) = val; 
-  else if (i == 2) pattrib.val(_2, parid) = val; 
-  else if (i == 3) pattrib.val(_3, parid) = val; 
-  else if (i == 4) pattrib.val(_4, parid) = val; 
-  else if (i == 5) pattrib.val(_5, parid) = val; 
-  else if (i == 6) pattrib.val(_6, parid) = val; 
-  else if (i == 7) pattrib.val(_7, parid) = val; 
-  else if (i == 8) pattrib.val(_8, parid) = val; 
-  else if (i == 9) pattrib.val(_9, parid) = val; 
-  else if (i == 10) pattrib.val(_10, parid) = val; 
-  else if (i == 11) pattrib.val(_11, parid) = val; 
-  else if (i == 12) pattrib.val(_12, parid) = val; 
-}
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Twelve> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 10) pattrib.val(_10, parid) = val; 
+//   else if (i == 11) pattrib.val(_11, parid) = val; 
+// }
+// template<typename I, typename T>
+// __device__ void setParticleAttrib(ParticleAttrib<num_attribs_e::Thirteen> pattrib, I i, T parid, PREC val)
+// {
+//   if      (i == 0) pattrib.val(_0, parid) = val; 
+//   else if (i == 1) pattrib.val(_1, parid) = val; 
+//   else if (i == 2) pattrib.val(_2, parid) = val; 
+//   else if (i == 3) pattrib.val(_3, parid) = val; 
+//   else if (i == 4) pattrib.val(_4, parid) = val; 
+//   else if (i == 5) pattrib.val(_5, parid) = val; 
+//   else if (i == 6) pattrib.val(_6, parid) = val; 
+//   else if (i == 7) pattrib.val(_7, parid) = val; 
+//   else if (i == 8) pattrib.val(_8, parid) = val; 
+//   else if (i == 9) pattrib.val(_9, parid) = val; 
+//   else if (i == 10) pattrib.val(_10, parid) = val; 
+//   else if (i == 11) pattrib.val(_11, parid) = val; 
+//   else if (i == 12) pattrib.val(_12, parid) = val; 
+// }
 // template<typename I, typename T>
 // __device__ void setParticleAttrib(ParticleAttrib<15> pattrib, I i, T parid, PREC val)
 // {
@@ -10393,71 +10393,71 @@ __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Nine> pattrib, I
   else if (i == 8) val = pattrib.val(_8, parid) ; 
 }
 
-template<typename I, typename T>
-__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Ten> pattrib, I i, T parid, PREC& val)
-{
-  if      (i == 0) val = pattrib.val(_0, parid) ; 
-  else if (i == 1) val = pattrib.val(_1, parid) ; 
-  else if (i == 2) val = pattrib.val(_2, parid) ; 
-  else if (i == 3) val = pattrib.val(_3, parid) ; 
-  else if (i == 4) val = pattrib.val(_4, parid) ; 
-  else if (i == 5) val = pattrib.val(_5, parid) ; 
-  else if (i == 6) val = pattrib.val(_6, parid) ; 
-  else if (i == 7) val = pattrib.val(_7, parid) ; 
-  else if (i == 8) val = pattrib.val(_8, parid) ; 
-  else if (i == 9) val = pattrib.val(_9, parid) ; 
-}
+// template<typename I, typename T>
+// __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Ten> pattrib, I i, T parid, PREC& val)
+// {
+//   if      (i == 0) val = pattrib.val(_0, parid) ; 
+//   else if (i == 1) val = pattrib.val(_1, parid) ; 
+//   else if (i == 2) val = pattrib.val(_2, parid) ; 
+//   else if (i == 3) val = pattrib.val(_3, parid) ; 
+//   else if (i == 4) val = pattrib.val(_4, parid) ; 
+//   else if (i == 5) val = pattrib.val(_5, parid) ; 
+//   else if (i == 6) val = pattrib.val(_6, parid) ; 
+//   else if (i == 7) val = pattrib.val(_7, parid) ; 
+//   else if (i == 8) val = pattrib.val(_8, parid) ; 
+//   else if (i == 9) val = pattrib.val(_9, parid) ; 
+// }
 
-template<typename I, typename T>
-__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Eleven> pattrib, I i, T parid, PREC& val)
-{
-  if      (i == 0) val = pattrib.val(_0, parid) ; 
-  else if (i == 1) val = pattrib.val(_1, parid) ; 
-  else if (i == 2) val = pattrib.val(_2, parid) ; 
-  else if (i == 3) val = pattrib.val(_3, parid) ; 
-  else if (i == 4) val = pattrib.val(_4, parid) ; 
-  else if (i == 5) val = pattrib.val(_5, parid) ; 
-  else if (i == 6) val = pattrib.val(_6, parid) ; 
-  else if (i == 7) val = pattrib.val(_7, parid) ; 
-  else if (i == 8) val = pattrib.val(_8, parid) ; 
-  else if (i == 9) val = pattrib.val(_9, parid) ; 
-  else if (i == 10) val = pattrib.val(_10, parid) ; 
-}
+// template<typename I, typename T>
+// __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Eleven> pattrib, I i, T parid, PREC& val)
+// {
+//   if      (i == 0) val = pattrib.val(_0, parid) ; 
+//   else if (i == 1) val = pattrib.val(_1, parid) ; 
+//   else if (i == 2) val = pattrib.val(_2, parid) ; 
+//   else if (i == 3) val = pattrib.val(_3, parid) ; 
+//   else if (i == 4) val = pattrib.val(_4, parid) ; 
+//   else if (i == 5) val = pattrib.val(_5, parid) ; 
+//   else if (i == 6) val = pattrib.val(_6, parid) ; 
+//   else if (i == 7) val = pattrib.val(_7, parid) ; 
+//   else if (i == 8) val = pattrib.val(_8, parid) ; 
+//   else if (i == 9) val = pattrib.val(_9, parid) ; 
+//   else if (i == 10) val = pattrib.val(_10, parid) ; 
+// }
 
-template<typename I, typename T>
-__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Twelve> pattrib, I i, T parid, PREC& val)
-{
-  if      (i == 0) val = pattrib.val(_0, parid) ; 
-  else if (i == 1) val = pattrib.val(_1, parid) ; 
-  else if (i == 2) val = pattrib.val(_2, parid) ; 
-  else if (i == 3) val = pattrib.val(_3, parid) ; 
-  else if (i == 4) val = pattrib.val(_4, parid) ; 
-  else if (i == 5) val = pattrib.val(_5, parid) ; 
-  else if (i == 6) val = pattrib.val(_6, parid) ; 
-  else if (i == 7) val = pattrib.val(_7, parid) ; 
-  else if (i == 8) val = pattrib.val(_8, parid) ; 
-  else if (i == 9) val = pattrib.val(_9, parid) ; 
-  else if (i == 10) val = pattrib.val(_10, parid) ; 
-  else if (i == 11) val = pattrib.val(_11, parid) ; 
-}
+// template<typename I, typename T>
+// __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Twelve> pattrib, I i, T parid, PREC& val)
+// {
+//   if      (i == 0) val = pattrib.val(_0, parid) ; 
+//   else if (i == 1) val = pattrib.val(_1, parid) ; 
+//   else if (i == 2) val = pattrib.val(_2, parid) ; 
+//   else if (i == 3) val = pattrib.val(_3, parid) ; 
+//   else if (i == 4) val = pattrib.val(_4, parid) ; 
+//   else if (i == 5) val = pattrib.val(_5, parid) ; 
+//   else if (i == 6) val = pattrib.val(_6, parid) ; 
+//   else if (i == 7) val = pattrib.val(_7, parid) ; 
+//   else if (i == 8) val = pattrib.val(_8, parid) ; 
+//   else if (i == 9) val = pattrib.val(_9, parid) ; 
+//   else if (i == 10) val = pattrib.val(_10, parid) ; 
+//   else if (i == 11) val = pattrib.val(_11, parid) ; 
+// }
 
-template<typename I, typename T>
-__device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Thirteen> pattrib, I i, T parid, PREC& val)
-{
-  if      (i == 0) val = pattrib.val(_0, parid) ; 
-  else if (i == 1) val = pattrib.val(_1, parid) ; 
-  else if (i == 2) val = pattrib.val(_2, parid) ; 
-  else if (i == 3) val = pattrib.val(_3, parid) ; 
-  else if (i == 4) val = pattrib.val(_4, parid) ; 
-  else if (i == 5) val = pattrib.val(_5, parid) ;
-  else if (i == 6) val = pattrib.val(_6, parid) ; 
-  else if (i == 7) val = pattrib.val(_7, parid) ; 
-  else if (i == 8) val = pattrib.val(_8, parid) ; 
-  else if (i == 9) val = pattrib.val(_9, parid) ; 
-  else if (i == 10) val = pattrib.val(_10, parid) ; 
-  else if (i == 11) val = pattrib.val(_11, parid) ; 
-  else if (i == 12) val = pattrib.val(_12, parid) ; 
-}
+// template<typename I, typename T>
+// __device__ void getParticleAttrib(ParticleAttrib<num_attribs_e::Thirteen> pattrib, I i, T parid, PREC& val)
+// {
+//   if      (i == 0) val = pattrib.val(_0, parid) ; 
+//   else if (i == 1) val = pattrib.val(_1, parid) ; 
+//   else if (i == 2) val = pattrib.val(_2, parid) ; 
+//   else if (i == 3) val = pattrib.val(_3, parid) ; 
+//   else if (i == 4) val = pattrib.val(_4, parid) ; 
+//   else if (i == 5) val = pattrib.val(_5, parid) ;
+//   else if (i == 6) val = pattrib.val(_6, parid) ; 
+//   else if (i == 7) val = pattrib.val(_7, parid) ; 
+//   else if (i == 8) val = pattrib.val(_8, parid) ; 
+//   else if (i == 9) val = pattrib.val(_9, parid) ; 
+//   else if (i == 10) val = pattrib.val(_10, parid) ; 
+//   else if (i == 11) val = pattrib.val(_11, parid) ; 
+//   else if (i == 12) val = pattrib.val(_12, parid) ; 
+// }
 
 template <typename ParticleBuffer, typename T, typename I>
 __device__ void caseSwitch_ParticleAttrib(ParticleBuffer pbuffer, T _source_bin, T _source_pidib, I idx, PREC& val) { }

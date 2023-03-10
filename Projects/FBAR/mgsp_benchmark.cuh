@@ -507,7 +507,8 @@ struct mgsp_benchmark {
   /// Set a Motion-Path for time-step (JB)
   void setMotionPath(std::vector<std::array<PREC_G, 3>> &host_motionPath, float curTime) {
     if (flag_mp) {
-      int step = (int)(curTime * host_mp_freq); //< Index for time
+      float check_point_time = 9.f; // TODO : Time of check-point 
+      int step = (int)((curTime + check_point_time)  * host_mp_freq); //< Index for time
       if (step >= host_motionPath.size()) step = (int)(host_motionPath.size() - 1); //< Index-limit
       else if (step < 0) step = 0;
       for (int d = 0; d < 3; d++) d_motionPath[d] = (PREC_G)host_motionPath[step][d]; //< Set vals

@@ -2100,10 +2100,10 @@ template <> struct particle_attrib_<num_attribs_e::Six> : particle_array_6_ {};
 template <> struct particle_attrib_<num_attribs_e::Seven> : particle_array_7_ {}; //
 template <> struct particle_attrib_<num_attribs_e::Eight> : particle_array_8_ {}; //
 template <> struct particle_attrib_<num_attribs_e::Nine> : particle_array_9_ {};
-template <> struct particle_attrib_<num_attribs_e::Ten> : particle_array_10_ {}; //
-template <> struct particle_attrib_<num_attribs_e::Eleven> : particle_array_11_ {}; //
-template <> struct particle_attrib_<num_attribs_e::Twelve> : particle_array_12_ {};
-template <> struct particle_attrib_<num_attribs_e::Thirteen> : particle_array_13_ {};
+// template <> struct particle_attrib_<num_attribs_e::Ten> : particle_array_10_ {}; //
+// template <> struct particle_attrib_<num_attribs_e::Eleven> : particle_array_11_ {}; //
+// template <> struct particle_attrib_<num_attribs_e::Twelve> : particle_array_12_ {};
+// template <> struct particle_attrib_<num_attribs_e::Thirteen> : particle_array_13_ {};
 // template <> struct particle_attrib_<num_attribs_e::Fourteen> : particle_array_14_ {};
 // template <> struct particle_attrib_<num_attribs_e::Fifteen> : particle_array_15_ {};
 // template <> struct particle_attrib_<num_attribs_e::Sixteen> : particle_array_16_ {};
@@ -2163,10 +2163,10 @@ using particle_attrib_t =
             ParticleAttrib<num_attribs_e::Seven>,
             ParticleAttrib<num_attribs_e::Eight>,
             ParticleAttrib<num_attribs_e::Nine>,
-            ParticleAttrib<num_attribs_e::Ten>,
-            ParticleAttrib<num_attribs_e::Eleven>,
-            ParticleAttrib<num_attribs_e::Twelve>,
-            ParticleAttrib<num_attribs_e::Thirteen>
+            // ParticleAttrib<num_attribs_e::Ten>,
+            // ParticleAttrib<num_attribs_e::Eleven>,
+            // ParticleAttrib<num_attribs_e::Twelve>,
+            // ParticleAttrib<num_attribs_e::Thirteen>
             // ParticleAttrib<num_attribs_e::Fourteen>,
             // ParticleAttrib<num_attribs_e::Fifteen>,
             // ParticleAttrib<num_attribs_e::Sixteen>,

@@ -1656,19 +1656,20 @@ void parse_scene(std::string fn,
             } else if (input_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
               benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 10){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 11){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 12){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            } else if (input_attribs.size() == 13){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-              benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
             } 
+            // else if (input_attribs.size() == 10){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() == 11){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() == 12){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } else if (input_attribs.size() == 13){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
+            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
+            // } 
             // else if (input_attribs.size() == 14){
             //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
             //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
@@ -1725,19 +1726,20 @@ void parse_scene(std::string fn,
             } else if (output_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
               benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            } else if (output_attribs.size() == 10){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            } else if (output_attribs.size() == 11){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            } else if (output_attribs.size() == 12){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            } else if (output_attribs.size() == 13){
-              constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-              benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
             } 
+            // else if (output_attribs.size() == 10){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() == 11){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() == 12){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } else if (output_attribs.size() == 13){
+            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
+            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
+            // } 
             // else if (output_attribs.size() == 14){
             //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
             //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
