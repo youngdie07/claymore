@@ -2195,8 +2195,7 @@ struct mgsp_benchmark {
                                 (const int *)pb._ppbs, pb._blockbuckets);
           });
         }
-      } 
-      else { 
+      } else { 
         int mid = 0;
         match(particleBins[rollid][did][mid], pattribs_init[did][mid])([&](auto &pb, auto &pi) {
           if (flag_pi[did][mid]) {

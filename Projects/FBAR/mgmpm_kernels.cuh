@@ -279,7 +279,8 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
   // TODO : Clean this up to use a loop and enums
   getParticleAttrib(pattrib, i, parid, val); 
   i=i+1;
-  PREC sJ = val; J = 1-sJ;
+  J = val; 
+  PREC sJ = 1.0-J;
 
   getParticleAttrib(pattrib, i, parid, val); 
   i=i+1;
@@ -756,7 +757,7 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid);
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid);
     /// J
-    pbin.val(_3, pidib % g_bin_capacity) = pattribs.val(_0, parid); //< (1 - J) = (1 - V/Vo)
+    pbin.val(_3, pidib % g_bin_capacity) = 1.0 - pattribs.val(_0, parid); //< (1 - J) = (1 - V/Vo)
     /// vel (ASFLIP)
     pbin.val(_4, pidib % g_bin_capacity) = pattribs.val(_1, parid); //< Vel_x m/s
     pbin.val(_5, pidib % g_bin_capacity) = pattribs.val(_2, parid); //< Vel_y m/s
