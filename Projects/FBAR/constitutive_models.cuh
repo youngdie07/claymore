@@ -421,6 +421,132 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
 }
 
 
+
+/// U-P, Drucker-Prager - Stress and Energy (JLM)
+/// Granular materials.
+template <typename T = double>
+__forceinline__ __device__ void
+compute_energy_CoupledUP(T volume, T mu, T lambda, T cohesion, T beta,
+                    T yieldSurface, bool volCorrection, T logJp, vec<T, 9> &F, T &strain_energy) {
+  T U[9], S[3], V[9];
+  // ψs(Fs) = ψ˜s (ϵ) = µtr(ϵ^2) + λ/2 tr(ϵ) 
+  // Modified code from stress graphics version, need to recheck it
+  // https://www.math.ucla.edu/~jteran/papers/PGKFTJM17.pdf  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+
+  T epsilon[3]; ///< logarithmic strain
+  // 'Cohesion' uses a strange definition to account for wet sand tensile effects
+#pragma unroll 3
+  for (int i = 0; i < 3; i++) 
+  {
+    T abs_S = S[i] > 0 ? S[i] : -S[i];
+    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
+    epsilon[i] = log(abs_S) - cohesion;
+  }
+  T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
+  //T sum_epsilon_squared = epsilon[0]*epsilon[0] + epsilon[1]*epsilon[1] + epsilon[2]*epsilon[2];
+  T trace_epsilon = sum_epsilon + logJp;
+  T trace_epsilon_squared = sum_epsilon + logJp*logJp;
+  strain_energy = (mu * trace_epsilon_squared + lambda * 0.5 * trace_epsilon) * volume;
+}          
+
+
+template <typename T = double>
+__forceinline__ __device__ void
+compute_stress_CoupledUP(T volume, T mu, T lambda, T cohesion, T beta,
+                    T yieldSurface, bool volCorrection, T &logJp, T &pw, 
+                    vec<T, 9> &F, vec<T, 9> &PF) {
+  T U[9], S[3], V[9];
+  math::svd(F[0], F[3], F[6], F[1], F[4], F[7], F[2], F[5], F[8], U[0], U[3],
+            U[6], U[1], U[4], U[7], U[2], U[5], U[8], S[0], S[1], S[2], V[0],
+            V[3], V[6], V[1], V[4], V[7], V[2], V[5], V[8]);
+  T scaled_mu = T(2) * mu;
+
+  T epsilon[3], New_S[3]; ///< helper
+  T New_F[9];
+
+#pragma unroll 3
+  for (int i = 0; i < 3; i++) {
+    T abs_S = S[i] > 0 ? S[i] : -S[i];
+    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
+    epsilon[i] = log(abs_S) - cohesion;
+  }
+  T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
+  T trace_epsilon = sum_epsilon + logJp;
+
+  T epsilon_hat[3];
+#pragma unroll 3
+  for (int i = 0; i < 3; i++)
+    epsilon_hat[i] = epsilon[i] - (trace_epsilon / (T)3);
+
+  T epsilon_hat_norm =
+      sqrt(epsilon_hat[0] * epsilon_hat[0] + epsilon_hat[1] * epsilon_hat[1] +
+            epsilon_hat[2] * epsilon_hat[2]);
+
+  /* Calculate Plasticiy */
+  if (trace_epsilon >= (T)0) { ///< case II: project to the cone tip
+    New_S[0] = New_S[1] = New_S[2] = exp(cohesion);
+    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
+                                                 /* Update F */
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+    if (volCorrection) {
+      logJp = beta * sum_epsilon + logJp;
+    }
+  } else if (mu != 0) {
+    logJp = 0;
+    T delta_gamma = epsilon_hat_norm + ((T)3 * lambda + scaled_mu) / scaled_mu *
+                                           trace_epsilon * yieldSurface;
+    T H[3];
+    if (delta_gamma <= 0) { ///< case I: inside the yield surface cone
+#pragma unroll 3
+      for (int i = 0; i < 3; i++)
+        H[i] = epsilon[i] + cohesion;
+    } else { ///< case III: project to the cone surface
+#pragma unroll 3
+      for (int i = 0; i < 3; i++)
+        H[i] = epsilon[i] - (delta_gamma / epsilon_hat_norm) * epsilon_hat[i] +
+               cohesion;
+    }
+#pragma unroll 3
+    for (int i = 0; i < 3; i++)
+      New_S[i] = exp(H[i]);
+    matmul_mat_diag_matT_3D(New_F, U, New_S, V); // new F_e
+                                                 /* Update F */
+#pragma unroll 9
+    for (int i = 0; i < 9; i++)
+      F[i] = New_F[i];
+  }
+
+  /* Elasticity -- Calculate Coefficient */
+  T New_S_log[3] = {log(New_S[0]), log(New_S[1]), log(New_S[2])};
+  T P_hat[3];
+
+  // T S_inverse[3] = {1.f/S[0], 1.f/S[1], 1.f/S[2]};  // TO CHECK
+  // T S_inverse[3] = {1.f / New_S[0], 1.f / New_S[1], 1.f / New_S[2]}; // TO
+  // CHECK
+  T trace_log_S = New_S_log[0] + New_S_log[1] + New_S_log[2];
+#pragma unroll 3
+  for (int i = 0; i < 3; i++)
+    P_hat[i] = (scaled_mu * New_S_log[i] + lambda * trace_log_S) / New_S[i];
+
+  T P[9];
+  matmul_mat_diag_matT_3D(P, U, P_hat, V);
+  ///< |f| = P * F^T * Volume 
+  PF[0] = (P[0] * F[0] + P[3] * F[3] + P[6] * F[6] - pw) * volume;
+  PF[1] = (P[1] * F[0] + P[4] * F[3] + P[7] * F[6] ) * volume;
+  PF[2] = (P[2] * F[0] + P[5] * F[3] + P[8] * F[6] ) * volume;
+  PF[3] = (P[0] * F[1] + P[3] * F[4] + P[6] * F[7]) * volume;
+  PF[4] = (P[1] * F[1] + P[4] * F[4] + P[7] * F[7] - pw) * volume;
+  PF[5] = (P[2] * F[1] + P[5] * F[4] + P[8] * F[7]) * volume;
+  PF[6] = (P[0] * F[2] + P[3] * F[5] + P[6] * F[8]) * volume;
+  PF[7] = (P[1] * F[2] + P[4] * F[5] + P[7] * F[8]) * volume;
+  PF[8] = (P[2] * F[2] + P[5] * F[5] + P[8] * F[8] - pw) * volume;
+}
+
 /// * Non-Associative Cam-Clay - Stress and Energy
 /// * Elasto-plastic model. Good for snow, clay, concrete, etc.
 template <typename T = float>

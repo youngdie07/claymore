@@ -15,6 +15,17 @@ using GridBufferDomain = compact_domain<int, config::g_max_active_block>;
 using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
 using GridTargetDomain = compact_domain<int, config::g_grid_target_cells>;
 
+#if (DEBUG_COUPLED_UP)
+using grid_block_f32_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
+               f32_, f32_, f32_, f32_, f32_, f32_, f32_>; //< mass, vel + dt*fint, 
+                                              //< vel, 
+                                              //< Vol, J
+                                              //< mass_water, pressure_water
+#else
 using grid_block_f32_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -22,7 +33,8 @@ using grid_block_f32_ =
                BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
                f32_, f32_, f32_, f32_, f32_>; //< mass, vel + dt*fint, 
                                               //< vel, 
-                                              //< Vol, J
+                                              //< Vol, J, 
+#endif
 using grid_f32_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -34,6 +46,17 @@ using grid_buffer_f32_ =
                          structural_padding_policy::compact>,
                GridBufferDomain, attrib_layout::aos, grid_block_f32_>;
 
+#if (DEBUG_COUPLED_UP)
+using grid_block_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               BlockDomain, attrib_layout::soa, fg_, fg_, fg_, fg_,
+               fg_, fg_, fg_, fg_, fg_, fg_, fg_>; //< mass, vel + dt*fint, 
+                                              //< vel, 
+                                              //< Vol, J
+                                              //< mass_water, pressure_water
+#else
 using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -42,6 +65,8 @@ using grid_block_ =
                fg_, fg_, fg_, fg_, fg_>; //< mass, vel + dt*fint, 
                                               //< vel, 
                                               //< Vol, J
+#endif
+
 using grid_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,

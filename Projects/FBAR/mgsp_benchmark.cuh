@@ -886,10 +886,11 @@ struct mgsp_benchmark {
               else if (pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
                 timer.tick();
                 // g2g_FBar Halo
+                int shmem = (3 + 2) * (512 * sizeof(PREC_G));
                 if (partitions[rollid][did].h_count) {
                   checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
-                      (512 * 3 * sizeof(PREC_G)) + (512 * 2 * sizeof(PREC_G))},
+                      shmem},
                       g2p_FBar, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -901,10 +902,15 @@ struct mgsp_benchmark {
               
                 // p2g_FBar Halo
                 timer.tick();
+#if DEBUG_COUPLED_UP
+                  shmem = (10 + 9) * (g_arenavolume * sizeof(PREC_G));
+#else
+                  shmem = (8 + 7) * (g_arenavolume * sizeof(PREC_G));
+#endif
                 if (partitions[rollid][did].h_count) {
                   checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
-                      (512 * 8 * sizeof(PREC_G)) + (512 * 7 * sizeof(PREC_G))},
+                      shmem},
                       p2g_FBar, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -1127,7 +1133,11 @@ struct mgsp_benchmark {
 
                 // p2g F-Bar - Non-Halo
                 timer.tick();
+#if DEBUG_COUPLED_UP
+                shmem = (10 + 9) * (g_arenavolume * sizeof(PREC_G));
+#else 
                 shmem = (8 + 7) * (g_arenavolume * sizeof(PREC_G));
+#endif
                 checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                 cuDev.compute_launch(
                     {pbcnt[did], g_particle_batch, shmem}, 

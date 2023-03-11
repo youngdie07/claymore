@@ -14,7 +14,18 @@ using halo_grid_blocks_ =
                decorator<structural_allocation_policy::full_allocation,
                          structural_padding_policy::sum_pow2_align>,
                HaloGridBlocksDomain, attrib_layout::soa, grid_block_>;
-
+#if (DEBUG_COUPLED_UP)
+using grid_block_ =
+    structural<structural_type::dense,
+               decorator<structural_allocation_policy::full_allocation,
+                         structural_padding_policy::sum_pow2_align>,
+               BlockDomain, attrib_layout::soa, fg_, fg_, fg_, fg_,
+              fg_, fg_, fg_, 
+              fg_, fg_,
+              fg_, fg_>; // mass, m(vel + dt*fint) (MLS), mvel (ASFLIP), 
+                         // Vol, JBar
+                         // mass_water, pressure_water
+#else
 using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -22,7 +33,7 @@ using grid_block_ =
                BlockDomain, attrib_layout::soa, fg_, fg_, fg_, fg_,
               fg_, fg_, fg_, 
               fg_, fg_>; // mass, m(vel + dt*fint) (MLS), mvel (ASFLIP), Vol, JBar
-
+#endif
 /// Halo Grid-Block structure
 struct HaloGridBlocks {
   struct HaloBuffer {

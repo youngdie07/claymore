@@ -80,6 +80,13 @@ __global__ void collect_grid_blocks(Grid grid, Partition partition,
     // Simple FBar: Vol, JBar
     halo_gridblock.val_1d(_7, cidib) = gridblock.val_1d(_7, cidib);
     halo_gridblock.val_1d(_8, cidib) = gridblock.val_1d(_8, cidib);
+
+#if (DEBUG_COUPLED_UP)
+    // Coupled UP: mass_water, pressure_water
+    halo_gridblock.val_1d(_9, cidib) = gridblock.val_1d(_9, cidib);
+    halo_gridblock.val_1d(_10, cidib) = gridblock.val_1d(_10, cidib);
+#endif
+
   }
 }
 
@@ -105,6 +112,12 @@ __global__ void reduce_grid_blocks(Grid grid, Partition partition,
     // Simple FBar: Vol, JBar
     atomicAdd(&gridblock.val_1d(_7, cidib), halo_gridblock.val_1d(_7, cidib));
     atomicAdd(&gridblock.val_1d(_8, cidib), halo_gridblock.val_1d(_8, cidib));
+
+#if (DEBUG_COUPLED_UP)
+    // Coupled UP: mass_water, pressure_water
+    atomicAdd(&gridblock.val_1d(_9, cidib), halo_gridblock.val_1d(_9, cidib));
+    atomicAdd(&gridblock.val_1d(_10, cidib), halo_gridblock.val_1d(_10, cidib));
+#endif
   }
 }
 
@@ -149,6 +162,11 @@ __global__ void collect_migration_grid_blocks(Grid grid, Partition partition,
     // Simple FBar: Vol, JBar
     halo_gridblock.val_1d(_7, cidib) = gridblock.val_1d(_7, cidib);
     halo_gridblock.val_1d(_8, cidib) = gridblock.val_1d(_8, cidib);
+#if (DEBUG_COUPLED_UP)
+    // Coupled UP: mass_water, pressure_water
+    halo_gridblock.val_1d(_9, cidib) = gridblock.val_1d(_9, cidib);
+    halo_gridblock.val_1d(_10, cidib) = gridblock.val_1d(_10, cidib);
+#endif
   }
 }
 

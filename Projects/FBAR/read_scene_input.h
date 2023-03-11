@@ -1397,6 +1397,31 @@ void parse_scene(std::string fn,
                 }
                 else { algo_error = true; }
               } 
+              else if (constitutive == "CoupledUP" || constitutive == "coupled" || constitutive == "up" || constitutive == "UP" || constitutive == "coupledup") { 
+                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
+                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
+
+                materialConfigs.rhow = CheckDouble(model, "rhow", 1e3); // Density of water [kg/m3]
+                materialConfigs.alpha1 = CheckDouble(model, "alpha1", 1.0); // Biot coefficient
+                materialConfigs.poro = CheckDouble(model, "poro", 0.9); // Porosity
+                materialConfigs.Kf = CheckDouble(model, "Kf", 1.0e7); // Bulk modulus of fluid [Pa]
+                materialConfigs.Ks = CheckDouble(model, "Ks", 2.2e7); // Bulk modulus of solid [Pa]
+                materialConfigs.Kperm = CheckDouble(model, "Kperm", 1.0e-5); // Permeability
+
+                if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
+                {
+                  benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity); 
+                  benchmark->updateParameters<mn::material_e::CoupledUP>( 
+                        gpu_id, model_id, materialConfigs, algoConfigs,
+                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                }
+                else { algo_error = true; }
+              } 
               else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);

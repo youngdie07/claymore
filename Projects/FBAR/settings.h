@@ -49,6 +49,7 @@ enum class material_e { JFluid, JFluid_ASFLIP, JFluid_FBAR, JBarFluid,
                         NeoHookean_ASFLIP_FBAR,
                         Sand, 
                         NACC, 
+                        CoupledUP,
                         Meshed,
                         Total };
 
@@ -56,6 +57,7 @@ enum class material_e { JFluid, JFluid_ASFLIP, JFluid_FBAR, JBarFluid,
 enum class fem_e {  Tetrahedron, Tetrahedron_FBar,
                     Brick, //< Not implemented yet
                     Total };
+
 
 /// * For convenience, binds I/O sizes to compile-time variable names
 /// * Guarantees someone avoids unimplemented sizes (e.g. -1, 10004)
@@ -67,7 +69,8 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-
+#define DEBUG_COUPLED_UP true
+constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
 {
@@ -80,6 +83,7 @@ constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default
 constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models in sim.
 
+
 // Run-time/animation default settings
 constexpr int g_log_level = 2; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info/Tips.
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
@@ -87,7 +91,7 @@ constexpr int g_fps = 60; //< Default frames-per-second
 
 
 // Grid set-up
-#define DOMAIN_BITS 12 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -115,8 +119,8 @@ constexpr float g_offset = g_dx * 8; //< Offset in grid-cells of sim origin from
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 32.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
@@ -137,12 +141,12 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain 
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 50000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 4000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 20000000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 1000000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -180,7 +184,7 @@ constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice
 std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
 
 // * Halo Blocks
-constexpr std::size_t g_max_halo_block = 1024;  //< Max active halo blocks. Preallocated, can resize.
+constexpr std::size_t g_max_halo_block = 0;  //< Max active halo blocks. Preallocated, can resize.
 
 
 // * Grid Boundaries
@@ -230,8 +234,10 @@ struct MaterialConfigs {
   bool volumeCorrection;
   PREC xi;
   bool hardeningOn;
-  MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0.), frictionAngle(30.), cohesion(0.), beta(0.5), volumeCorrection(false), xi(1.0), hardeningOn(true) {}
-  MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x, bool hard) : ppc(p), rho(density), bulk(k), visco(v), gamma(g), E(e), nu(pr), logJp0(j), frictionAngle(fa), cohesion(c), beta(b), volumeCorrection(false), xi(x), hardeningOn(hard)  {}
+  PREC rhow, alpha1, poro, Kf, Ks, Kperm;
+  MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0.), frictionAngle(30.), cohesion(0.), beta(0.5), volumeCorrection(false), xi(1.0), hardeningOn(true), rhow(1e3), alpha1(1.0), poro(0.2), Kf(1.0e7), Ks(2.2e7), Kperm(1.0e-5) {}
+  // MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x, bool hard, PREC densityw, PREC a1, PREC por, PREC Kflu, PREC Ksol, PREC perm) : ppc(p), rho(density), bulk(k), visco(v), gamma(g), E(e), nu(pr), logJp0(j), frictionAngle(fa), cohesion(c), beta(b), volumeCorrection(false), xi(x), hardeningOn(hard), rhow(densityw), alpha1(a1), poro(por), Kf(Kflu), Ks(Ksol), Kperm(perm) {}
+
   ~MaterialConfigs() {}
 };
 
