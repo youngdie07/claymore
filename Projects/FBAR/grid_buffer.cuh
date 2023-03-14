@@ -16,37 +16,6 @@ using GridArrayDomain = compact_domain<int, config::g_max_active_block>;
 using GridTargetDomain = compact_domain<int, config::g_grid_target_cells>;
 
 #if (DEBUG_COUPLED_UP)
-using grid_block_f32_ =
-    structural<structural_type::dense,
-               decorator<structural_allocation_policy::full_allocation,
-                         structural_padding_policy::sum_pow2_align>,
-               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_, f32_, f32_>; //< mass, vel + dt*fint, 
-                                              //< vel, 
-                                              //< Vol, J
-                                              //< mass_water, pressure_water
-#else
-using grid_block_f32_ =
-    structural<structural_type::dense,
-               decorator<structural_allocation_policy::full_allocation,
-                         structural_padding_policy::sum_pow2_align>,
-               BlockDomain, attrib_layout::soa, f32_, f32_, f32_, f32_,
-               f32_, f32_, f32_, f32_, f32_>; //< mass, vel + dt*fint, 
-                                              //< vel, 
-                                              //< Vol, J, 
-#endif
-using grid_f32_ =
-    structural<structural_type::dense,
-               decorator<structural_allocation_policy::full_allocation,
-                         structural_padding_policy::compact>,
-               GridDomain, attrib_layout::aos, grid_block_f32_>;
-using grid_buffer_f32_ =
-    structural<structural_type::dynamic,
-               decorator<structural_allocation_policy::full_allocation,
-                         structural_padding_policy::compact>,
-               GridBufferDomain, attrib_layout::aos, grid_block_f32_>;
-
-#if (DEBUG_COUPLED_UP)
 using grid_block_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -97,6 +66,7 @@ using grid_target_ =
                f32_, f32_, f32_>;
                // x, y, z, mass, Mx, My, Mz, fx, fy, fz
 
+
 struct GridBuffer : Instance<grid_buffer_> {
   using base_t = Instance<grid_buffer_>;
   // Default constructor
@@ -146,24 +116,21 @@ struct GridArray : Instance<grid_array_> {
 /// 1D GridTarget structure for device instantiation (JB)
 struct GridTarget : Instance<grid_target_> {
   using base_t = Instance<grid_target_>;
-
   // // Default constructor
   // template <typename Allocator>
   // GridTarget(Allocator allocator) : base_t{allocator} {}
-
 
   /// @brief  Move constructor
   GridTarget(base_t &&instance) { 
     std::cout << "Move constructor for GridTarget." << std::endl;
     static_cast<base_t &>(*this) = instance; 
-    }
+  }
   /// @brief Move assignment operator
   GridTarget &operator=(base_t &&instance) {
     std::cout << "Move assignment operator for GridTarget." << std::endl;
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
-
 };
 
 } // namespace mn

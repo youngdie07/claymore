@@ -23,6 +23,8 @@ using signed_distance_field_ =
                GridDomain, attrib_layout::aos, block_signed_distance_field_>;
 enum class boundary_t { Sticky, Slip, Separate };
 
+
+
 struct SignedDistanceGrid : Instance<signed_distance_field_> {
   using base_t = Instance<signed_distance_field_>;
 

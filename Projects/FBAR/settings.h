@@ -69,7 +69,7 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-#define DEBUG_COUPLED_UP true
+#define DEBUG_COUPLED_UP false
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
@@ -80,18 +80,13 @@ namespace config /// * Simulation config setup and name-space
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
 constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
-constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
+constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models in sim.
 
 
-// Run-time/animation default settings
-constexpr int g_log_level = 2; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info/Tips.
-constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
-constexpr int g_fps = 60; //< Default frames-per-second
-
 
 // Grid set-up
-#define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 10 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -119,15 +114,15 @@ constexpr float g_offset = g_dx * 8; //< Offset in grid-cells of sim origin from
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 16.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 4.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio
 constexpr double g_grid_ratio_z = g_length_z / g_length + 0.0 * g_dx; //< Domain z ratio
-constexpr int g_grid_size_x = (g_grid_size * g_grid_ratio_x + 0.5) ; //< Domain x grid-blocks
-constexpr int g_grid_size_y = (g_grid_size * g_grid_ratio_y + 0.5) ; //< Domain y grid-blocks
-constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain z grid-blocks
+constexpr int g_grid_size_x = (int)(g_grid_size * g_grid_ratio_x) + 1 ; //< Domain x grid-blocks
+constexpr int g_grid_size_y = (int)(g_grid_size * g_grid_ratio_y) + 1; //< Domain y grid-blocks
+constexpr int g_grid_size_z = (int)(g_grid_size * g_grid_ratio_z) + 1; //< Domain z grid-blocks
 //constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
 //constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
 //constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
@@ -141,12 +136,12 @@ constexpr int g_grid_size_z = (g_grid_size * g_grid_ratio_z + 0.5) ; //< Domain 
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 4000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 24000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 1000000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 4250000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -165,37 +160,41 @@ constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cel
 
 
 // * Finite Elements
-constexpr int g_max_fem_vertice_num = 64;  // Max no. of vertice on FEM mesh
-constexpr int g_max_fem_element_num = 64; // Max no. of element in FEM mesh
+constexpr int g_max_fem_vertice_num = 64;  // Max no. vertice on FEM mesh
+constexpr int g_max_fem_element_num = 64; // Max no. element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1; //< Finite elements per bin in elementBins
 constexpr int g_max_fem_element_bin = 
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 // * Grid-Targets
-constexpr int g_grid_target_cells = 16384; //< Max grid-nodes per gridTarget
-constexpr int g_max_grid_target_nodes = 16384; //< Max grid-nodes per gridTarget
-constexpr int g_grid_target_attribs = 10; //< No. of values per gridTarget node
+constexpr int g_max_grid_target_nodes = 4096 * 1; //< Max grid-nodes per gridTarget
+constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
+constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
 
 // * Particle-Targets
-constexpr int g_particle_target_cells = 4096 * 4; //< Max grid-nodes per gridTarget
 constexpr int g_max_particle_target_nodes = 4096 * 4; //< Max particless per particleTarget
-constexpr int g_particle_target_attribs = 10; //< No. of values per gridTarget node
+constexpr int g_particle_target_cells = g_max_particle_target_nodes;
+constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
 constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
-std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track
+std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track for high-freq outputs
 
 // * Halo Blocks
-constexpr std::size_t g_max_halo_block = 0;  //< Max active halo blocks. Preallocated, can resize.
-
+constexpr std::size_t g_max_halo_block = 1024 * 2; //< Max active halo blocks. Preallocated, can resize.
 
 // * Grid Boundaries
-constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries for scene
-constexpr int g_grid_boundary_attribs = 7;
+constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries in scene
+constexpr int g_grid_boundary_attribs = 7; //< No. of values per grid-boundary node
 
 // Resize ratios
 constexpr std::size_t g_block_check_ratio = 90;
 constexpr std::size_t g_block_resize_ratio = 110;
 constexpr std::size_t g_bin_check_ratio = 90;
 constexpr std::size_t g_bin_resize_ratio = 110;
+
+// Run-time/animation default settings
+constexpr int g_log_level = 2; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info/Tips.
+constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
+constexpr int g_fps = 60; //< Default frames-per-second
 
 // Default material parameters, overrided at run-time
 #define DENSITY 1000       //< Default density [kg/m^3]
@@ -253,7 +252,7 @@ struct AlgoConfigs {
 
 
 enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate};
-enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, OSU_LWF_RAMP, OSU_LWF_PADDLE, USGS_RAMP, USGS_GATE };
+enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, OSU_LWF_RAMP, OSU_LWF_PADDLE, USGS_RAMP, USGS_GATE, OSU_TWB_RAMP, OSU_TWB_PADDLE };
 
 struct GridBoundaryConfigs {
   int _ID; //< Specific grid-target ID, [0, number_of_targets)
@@ -263,34 +262,31 @@ struct GridBoundaryConfigs {
   boundary_contact_t _contact;
   float _friction_static, _friction_dynamic;
   vec<float, 2> _time;
-  vec3 _normal;
-  vec3 _trans, _transVel;
-  vec3x3 _rotMat;
-  vec3 _omega; 
+  // vec3 _normal;
+  // vec3 _trans, _transVel;
+  // vec3x3 _rotMat;
+  // vec3 _omega; 
   // Default constructor
-  GridBoundaryConfigs() {
-    _ID = 0;
-    _domain_start.set(0.f);
-    _domain_end.set(0.f);
-    _object = boundary_object_t::Walls;
-    _contact = boundary_contact_t::Sticky;
-    _friction_static = 0.f;
-    _friction_dynamic = 0.f;
-    _time.set(0.f);
-    _normal.set(0.f);
-    _rotMat.set(0.f);
-    _rotMat(0, 0) = _rotMat(1, 1) = _rotMat(2, 2) = 1.f;
-    _trans.set(0.f);
-    _transVel.set(0.f);
-    _omega.set(0.f);
-  }
-  // Copy constructor
-  GridBoundaryConfigs(const GridBoundaryConfigs& other) = default;
-  // Copy assignment
-  GridBoundaryConfigs& operator=( const GridBoundaryConfigs& ) = default;
-  // Default destructor
-  ~GridBoundaryConfigs() {}
-
+  // GridBoundaryConfigs() {
+  //   _ID = -1;
+  //   _domain_start.set(0.f);
+  //   _domain_end.set(0.f);
+  //   _object = boundary_object_t::Walls;
+  //   _contact = boundary_contact_t::Sticky;
+  //   _friction_static = 0.f;
+  //   _friction_dynamic = 0.f;
+  //   _time.set(0.f);
+  //   _normal.set(0.f);
+  //   _rotMat.set(0.f);
+  //   _rotMat(0, 0) = _rotMat(1, 1) = _rotMat(2, 2) = 1.f;
+  //   _trans.set(0.f);
+  //   _transVel.set(0.f);
+  //   _omega.set(0.f);
+  // }
+  // // Copy constructor
+  // GridBoundaryConfigs(const GridBoundaryConfigs& other) = default;
+  // // Copy assignment
+  // GridBoundaryConfigs& operator=( const GridBoundaryConfigs& ) = default;
 };
 
 struct GridTargetConfigs 

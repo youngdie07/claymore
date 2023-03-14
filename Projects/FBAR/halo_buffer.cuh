@@ -53,7 +53,7 @@ struct HaloGridBlocks {
 
   template <typename Allocator>
   void deallocate(Allocator allocator) {
-    fmt::print("HaloGridBlocks deallocate.\n");
+    if (g_log_level > 2) fmt::print("HaloGridBlocks deallocate.\n");
     // for (int did = 0; did < numTargets; ++did){
     //   //_buffers[did]._grid.deallocate(allocator);
     //   //fmt::print("Deallocated _buffers[{}]._grid\n", did);
@@ -67,21 +67,22 @@ struct HaloGridBlocks {
     if (_counts) {
       checkCudaErrors(cudaFree(_counts));
       if (_counts) { _counts = nullptr; }
-      fmt::print("Deallocated _counts\n");
+      if (g_log_level > 2) fmt::print("Deallocated _counts\n");
     }
   }
   template <typename Allocator>
   void temp_deallocate(Allocator allocator) {
-    fmt::print("HaloGridBlocks temp_deallocate.\n");
+    if (g_log_level > 2) fmt::print("HaloGridBlocks temp_deallocate.\n");
     for (int did = 0; did < numTargets; ++did){
       _buffers[did]._grid.deallocate(allocator, sizeof(ivec3) * h_counts[did]);
-      fmt::print("Deallocated temp _buffers[{}]._grid\n", did);
+      if (g_log_level > 2) fmt::print("Deallocated temp _buffers[{}]._grid\n", did);
       if (_buffers[did]._blockids) { 
         allocator.deallocate( _buffers[did]._blockids, h_counts[did] * sizeof(ivec3));
-        //_buffers[did]._blockids = nullptr;
-        fmt::print("Deallocate temp _buffers[{}]._blockids\n", did);
+        if (g_log_level > 2) fmt::print("Deallocate temp _buffers[{}]._blockids\n", did);
       }
-      else fmt::print("Already nullptr temp _buffers[{}]._blockids\n", did);
+      else {
+        if (g_log_level > 2) fmt::print("Already nullptr temp _buffers[{}]._blockids\n", did);
+      }
     }
   }
 
@@ -90,7 +91,7 @@ struct HaloGridBlocks {
     for (int did = 0; did < numTargets; ++did) {
       _buffers[did]._blockids =
           (ivec3 *)allocator.allocate(sizeof(ivec3) * blockCount);
-      fmt::print("Allocated _buffers[{}]._blockids\n", did);
+      if (g_log_level > 2) fmt::print("Allocated _buffers[{}]._blockids\n", did);
     }
   }
 
@@ -98,7 +99,7 @@ struct HaloGridBlocks {
   void initBuffer(Allocator allocator, std::vector<uint32_t> counts) {
     for (int did = 0; did < numTargets; ++did) {
       _buffers[did]._grid.allocate_handle(allocator, counts[did]);
-      fmt::print("Allocated_handle _buffers[{}]._grid\n", did);
+      if (g_log_level > 2) fmt::print("Allocated_handle _buffers[{}]._grid\n", did);
     }
   }
   void resetCounts(cudaStream_t stream) {

@@ -250,7 +250,7 @@ struct mgsp_benchmark {
   template <num_attribs_e N>
   void initInitialAttribs(int GPU_ID, int MODEL_ID, const std::vector<std::vector<PREC>>& model_attribs, const bool has_init_attribs) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
-    if (MODEL_ID >= getModelCnt(GPU_ID)) throw std::runtime_error("ERROR: Exceeds particle models for all GPUs. Increase g_models_per_gpu.");
+    if (MODEL_ID >= getModelCnt(GPU_ID)) throw std::runtime_error("ERROR: Exceeds particle models for all GPUs. Increase g_models_per_gpu.\n");
 
     cuDev.setContext();
     constexpr int n = static_cast<int>(N);
@@ -471,17 +471,30 @@ struct mgsp_benchmark {
   /// Initialize basic boundaries on the grid
   void initGridBoundaries(int GPU_ID,
                       const vec<PREC_G, g_grid_boundary_attribs> &host_gridBoundary,
-                      const mn::config::GridBoundaryConfigs &gridBoundaryConfigs,
+                      const GridBoundaryConfigs &gridBoundaryConfigs,
                       int boundary_ID) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initGridBoundaries in simulator.\n");
     // Initialize placeholder boundaries
 
+    h_gridBoundaryConfigs[boundary_ID]._ID = gridBoundaryConfigs._ID;
+    h_gridBoundaryConfigs[boundary_ID]._object = gridBoundaryConfigs._object;
+    h_gridBoundaryConfigs[boundary_ID]._contact = gridBoundaryConfigs._contact;
+    h_gridBoundaryConfigs[boundary_ID]._friction_static = gridBoundaryConfigs._friction_static;
+    h_gridBoundaryConfigs[boundary_ID]._friction_dynamic = gridBoundaryConfigs._friction_dynamic;
+    h_gridBoundaryConfigs[boundary_ID]._domain_start = gridBoundaryConfigs._domain_start;
+    h_gridBoundaryConfigs[boundary_ID]._domain_end = gridBoundaryConfigs._domain_end;
+    h_gridBoundaryConfigs[boundary_ID]._time = gridBoundaryConfigs._time;
+
+
+    fmt::print("gridBoundary[{}]: object[{}], contact[{}]\n", boundary_ID, h_gridBoundaryConfigs[boundary_ID]._object, h_gridBoundaryConfigs[boundary_ID]._contact);
     if (boundary_ID == 0)
     {
       for (int b=0; b<g_max_grid_boundaries; b++)
-        for (int d=0; d<g_grid_boundary_attribs; d++) gridBoundary[b][d] = -1;
+        for (int d=0; d<g_grid_boundary_attribs; d++) 
+        gridBoundary[b][d] = -1;
+    
     }
     for (int d=0; d<g_grid_boundary_attribs; d++) 
       gridBoundary[boundary_ID][d] = host_gridBoundary[d];
@@ -501,13 +514,13 @@ struct mgsp_benchmark {
     host_motionPath = motionPath;
     /// Populate Motion-Path (device) with data from Motion-Path (host) (JB)
     for (int d = 0; d < 3; d++) d_motionPath[d] = (PREC_G)host_motionPath[0][d]; //< Set vals
-    fmt::print("Init motionPath with time {}s, disp {}m, vel {}m/s\n", d_motionPath[0], d_motionPath[1], d_motionPath[2]);
+    fmt::print("Init motionPath with time {}s, disp {}m, vel {}m/s \n", d_motionPath[0], d_motionPath[1], d_motionPath[2]);
   }  
   
   /// Set a Motion-Path for time-step (JB)
   void setMotionPath(std::vector<std::array<PREC_G, 3>> &host_motionPath, float curTime) {
     if (flag_mp) {
-      float check_point_time = 9.f; // TODO : Time of check-point 
+      float check_point_time = 0.f; // TODO : Time of check-point 
       int step = (int)((curTime + check_point_time)  * host_mp_freq); //< Index for time
       if (step >= host_motionPath.size()) step = (int)(host_motionPath.size() - 1); //< Index-limit
       else if (step < 0) step = 0;
@@ -734,7 +747,7 @@ struct mgsp_benchmark {
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime, grav, gridBoundary, d_motionPath, length);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime, grav, gridBoundary, d_gridBoundaryConfigs, d_motionPath, length);
             
 
             // TODO: Query grid-energy at user-specified frequency
@@ -758,7 +771,7 @@ struct mgsp_benchmark {
                                             sizeof(PREC_G), cudaMemcpyDefault,
                                             cuDev.stream_compute()));
           }
-          timer.tock(fmt::format("GPU[{}] frame {} step {} grid_update_query",
+          timer.tock(fmt::format("GPU[{}] frame {} step {} grid_update_query.\n",
                                  did, curFrame, curStep));
         });
         sync();
@@ -1387,11 +1400,9 @@ struct mgsp_benchmark {
                      "GPU[{}] Block Count: Particle {}, Neighbor {}, Exterior {}, Allocated [{}]\n",
                      did, pbcnt[did], nbcnt[did], ebcnt[did], curNumActiveBlocks[did]);
           for (int mid=0; mid < getModelCnt(did); mid++) {
-            // int mid = mid + did*g_models_per_gpu;
             fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
                       "GPU[{}] MODEL[{}] Bin Count: Particle Bins {}, Allocated Bins [{}]\n",
-                      did, mid,
-                      bincnt[did][mid], curNumActiveBins[did][mid]);
+                      did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
           }
           timer.tock(fmt::format(
               "GPU[{}] frame {} step {} build_partition_for_particles", did,
@@ -1986,6 +1997,13 @@ struct mgsp_benchmark {
       cuDev.setContext();
       CudaTimer timer{cuDev.stream_compute()};
       timer.tick();
+
+      // Initialize grid-boundaries
+      {
+        checkCudaErrors( cudaMalloc((void**)&d_gridBoundaryConfigs, sizeof(GridBoundaryConfigs)*g_max_grid_boundaries) );
+        checkCudaErrors( cudaMemcpy(d_gridBoundaryConfigs, &h_gridBoundaryConfigs, sizeof(GridBoundaryConfigs)*g_max_grid_boundaries, cudaMemcpyHostToDevice) );
+      }
+
       // Partition activate particle blocks
       for (int mid=0; mid < getModelCnt(did); mid++) {
         cuDev.compute_launch({(pcnt[did][mid] + 255) / 256, 256}, activate_blocks,
@@ -2407,7 +2425,7 @@ struct mgsp_benchmark {
             inputHaloGridBlocks[otherdid].h_counts[did] = 0; //< Zero count if no other GPUs
         }
       timer.tock(
-          fmt::format("GPU[{}] step {} collect_send_halo_grid", did, curStep));
+          fmt::format("GPU[{}] step {} collect_send_halo_grid.\n", did, curStep));
       //inputHaloGridBlocks[did].temp_deallocate(temp_allocator{did});
       //outputHaloGridBlocks[did].temp_deallocate(temp_allocator{did});
     });
@@ -2436,7 +2454,7 @@ struct mgsp_benchmark {
           }
         }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("GPU[{}] step {} receive_reduce_halo_grid", did,
+      timer.tock(fmt::format("GPU[{}] step {} receive_reduce_halo_grid.\n", did,
                              curStep));
       //cuDev.resetMem(); // JB
       //inputHaloGridBlocks[did].temp_deallocate(temp_allocator{did}) ; // JB
@@ -2468,6 +2486,9 @@ struct mgsp_benchmark {
   std::vector<ParticleTarget> d_particleTarget; ///< Particle-target device arrays
   std::vector<vec7> d_grid_target; ///< Grid target boundaries and type 
   std::vector<vec7> d_particle_target; ///< Grid target boundaries and type 
+
+  GridBoundaryConfigs h_gridBoundaryConfigs[g_max_grid_boundaries]; ///< Grid boundaries
+  GridBoundaryConfigs * d_gridBoundaryConfigs; ///< Grid boundaries
 
   vec<vec7, g_max_grid_boundaries> gridBoundary; ///< Grid boundaries
   vec3 d_motionPath; ///< Motion path info (time, disp, vel) to send to device kernels
@@ -2531,7 +2552,7 @@ struct mgsp_benchmark {
   // Halo grid-block data
   vec<ivec3 *, g_device_cnt, g_device_cnt> haloBlockIds;
   static_assert(std::is_same<GridBufferDomain::index_type, int>::value,
-                "Grid Block index type is not int.");
+                "Grid Block index type is not int.\n");
 
   /// * Declare variables for host
   char rollid;

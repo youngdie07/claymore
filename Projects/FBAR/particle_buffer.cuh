@@ -55,17 +55,12 @@ enum class particle_output_attribs_e : int {
         Dilation = StrainSmall_Invariant1, StrainSmall_Determinant = StrainSmall_Invariant3,
         StrainSmall_1,  StrainSmall_2, StrainSmall_3,
         VonMisesStrain,
+        PorePressure,
         logJp=100,
         END,
         ExampleDeprecatedVariable //< Will give INVALID_CT output of -2
 };
 
-using particle_bin4_ =
-    structural<structural_type::dense,
-               decorator<structural_allocation_policy::full_allocation,
-                         structural_padding_policy::sum_pow2_align>,
-               ParticleBinDomain, attrib_layout::soa, f32_, f32_, f32_,
-               f32_>; ///< pos, J
 using particle_bin4_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -200,6 +195,48 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   void checkCapacity(Allocator allocator, std::size_t capacity) {
     if (capacity > this->_capacity)
       this->resize(allocator, capacity);
+  }
+
+  PREC ppc = MODEL_PPC; // Particles per cell
+  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
+  PREC area = DOMAIN_LENGTH * DOMAIN_LENGTH; // Characteristic area of domain [m2]
+  PREC volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
+  PREC Dp_inv = 4.0 * DXINV * DXINV; // APIC/MLS-MPM intertia like term, shape-function dependent
+  void updateScale(PREC l, PREC p){
+    ppc = p; // Particles per cell
+    length = l; // Domain
+    area = l * l; // Domain
+    volume = l * l * l * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+                  (1 << DOMAIN_BITS) / ppc); // Volume of Particle [m3]
+    Dp_inv = (PREC)mn::config::g_D_inv / (l * l); 
+  }
+
+
+  // Affine-Separable Fluid-Implicit Particles (ASFLIP) mixing
+  // Used to reduce MPM damping, improve angular velocity, and add contact behavior
+  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
+  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
+  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
+  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
+  
+  // Anti-locking using assumed deformation gradient (F-Bar) on grid-nodes
+  // Used to improve stress/strains whereas MPM often gives poor results. Can damp things.
+  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
+  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
+  
+  // Finite Element Method (FEM) for MPM, basic
+  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
+
+  // Update algorithm parameters for particles in buffer
+  void updateAlgorithm(mn::config::AlgoConfigs algo) {
+    use_ASFLIP = algo.use_ASFLIP;
+    alpha = algo.ASFLIP_alpha;
+    beta_min = algo.ASFLIP_beta_min;
+    beta_max = algo.ASFLIP_beta_max; 
+    use_FBAR = algo.use_FBAR;
+    FBAR_ratio = algo.FBAR_ratio; 
+    use_FEM = algo.use_FEM;
   }
 
   /// @brief Maps run-time string labels for any MPM particle attributes to int indices for GPU kernel output use
@@ -422,38 +459,20 @@ template <>
 struct ParticleBuffer<material_e::JFluid>
     : ParticleBufferImpl<material_e::JFluid> {
   using base_t = ParticleBufferImpl<material_e::JFluid>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY; // Density [kg/m3]
-  PREC volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
   PREC mass = (volume * DENSITY); // Mass of particle [kg]
   PREC bulk = 5e6; //< Bulk Modulus [Pa]
   PREC gamma = 7.1f; //< Derivative Bulk w.r.t. Pressure
   PREC visco = 0.001f; //< Dynamic Viscosity, [Pa * s]
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     bulk = mat.bulk;
     gamma = mat.gamma;
     visco = mat.visco;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -486,6 +505,14 @@ struct ParticleBuffer<material_e::JFluid>
   template <attribs_e ATTRIBUTE, typename T>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
+    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+  }
+
+  template <typename T>
+   __device__ PREC
+  getAttribute(attribs_e ATTRIBUTE, const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
@@ -547,38 +574,20 @@ template <>
 struct ParticleBuffer<material_e::JFluid_ASFLIP>
     : ParticleBufferImpl<material_e::JFluid_ASFLIP> {
   using base_t = ParticleBufferImpl<material_e::JFluid_ASFLIP>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY; // Density [kg/m3]
-  PREC volume = DOMAIN_VOLUME * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
   PREC mass = (volume * DENSITY); // Mass of particle [kg]
   PREC bulk = 2.2e9; //< Bulk Modulus [Pa]
   PREC gamma = 7.1; //< Derivative Bulk w.r.t. Pressure
   PREC visco = 0.001; //< Dynamic Viscosity, [Pa * s]
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     bulk = mat.bulk;
     gamma = mat.gamma;
     visco = mat.visco;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -673,40 +682,20 @@ template <>
 struct ParticleBuffer<material_e::JFluid_FBAR>
     : ParticleBufferImpl<material_e::JFluid_FBAR> {
   using base_t = ParticleBufferImpl<material_e::JFluid_FBAR>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY; // Density [kg/m3]
-  PREC volume = DOMAIN_VOLUME * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
   PREC mass = (volume * DENSITY); // Mass of particle [kg]
   PREC bulk = 2.2e9; //< Bulk Modulus [Pa]
   PREC gamma = 7.1; //< Derivative Bulk w.r.t. Pressure
   PREC visco = 0.001; //< Dynamic Viscosity, [Pa * s]
-  
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS)) / mat.ppc;
     mass = volume * mat.rho;
     bulk = mat.bulk;
     gamma = mat.gamma;
     visco = mat.visco;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }  
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -801,40 +790,21 @@ template <>
 struct ParticleBuffer<material_e::JBarFluid>
     : ParticleBufferImpl<material_e::JBarFluid> {
   using base_t = ParticleBufferImpl<material_e::JBarFluid>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY; // Density [kg/m3]
-  PREC volume = DOMAIN_VOLUME * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC); // Volume of Particle [m3]
   PREC mass = (volume * DENSITY); // Mass of particle [kg]
   PREC bulk = 2.2e9; //< Bulk Modulus [Pa]
   PREC gamma = 7.1; //< Derivative Bulk w.r.t. Pressure
   PREC visco = 0.001; //< Dynamic Viscosity, [Pa * s]
   
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
-
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
-    volume = length*length*length * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS)) / mat.ppc;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
     mass = volume * mat.rho;
     bulk = mat.bulk;
     gamma = mat.gamma;
     visco = mat.visco;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }  
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -963,39 +933,20 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated>
     : ParticleBufferImpl<material_e::FixedCorotated> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
-    mu = mat.E / (2 * (1 + mat.nu));
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1102,39 +1053,21 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
     : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1245,39 +1178,21 @@ template <>
 struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
     : ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR> {
   using base_t = ParticleBufferImpl<material_e::FixedCorotated_ASFLIP_FBAR>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1388,39 +1303,21 @@ template <>
 struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
     : ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR> {
   using base_t = ParticleBufferImpl<material_e::NeoHookean_ASFLIP_FBAR>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.0 / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1529,11 +1426,7 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
 template <>
 struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   using base_t = ParticleBufferImpl<material_e::Sand>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * 
-      (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
@@ -1552,19 +1445,10 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
   PREC yieldSurface =
       0.816496580927726f * 2.f * 0.5f / (3.f - 0.5f);
   bool volumeCorrection = true;
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
@@ -1574,13 +1458,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
     cohesion = mat.cohesion;
     beta = mat.beta;
     volumeCorrection = mat.volumeCorrection;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1694,10 +1572,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
 template <>
 struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
   using base_t = ParticleBufferImpl<material_e::NACC>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
@@ -1721,19 +1596,10 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
                          ///< - dim));
   static constexpr PREC Msqr = 3.423772074299613;
   bool hardeningOn = true;
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
@@ -1744,13 +1610,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
     beta = mat.beta;
     xi = mat.xi;
     hardeningOn = mat.hardeningOn;
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -1866,11 +1726,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
 template <>
 struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::CoupledUP> {
   using base_t = ParticleBufferImpl<material_e::CoupledUP>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY; // density of the mixture rho = (1-n)*rho_s + n*rho_w
-  PREC volume = DOMAIN_VOLUME * 
-      (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-       MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
@@ -1897,21 +1753,12 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
   PREC Ks = 2.2e7; // Soil grain compresibility
   PREC Kperm = 1.0e-5; // Isothropic permeabily
   PREC Q_inv = poro/Kf + (alpha1-poro)/Ks; // +poro/Kf + (alpha1-poro)/Ks = 9.45e-8;
-  PREC masw = (poro * volume * rhow); // liquid phase mass
+  PREC masw = std::max(poro * volume * rhow, 1e-6); // liquid phase mass
 
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
@@ -1921,8 +1768,7 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
     cohesion = mat.cohesion;
     beta = mat.beta;
     volumeCorrection = mat.volumeCorrection;
-    alpha = algo.ASFLIP_alpha;
-    
+
     rhow = mat.rhow;
     alpha1 = mat.alpha1;
     poro = mat.poro;
@@ -1930,14 +1776,9 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
     Ks = mat.Ks;
     Kperm = mat.Kperm;
     Q_inv = poro/Kf + (alpha1-poro)/Ks;
-    masw = (poro * volume * rhow);
+    masw = std::max(poro * volume * rhow, 1.0e-6);
 
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   // * Attributes saved on particles of this material. Given variable names for easy mapping
@@ -2034,6 +1875,13 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
   getEnergy_Strain(const vec<T,9>& F, T& strain_energy){
     compute_energy_CoupledUP(volume, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, logJp0,F, strain_energy);
   }
+  // template <typename I, typename T = PREC>
+  //  __device__ void
+  // getEnergy_Strain(I bin, I particle_id_in_bin, T vol, T& strain_energy){
+  //   pvec9 F;
+  //   getDefGrad(bin, particle_id_in_bin, F.data());
+  //   compute_energy_CoupledUP(volume, mu, lambda, cohesion, beta, yieldSurface, volumeCorrection, logJp0, F, strain_energy);
+  // }
   template <typename T = PREC>
    __device__ void
   getEnergy_Kinetic(const vec<T,3>& velocity, T& kinetic_energy){  
@@ -2052,41 +1900,23 @@ template <>
 struct ParticleBuffer<material_e::Meshed>
     : ParticleBufferImpl<material_e::Meshed> {
   using base_t = ParticleBufferImpl<material_e::Meshed>;
-  PREC length = DOMAIN_LENGTH; // Domain total length [m] (scales volume, etc.)
   PREC rho = DENSITY;
-  PREC volume = DOMAIN_VOLUME * (1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                  (1 << DOMAIN_BITS) / MODEL_PPC);
   PREC mass = (volume * DENSITY);
   PREC E = YOUNGS_MODULUS;
   PREC nu = POISSON_RATIO;
   PREC lambda = YOUNGS_MODULUS * POISSON_RATIO /
                  ((1 + POISSON_RATIO) * (1 - 2 * POISSON_RATIO));
   PREC mu = YOUNGS_MODULUS / (2 * (1 + POISSON_RATIO));
-  bool use_ASFLIP = false; //< Use ASFLIP/PIC mixing? Default off.
-  PREC alpha = 0.0;  //< FLIP/PIC Mixing Factor [0.1] -> [PIC, FLIP]
-  PREC beta_min = 0.0; //< ASFLIP Minimum Position Correction Factor  
-  PREC beta_max = 0.0; //< ASFLIP Maximum Position Correction Factor 
-  PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
-  bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
-    length = l;
+    this->updateScale(l, mat.ppc);
     rho = mat.rho;
-    volume = length*length*length * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
-                    (1 << DOMAIN_BITS) / mat.ppc);
     E = mat.E;
     nu = mat.nu;
     mass = volume * mat.rho;
     lambda = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     mu = mat.E / (2 * (1 + mat.nu));
-    alpha = algo.ASFLIP_alpha;
-    beta_min = algo.ASFLIP_beta_min;
-    beta_max = algo.ASFLIP_beta_max;
-    FBAR_ratio = algo.FBAR_ratio;
-    use_ASFLIP = algo.use_ASFLIP;
-    use_FEM = algo.use_FEM;
-    use_FBAR = algo.use_FBAR;
+    this->updateAlgorithm(algo);
   }
 
   enum attribs_e : int {

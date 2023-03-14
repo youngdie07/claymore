@@ -54,6 +54,105 @@ std::string save_suffix; //< File-format to save particles with
 float verbose = 0;
 
 
+// Outputs a box as an OBJ file. Used to output user box boundaries for rendering.
+template <typename T>
+void writeBoxOBJ(const std::string &filename, const mn::vec<T, 3> &origin,
+                 const mn::vec<T, 3> &lengths) {
+  std::ofstream file(filename);
+  if (!file.is_open()) {
+    std::cerr << "ERROR: Could not open file " << filename << " for writing."
+              << std::endl;
+    return;
+  }
+  // Box's vertex ID diagram:
+  // 3-------------7
+  // |\            |\ 
+  // | \           | \ 
+  // |  \          |  \ 
+  // |   4---------|---8
+  // 1---|---------5   |
+  //  \  |          \  |
+  //   \ |           \ |
+  //    \|            \|
+  //     2-------------6 
+  // Y
+  // |
+  // o---X
+  //  \  
+  //   Z
+
+  // Write vertices
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      for (int k = 0; k < 2; ++k) {
+        file << "v " << (origin[0]-o)*l + i * (lengths[0])*l << " "
+             << (origin[1]-o)*l + j * (lengths[1])*l << " " << (origin[2]-o)*l + k * (lengths[2])*l
+             << std::endl;
+      }
+    }
+  }
+  // Write box faces as triangles. Two triangles per face, six total faces for box. No overlap of triangles on same face.
+  // Face 1
+  file << "f 1 2 4" << std::endl;
+  file << "f 1 4 3" << std::endl;
+  // Face 2
+  file << "f 5 6 8" << std::endl;
+  file << "f 5 8 7" << std::endl;
+  // Face 3
+  file << "f 1 2 6" << std::endl;
+  file << "f 1 6 5" << std::endl;
+  // Face 4
+  file << "f 3 4 8" << std::endl;
+  file << "f 3 8 7" << std::endl;
+  // Face 5
+  file << "f 1 3 7" << std::endl;
+  file << "f 1 7 5" << std::endl;
+  // Face 6
+  file << "f 2 4 8" << std::endl;
+  file << "f 2 8 6" << std::endl;
+  file.close();
+}
+
+// write OBJ output for cylinder. User specifies origin, radius, and length.
+// User also specifies number of radial segments and number of length segments.
+// Radial segments are the number of triangles used to approximate the cylinder's
+// surface. Length segments are the number of triangles used to approximate the
+// cylinder's length.
+template <typename T>
+void writeCylinderOBJ(const std::string &filename, const mn::vec<T, 3> &origin,
+                      T radius, T length, int radial_segments,
+                      int length_segments) {
+  std::ofstream file(filename);
+  if (!file.is_open()) {
+    std::cerr << "ERROR: Could not open file " << filename << " for writing."
+              << std::endl;
+    return;
+  }
+  // Write vertices
+  for (int i = 0; i <= length_segments; ++i) {
+    for (int j = 0; j <= radial_segments; ++j) {
+      file << "v " << origin[0] + radius * cos(j * 2 * M_PI / radial_segments)
+           << " " << origin[1] + radius * sin(j * 2 * M_PI / radial_segments)
+           << " " << origin[2] + i * length / length_segments << std::endl;
+    }
+  }
+  // Write cylinder faces as triangles. Two triangles per face. No overlap of triangles on same face.
+  for (int i = 0; i < length_segments; ++i) {
+    for (int j = 0; j < radial_segments; ++j) {
+      // First triangle
+      file << "f " << i * (radial_segments + 1) + j + 1 << " "
+           << i * (radial_segments + 1) + j + 2 << " "
+           << (i + 1) * (radial_segments + 1) + j + 2 << std::endl;
+      // Second triangle
+      file << "f " << i * (radial_segments + 1) + j + 1 << " "
+           << (i + 1) * (radial_segments + 1) + j + 2 << " "
+           << (i + 1) * (radial_segments + 1) + j + 1 << std::endl;
+    }
+  }
+
+  file.close();
+}
+
 /// @brief Make 3D rotation matrix that can rotate a point around origin
 /// @brief Order: [Z Rot.]->[Y Rot.]->[X Rot.]=[ZYX Rot.]. (X Rot. 1st).
 /// @brief Rot. on fixed axis (X,Y,Z) (i.e. NOT Euler or Quat. rotation)
@@ -552,6 +651,81 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
     }
   } 
 }
+
+
+
+/// @brief Make OSU TWB flume fluid as particles, write to fields as [x,y,z] data.
+/// @brief Assume span, offset, radius, partition_start/end are already scaled to 1x1x1 domain. 
+/// @param fields Vector of arrays to write particle position [x,y,z] data into
+/// @param span Sets max span to look in (for efficiency). Erases particles if too low.
+/// @param offset Offsets starting corner of particle object from origin. Assume simulation's grid buffer is already included (offset += g_offset, e.g. 8*g_dx).
+/// @param ppc Particle-per-cell, number of particles to sample per 3D grid-cell (e.g. 8).
+/// @param partition_start Start corner of particle GPU partition, cut out everything before.
+/// @param partition_end End corner of particle GPU partition, cut out everything beyond.
+void make_OSU_TWB(std::vector<std::array<PREC, 3>>& fields, 
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
+  PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
+  int i_lim, j_lim, k_lim; // Number of par. per span direction
+  i_lim = (int)((span[0]) / ppl_dx + 1.0); 
+  j_lim = (int)((span[1]) / ppl_dx + 1.0); 
+  k_lim = (int)((span[2]) / ppl_dx + 1.0); 
+
+  // Assume JSON input offsets model 2 meters forward in X
+  PREC bathx[4];
+  PREC bathy[4];
+  PREC bath_slope[4];
+
+  bathx[0] = 0.0; //- wave_maker_neutral; // Start of bathymetry X direction
+  bathx[1] = 11.3 + bathx[0];
+  bathx[2] = 20.0 + bathx[1];
+  bathx[3] = 10.0 + bathx[2];
+
+  bathy[0] = 0.0;
+  bathy[1] = (0.0) + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
+  bathy[2] = (20.0 / 20.0) + bathy[1];
+  bathy[3] = (0.0) + bathy[2];
+
+  bath_slope[0] = 0.0;
+  bath_slope[1] = 0.0;
+  bath_slope[2] = 1.0 / 20.0;
+  bath_slope[3] = 0.0;
+
+
+  for (int i = 0; i < i_lim ; i++) {
+    for (int j = 0; j < j_lim ; j++) {
+      for (int k = 0; k < k_lim ; k++) {
+        std::array<PREC, 3> arr;
+        arr[0] = (i + 0.5) * ppl_dx + offset[0];
+        arr[1] = (j + 0.5) * ppl_dx + offset[1];
+        arr[2] = (k + 0.5) * ppl_dx + offset[2];
+        PREC x, y;
+        x = ((arr[0] - offset[0]) * l);
+        y = ((arr[1] - offset[1]) * l);
+        if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
+          // Start ramp segment definition for OSU flume
+          // Based on bathymetry diagram, February
+          for (int d = 1; d < 4; d++)
+          {
+            if (x < bathx[d])
+            {
+              if (y >= ( bath_slope[d] * (x - bathx[d-1]) + bathy[d-1]) )
+              {
+                if (inside_partition(arr, partition_start, partition_end)){
+                  translate_rotate_translate_point(fulcrum, rotation, arr);
+                  fields.push_back(arr);
+                }
+                break;
+              }
+              else break;
+            }
+          }
+        }
+      }
+    }
+  } 
+}
+
 
 template <typename T>
 bool inside_box(std::array<T,3>& arr, mn::vec<T,3> span, mn::vec<T,3> offset) 
@@ -1544,10 +1718,17 @@ void parse_scene(std::string fn,
                       subtract_sphere(models[total_id], geometry_radius, geometry_offset_updated); }
                     else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
-                  else if (type == "OSU LWF" || type == "OSU Water")
+                  else if (type == "OSU LWF" || type == "OSU_LWF_WATER")
                   {
                     if (operation == "Add" || operation == "add") {
                       make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                    else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                  }
+                  else if (type == "OSU TWB" || type == "OSU_TWB_WATER")
+                  {
+                    if (operation == "Add" || operation == "add") {
+                      make_OSU_TWB(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
                   }
@@ -1931,7 +2112,7 @@ void parse_scene(std::string fn,
  
 
             mn::vec<float, 7> h_boundary;
-            mn::config::GridBoundaryConfigs h_gridBoundary;
+            mn::GridBoundaryConfigs h_gridBoundary;
             // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
             for (int d = 0; d < 3; ++d) {
               h_boundary[d] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
@@ -1946,11 +2127,11 @@ void parse_scene(std::string fn,
               h_gridBoundary._domain_start[d] = h_gridBoundary._domain_start[d] / l + o;
               h_gridBoundary._domain_end[d] = h_gridBoundary._domain_end[d] / l + o;
             }
-            h_gridBoundary._time = CheckFloatArray(model, "time", mn::vec<float, 2>{0,0});
+            h_gridBoundary._time = CheckFloatArray<2>(model, "time", mn::vec<float, 2>{0,0});
             
             
-            std::string object = CheckString(model,"object", std::string{"box"});
-            std::string contact = CheckString(model,"contact", std::string{"Sticky"});
+            std::string object = CheckString(model, "object", std::string{"box"});
+            std::string contact = CheckString(model, "contact", std::string{"Sticky"});
             if (contact == "Rigid" || contact == "Sticky" || contact == "Stick" || contact == "rigid" || contact == "sticky" || contact == "stick") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Sticky;
             else if (contact == "Slip" || contact == "slip") 
@@ -1976,6 +2157,11 @@ void parse_scene(std::string fn,
               else if (contact == "Slip") h_boundary[6] = 4;
               else if (contact == "Separable") h_boundary[6] = 5;
               else h_boundary[6] = -1;
+
+              // Write to OBJ file
+              std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
+              writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
+
             }
             else if (object == "Sphere" || object == "sphere")
             {
@@ -2033,6 +2219,14 @@ void parse_scene(std::string fn,
               else if (contact == "Separable") h_boundary[6] = 24;
               else h_boundary[6] = -1;
             }
+            else if (object == "OSU TWB Ramp" || object == "OSU_TWB_RAMP" || object == "OSU TWB")
+            {
+              h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_RAMP;
+            }
+            else if (object == "OSU TWB Paddle" || object == "OSU_TWB_PADDLE")
+            {
+              h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
+            }       
             else 
             {
               fmt::print(fg(red), "ERROR: gridBoundary[{}] object[{}] or contact[{}] is not valid! \n", boundary_ID, object, contact);
@@ -2043,6 +2237,9 @@ void parse_scene(std::string fn,
 
             h_gridBoundary._friction_static = CheckFloat(model,"friction_static", 0.0f);
             h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", 0.0f);
+
+
+
 
             // Set up moving grid-boundary if applicable
             auto motion_file = model.FindMember("file"); // Check for motion file

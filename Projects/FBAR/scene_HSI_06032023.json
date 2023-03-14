@@ -1,11 +1,11 @@
 {
 	"simulation": {
-		"fps": 20,
+		"fps": 400,
 		"frames": 60,
-		"default_dt": 1e-5,
+		"default_dt": 5e-6,
 		"default_dx": 0.025,
 		"domain": [3.2, 6.4, 0.4],
-		"gravity": -9.81,
+		"gravity": [0,-9.81,0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
 	},
@@ -26,16 +26,14 @@
 			"bulk_modulus": 2.2e9,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"use_ASFLIP": false,
+			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.9,
+			"FBAR_ratio": 1,
 			"velocity": [0, 0, 0],
-			"partition_start": [0,0,0],
-			"partition_end": [3.2,3.2,0.025],
 			"geometry": [
 				{
 					"object": "Box",
@@ -43,7 +41,9 @@
 					"span": [3.2, 3.2, 0.025],
 					"offset": [0.0, 0.0, 0.0]
 				}
-			]
+			],
+			"partition_start": [0, 0, 0],
+			"partition_end": [3.2, 3.2, 0.025]
 		}
 	],
 	"grid-boundaries": [
@@ -60,7 +60,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "X+",
-			"output_frequency": 120,
+			"output_frequency": 1200,
 			"domain_start": [3.19, 0, -0.1],
 			"domain_end": [3.3, 4, 0.4]
 		},
@@ -68,7 +68,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "X-",
-			"output_frequency": 120,
+			"output_frequency": 1200,
 			"domain_start": [-0.1, 0, -0.1],
 			"domain_end": [0.0, 4, 0.4]
 		},	
@@ -76,7 +76,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "Y-",
-			"output_frequency": 120,
+			"output_frequency": 1200,
 			"domain_start": [-0.1, -0.1, -0.1],
 			"domain_end": [3.3, 0, 0.4]
 		}
@@ -85,7 +85,7 @@
 		{
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 120,
+			"output_frequency": 1200,
 			"domain_start": [1.575, 3, 0.0],
 			"domain_end":   [1.625, 3.3, 0.4]
 		}
