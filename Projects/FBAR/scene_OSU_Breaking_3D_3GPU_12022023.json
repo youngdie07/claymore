@@ -36,7 +36,7 @@
 						"object": "OSU LWF",
 						"operation": "Add",
 						"span": [88.1, 1.85, 1.825],
-						"offset": [2.0, 0.0, 0.0],
+						"offset": [2.085, 0.0, 0.0],
 						"array": [1, 1, 1],
 						"spacing": [0, 0, 0]
 					}
@@ -72,7 +72,7 @@
 					"object": "OSU LWF",
 					"operation": "add",
 					"span": [88.1, 1.85, 1.825],
-					"offset": [2.0, 0.0, 0.0],
+					"offset": [2.085, 0.0, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
 				}
@@ -109,7 +109,7 @@
 					"object": "OSU LWF",
 					"operation": "add",
 					"span": [88.1, 1.85, 1.825],
-					"offset": [2.0, 0.0, 0.0],
+					"offset": [2.085, 0.0, 0.0],
 					"array": [1, 1, 1],
 					"spacing": [0, 0, 0]
 				}
@@ -144,7 +144,7 @@
 					"object": "Box",
 					"operation": "add",
 					"span": [0.5, 0.05, 0.1],
-					"offset": [40.3, 1.85, 0.1],
+					"offset": [40.385, 1.85, 0.1],
 					"array": [4, 1, 4],
 					"spacing": [1.0, 0, 0.5]
 				}
@@ -181,8 +181,8 @@
 			"domain_start": [1.6, -0.2, -0.2],
 			"domain_end": [2.0, 5, 4],
 			"time": [0, 180],
-			"file": "WaveMaker/wmdisp_hydro2sec_smooth_19012023.csv",
-			"output_frequency": 120
+			"file": "WaveMaker/wmdisp_hydro2sec_1200hz_smooth_19012023.csv",
+			"output_frequency": 1200
 		}	
 	],
 	"grid-targets": [
@@ -191,8 +191,8 @@
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 120,
-			"domain_start": [45.790, 2.049, 1.317],
-			"domain_end": [45.85, 2.615, 2.333]
+			"domain_start": [45.875, 2.049, 1.317],
+			"domain_end": [45.975, 2.615, 2.333]
 		}
 	],
 	"particle-targets": [

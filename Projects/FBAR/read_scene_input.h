@@ -589,7 +589,7 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   j_lim = (int)((span[1]) / ppl_dx + 1.0); 
   k_lim = (int)((span[2]) / ppl_dx + 1.0); 
 
-  // Assume JSON input offsets model 2 meters forward in X
+  // Assume JSON input offsets model 2.085 meters forward in X
   PREC bathx[7];
   PREC bathy[7];
   PREC bath_slope[7];
