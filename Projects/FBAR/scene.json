@@ -1,11 +1,11 @@
 {
 	"simulation": {
 		"fps": 30,
-		"frames": 20,
+		"frames": 60,
 		"default_dt": 7e-5,
-		"default_dx": 0.05,
+		"default_dx": 0.1,
 		"domain": [8, 8, 8],
-		"gravity": -9.81,
+		"gravity": [0,-9.81,0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
 	},
@@ -15,7 +15,7 @@
 			"model": 0,
 			"type": "particles",
 			"constitutive": "JFluid",
-			"output_attribs": ["Pressure"],
+			"output_attribs": ["Pressure", "ID"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
@@ -31,7 +31,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.99,
+			"FBAR_ratio": 0.95,
 			"velocity": [0, -1, 0],
 			"geometry": [
 				{
@@ -48,7 +48,7 @@
 			"gpu": 0,
 			"model": 1,
 			"type": "particles",
-			"constitutive": "FixedCorotated",
+			"constitutive": "DruckerPrager",
 			"output_attribs": ["Pressure", "VonMisesStress", "Dilation", "ID"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
@@ -60,90 +60,25 @@
 			"poisson_ratio": 0.2,
 			"cohesion": 0.001,
 			"friction_angle": 30,
+			"logJp0": 0.0,
+			"beta": 0.5,
+			"SandVolCorrection": true,
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0,
+			"FBAR_ratio": 0.5,
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
-					"object": "file",
+					"object": "Box",
 					"operation": "Add",
-					"file": "MpmParticles/Misc/Car_Basic_dx0.025_pad1.sdf",
-					"scaling_factor": 0.75,
-					"padding": 1,
-					"offset": [2.25, 0.0, 6]
-				}
-			]
-		},
-		{
-			"gpu": 0,
-			"model": 2,
-			"type": "particles",
-			"constitutive": "DruckerPrager",
-			"output_attribs": ["Pressure", "Dilation", "ID"],
-			"track_particle_id": [0],
-			"track_attribs": ["Position_X"],
-			"target_attribs": ["Position_Y"],
-			"ppc": 8.0,
-			"CFL": 0.5,
-			"rho": 2000,
-			"youngs_modulus": 1e7,
-			"poisson_ratio": 0.2,
-			"cohesion": 0.001,
-			"friction_angle": 30,
-			"use_ASFLIP": true,
-			"use_FEM": false,
-			"use_FBAR": true,
-			"alpha": 0,
-			"beta_min": 0,
-			"beta_max": 0,
-			"FBAR_ratio": 0,
-			"velocity": [0, 0, 0],
-			"geometry": [
-				{
-					"object": "file",
-					"operation": "Add",
-					"file": "MpmParticles/Misc/Car_Basic_dx0.025_pad1.sdf",
-					"scaling_factor": 0.75,
-					"padding": 1,
-					"offset": [2.25, 1.1, 6]
-				}
-			]
-		},
-		{
-			"gpu": 2,
-			"type": "particles",
-			"constitutive": "JFluid",
-			"output_attribs": ["Velocity_Y", "Velocity_Z", "Pressure", "ID"],
-			"track_particle_id": [0],
-			"track_attribs": ["Position_X"],
-			"target_attribs": ["Position_Y"],
-			"ppc": 8.0,
-			"CFL": 0.5,
-			"rho": 1000,
-			"bulk_modulus": 1e8,
-			"gamma": 7.1,
-			"viscosity": 0.001,
-			"use_ASFLIP": true,
-			"use_FEM": false,
-			"use_FBAR": true,
-			"alpha": 0.0,
-			"beta_min": 0,
-			"beta_max": 0,
-			"FBAR_ratio": 0.99,
-			"velocity": [0, 0, 0],
-			"geometry": [
-				{
-					"object": "file",
-					"operation": "Add",
-					"file": "MpmParticles/CheckPoints/Mike_k1e8_FBAR0.99_PPC8_res0.05_Time0.5_02022023.bgeo",
-					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
-					"offset": [0.0, 0.0, 0.0]
+					"span": [2, 2, 2],
+					"offset": [3.0, 0.0, 4.6],
+					"rotate": [0,45,0],
+					"fulcrum": [4.0, 5.6, 1.0]
 				}
 			]
 		}
@@ -154,14 +89,14 @@
 			"contact": "Separable",
 			"domain_start":[0,0,0],
 			"domain_end": [8,8,8],
-			"duration":[0,180]
+			"time":[0,180]
 		},
 		{
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [-0.2, -0.2, -0.2],
 			"domain_end": [8.2, 1.6, 3.2],
-			"duration": [0, 180]
+			"time": [0, 180]
 		}
 	],
 	"grid-targets": [
@@ -169,7 +104,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "Z+",
-			"output_frequency": 120,
+			"output_frequency": 60,
 			"domain_start": [-0.1, -0.1, 8],
 			"domain_end": [8.1, 1.6, 8.1]
 		}
@@ -178,7 +113,7 @@
 		{
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 120,
+			"output_frequency": 60,
 			"domain_start": [16.0, 1.0, 0.5],
 			"domain_end":   [16.1, 3.6, 0.6]
 		}
