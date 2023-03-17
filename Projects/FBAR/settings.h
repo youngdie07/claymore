@@ -69,7 +69,7 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-#define DEBUG_COUPLED_UP true
+#define DEBUG_COUPLED_UP true //< Debugging for CoupleUP
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
@@ -86,7 +86,7 @@ constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. partic
 
 
 // Grid set-up
-#define DOMAIN_BITS 10 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 9 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
