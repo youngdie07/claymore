@@ -1613,6 +1613,31 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 } 
               }
 
+              // Friction
+              if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
+                PREC_G force[3];
+                force[0] = ((vel[0] - vel_FLIP[0]) / dt + grav[0] / l) / mass;
+                force[1] = ((vel[1] - vel_FLIP[1]) / dt + grav[1] / l) / mass;
+                force[2] = ((vel[2] - vel_FLIP[2]) / dt + grav[2] / l) / mass;
+                vdotns = force[0]*ns[0] + force[1]*ns[1] + force[2]*ns[2]; // Norm force
+                if (vdotns < 0.f) {
+                  PREC_G tangent_force[3];
+                  tangent_force[0] = force[0] - vdotns * ns[0];
+                  tangent_force[1] = force[1] - vdotns * ns[1];
+                  tangent_force[2] = force[2] - vdotns * ns[2];
+                  PREC_G max_friction_force = - vdotns * friction_static;
+                  PREC_G friction_force = sqrt(tangent_force[0]*tangent_force[0] + tangent_force[1]*tangent_force[1] + tangent_force[2]*tangent_force[2]);
+
+                  // Check if exceeding static friction
+                  if (friction_force > max_friction_force) {
+                    PREC_G friction_force_scale = max(max_friction_force / friction_force, 1.f);
+                    vel[0] -= tangent_force[0] * friction_force_scale * mass * dt;
+                    vel[1] -= tangent_force[1] * friction_force_scale * mass * dt;
+                    vel[2] -= tangent_force[2] * friction_force_scale * mass * dt;
+                  }
+                }
+              }
+
             }
           }
 
@@ -11619,10 +11644,39 @@ retrieve_particle_buffer_attributes_general(Partition partition,
                                         int *_targetcnt, bool output_pt=false) {
   int pcnt = g_buckets_on_particle_buffer ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
+
+
+
+
   auto advection_bucket = g_buckets_on_particle_buffer
       ? next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
       : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   //uint32_t blockno = blockIdx.x;
+
+  // Check if any of the 27 blocks around the current block has no particles
+  // If no particles, this is a particle block at "surface" ext. of model
+  // saves memory if g_particles_output_exterior_only is true
+  if ( g_particles_output_exterior_only ) {
+    bool exterior_particles = false;
+#pragma unroll 3
+    for (char i = -1; i < 2; ++i)
+#pragma unroll 3
+      for (char j = -1; j < 2; ++j)
+#pragma unroll 3
+        for (char k = -1; k < 2; ++k) {
+          auto ext_blockno = partition.query(blockid + ivec3(i, j, k));
+          // check if valid block
+          auto ext_pcnt = g_buckets_on_particle_buffer 
+                    ? next_pbuffer._ppbs[ext_blockno] 
+                    : partition._ppbs[ext_blockno];
+          if (ext_pcnt == 0) {
+            exterior_particles = true;
+            break;
+          }
+        }
+    if (!exterior_particles) return;
+  }
+
 
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) {
     auto advect = advection_bucket[pidib];
@@ -11688,13 +11742,10 @@ retrieve_particle_buffer_attributes_general(Partition partition,
       pvec3 point_b {target[4], target[5], target[6]};
 
       PREC tol = 0.0;
-      PREC x = source_bin.val(_0, _source_pidib); // x
-      PREC y = source_bin.val(_1, _source_pidib); // y
-      PREC z = source_bin.val(_2, _source_pidib); // z
       // Continue thread if cell is not inside target +/- tol
-      if ((x >= (point_a[0]-tol) && x <= (point_b[0]+tol)) && 
-          (y >= (point_a[1]-tol) && y <= (point_b[1]+tol)) &&
-          (z >= (point_a[2]-tol) && z <= (point_b[2]+tol)))
+      if ((position.x >= (point_a[0]-tol-o)*l && position.x <= (point_b[0]+tol-o)*l) && 
+          (position.y >= (point_a[1]-tol-o)*l && position.y <= (point_b[1]+tol-o)*l) &&
+          (position.z >= (point_a[2]-tol-o)*l && position.z <= (point_b[2]+tol-o)*l))
       {
         vec<int,1> target_attribs = pbuffer.target_attribs;
         auto target_id = atomicAdd(_targetcnt, 1);
@@ -11721,7 +11772,7 @@ retrieve_particle_buffer_attributes_general(Partition partition,
 }
 
 
-template <typename Partition, material_e mt, typename ParticleArray, num_attribs_e N, typename ParticleTarget>
+template <typename Partition, material_e mt, typename ParticleTarget>
 __global__ void
 retrieve_particle_target_attributes_general(Partition partition,
                                         Partition prev_partition,
@@ -11736,15 +11787,16 @@ retrieve_particle_target_attributes_general(Partition partition,
              ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   if (pcnt == 0) return; // Return early if no particles in block
   ivec3 blockid = partition._activeKeys[blockIdx.x];
-  for (int d=0; d<3; d++) 
-    if (blockid[d] == -1) return; // Return early if bad blockid
 
   pvec3 point_a {target[1], target[2], target[3]}; // Target point A (low corner)
   pvec3 point_b {target[4], target[5], target[6]}; // Target point B (high corner)
   PREC tol = g_blocksize * g_dx; // 4 cell tolerance, accounts for advection 
-  if (((blockid[0]*g_blocksize + 2)*g_dx < point_a[0]-tol || (blockid[0]*g_blocksize + 2)*g_dx >   point_b[0]+tol) || 
-      ((blockid[1]*g_blocksize + 2)*g_dx < point_a[1]-tol || (blockid[1]*g_blocksize + 2)*g_dx > point_b[1]+tol) ||
-      ((blockid[2]*g_blocksize + 2)*g_dx < point_a[2]-tol || (blockid[2]*g_blocksize + 2)*g_dx > point_b[2]+tol)) {
+  if (((blockid[0]*g_blocksize + 2 + 3)*g_dx < point_a[0]-tol || 
+       (blockid[0]*g_blocksize + 2)*g_dx >   point_b[0]+tol) || 
+      ((blockid[1]*g_blocksize + 2 + 3)*g_dx < point_a[1]-tol || 
+       (blockid[1]*g_blocksize + 2)*g_dx > point_b[1]+tol) ||
+      ((blockid[2]*g_blocksize + 2 + 3)*g_dx < point_a[2]-tol || 
+       (blockid[2]*g_blocksize + 2)*g_dx > point_b[2]+tol)) {
       return; // Return early if block not in target's region
   } 
   // Used to find advection direction of particle during time-step
@@ -11784,25 +11836,26 @@ retrieve_particle_target_attributes_general(Partition partition,
 
     int target_type = (int)target[0];
 
-    // Continue thread if cell is not inside target +/- tol
+    // Skip particle if not inside target +/- tol
     tol = 0.0; // Tolerance of particle dist. from target
-    if ((position.x >= (point_a[0]-tol) && position.x <= (point_b[0]+tol)) && 
-        (position.y >= (point_a[1]-tol) && position.y <= (point_b[1]+tol)) &&
-        (position.z >= (point_a[2]-tol) && position.z <= (point_b[2]+tol)))
+    if ((position.x >= (point_a[0]-tol-o)*l && position.x <= (point_b[0]+tol-o)*l) && 
+        (position.y >= (point_a[1]-tol-o)*l && position.y <= (point_b[1]+tol-o)*l) &&
+        (position.z >= (point_a[2]-tol-o)*l && position.z <= (point_b[2]+tol-o)*l))
     {
       auto parcnt_target = atomicAdd(_targetcnt, 1); //< Particle count in target so far
       if (parcnt_target >= g_max_particle_target_nodes) {
         if (threadIdx.x == 0)
-          printf("ERROR: Need more memory for particleTarget array! Particles within target[%d]. Increase g_max_particle_target_nodes[%d]! Skipping particle...\n", parcnt_target, g_max_particle_target_nodes);
+          printf("ERROR: Need more memory for particleTarget array! Particle Number[%d]. Increase g_max_particle_target_nodes[%d]! Skipping particle...\n", parcnt_target, g_max_particle_target_nodes);
       } else {
         // Write to particleTarget if appropiate time-step (device)
         particleTarget.val(_0, parcnt_target) = position.x; 
         particleTarget.val(_1, parcnt_target) = position.y; 
         particleTarget.val(_2, parcnt_target) = position.z; 
       }
+
       vec<int,1> target_attribs = pbuffer.target_attribs;
       for (int i=0; i < 1; i++ ) {
-        PREC val; //< Value of user requested output attribute on particle
+        PREC val = 0.; //< Value of user requested output attribute on particle
         output_e_ idx = static_cast<output_e_>(target_attribs[i]); //< Output attrib. index
         caseSwitch_ParticleAttrib(pbuffer, _source_bin, _source_pidib, idx, val);
         

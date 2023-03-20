@@ -356,7 +356,7 @@ struct structural<structural_type::dynamic, Decoration, Domain, Layout,
     }
     else {
       this->_handle.ptr = nullptr;
-      std::cout << "Allocated nullptr structural dynamic, size: " << capacity * base_t::element_storage_size << "\n";
+      // std::cout << "Allocated nullptr structural dynamic, size: " << capacity * base_t::element_storage_size << "\n";
     }
     _capacity = capacity;
   }

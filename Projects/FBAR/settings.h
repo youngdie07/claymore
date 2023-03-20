@@ -154,7 +154,7 @@ constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexc
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
 constexpr int g_max_particle_attribs = 9; //< No. attribute values to output per particle 
-
+constexpr bool g_particles_output_exterior_only = false; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 
 constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cell/block buckets, etc. are on partition (false) or particle-buffer (true). Used for compatability with original Multi-GPU and Single-GPU data-structure setup. Having them on particle buffer may be better if multiiple models per GPU
 
@@ -235,8 +235,6 @@ struct MaterialConfigs {
   bool hardeningOn;
   PREC rhow, alpha1, poro, Kf, Ks, Kperm;
   MaterialConfigs() : ppc(8.0), rho(1e3), bulk(2.2e7), visco(1e-3), gamma(7.1), E{1e7}, nu{0.3}, logJp0(0.), frictionAngle(30.), cohesion(0.), beta(0.5), volumeCorrection(false), xi(1.0), hardeningOn(true), rhow(1e3), alpha1(1.0), poro(0.2), Kf(1.0e7), Ks(2.2e7), Kperm(1.0e-5) {}
-  // MaterialConfigs(PREC p, PREC density, PREC k, PREC v, PREC g, PREC e, PREC pr, PREC j, PREC fa, PREC c, PREC b, bool volCorrection, PREC x, bool hard, PREC densityw, PREC a1, PREC por, PREC Kflu, PREC Ksol, PREC perm) : ppc(p), rho(density), bulk(k), visco(v), gamma(g), E(e), nu(pr), logJp0(j), frictionAngle(fa), cohesion(c), beta(b), volumeCorrection(false), xi(x), hardeningOn(hard), rhow(densityw), alpha1(a1), poro(por), Kf(Kflu), Ks(Ksol), Kperm(perm) {}
-
   ~MaterialConfigs() {}
 };
 
@@ -266,27 +264,6 @@ struct GridBoundaryConfigs {
   // vec3 _trans, _transVel;
   // vec3x3 _rotMat;
   // vec3 _omega; 
-  // Default constructor
-  // GridBoundaryConfigs() {
-  //   _ID = -1;
-  //   _domain_start.set(0.f);
-  //   _domain_end.set(0.f);
-  //   _object = boundary_object_t::Walls;
-  //   _contact = boundary_contact_t::Sticky;
-  //   _friction_static = 0.f;
-  //   _friction_dynamic = 0.f;
-  //   _time.set(0.f);
-  //   _normal.set(0.f);
-  //   _rotMat.set(0.f);
-  //   _rotMat(0, 0) = _rotMat(1, 1) = _rotMat(2, 2) = 1.f;
-  //   _trans.set(0.f);
-  //   _transVel.set(0.f);
-  //   _omega.set(0.f);
-  // }
-  // // Copy constructor
-  // GridBoundaryConfigs(const GridBoundaryConfigs& other) = default;
-  // // Copy assignment
-  // GridBoundaryConfigs& operator=( const GridBoundaryConfigs& ) = default;
 };
 
 struct GridTargetConfigs 
@@ -332,20 +309,17 @@ struct ParticleTargetConfigs  {
   float3 domain_end;
   float output_frequency;
 
-  ParticleTargetConfigs() : target_ID{number_of_targets}, idx_attribute(-1), idx_operation(-1), idx_direction(-1), domain_start(make_float3(0.f,0.f,0.f)), domain_end(make_float3(0.f,0.f,0.f)), output_frequency(1.f) 
-  { 
+  ParticleTargetConfigs() : target_ID{number_of_targets}, idx_attribute(-1), idx_operation(-1), idx_direction(-1), domain_start(make_float3(0.f,0.f,0.f)), domain_end(make_float3(0.f,0.f,0.f)), output_frequency(1.f) { 
     number_of_targets++;
   }
   ParticleTargetConfigs(int attr, int oper, int dir,
                     float3 start, float3 end, 
-                    float freq) : target_ID(number_of_targets), idx_attribute(attr), idx_operation(oper), idx_direction(dir), domain_start(start), domain_end(end), output_frequency(freq) 
-  { 
+                    float freq) : target_ID(number_of_targets), idx_attribute(attr), idx_operation(oper), idx_direction(dir), domain_start(start), domain_end(end), output_frequency(freq) { 
     number_of_targets++;
     if (output_frequency == 0) output_frequency = 1; //< Avoid potential divide by zero
     std::cout << "Target ID " << target_ID << " of " << number_of_targets << " total targets." << '\n';
   }
-  ~ParticleTargetConfigs() 
-  {
+  ~ParticleTargetConfigs() {
     number_of_targets--;
   }
 };

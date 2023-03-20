@@ -2127,7 +2127,7 @@ void parse_scene(std::string fn,
               h_gridBoundary._domain_start[d] = h_gridBoundary._domain_start[d] / l + o;
               h_gridBoundary._domain_end[d] = h_gridBoundary._domain_end[d] / l + o;
             }
-            h_gridBoundary._time = CheckFloatArray<2>(model, "time", mn::vec<float, 2>{0,0});
+            h_gridBoundary._time = CheckFloatArray<2>(model, "time", mn::vec<float, 2>{0.f,0.f});
             
             
             std::string object = CheckString(model, "object", std::string{"box"});

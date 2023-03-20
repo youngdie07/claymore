@@ -231,10 +231,10 @@ struct mgsp_benchmark {
 
 
     // Set-up particle ID tracker file
-    std::string fn_track = std::string{"track_time_series"} + "_ID[0]" + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID) + "].csv";
-    trackFile[GPU_ID][MODEL_ID].open (fn_track, std::ios::out | std::ios::trunc); 
-    trackFile[GPU_ID][MODEL_ID] << "Time" << "," << "Value" << "\n";
-    trackFile[GPU_ID][MODEL_ID].close();
+    std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID) + "].csv";
+    particleTrackFile[GPU_ID][MODEL_ID].open (fn_track, std::ios::out | std::ios::trunc); 
+    particleTrackFile[GPU_ID][MODEL_ID] << "Time" << "," << "Value" << "\n";
+    particleTrackFile[GPU_ID][MODEL_ID].close();
     printDiv();
     // Output initial particle model
     std::string fn = std::string{"model["} + std::to_string(MODEL_ID) + "]"  "_dev[" + std::to_string(GPU_ID) +
@@ -406,7 +406,7 @@ struct mgsp_benchmark {
     }
     int target_ID = number_of_grid_targets-1;
     host_gt_freq = freq; // Set output frequency [Hz] for target (host)
-    std::string fn_force = std::string{"force_time_series"} + "_gridTarget["+ std::to_string(target_ID)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
+    std::string fn_force = std::string{"gridTarget"} + "[" + std::to_string(target_ID)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
     gridTargetFile[GPU_ID].open (fn_force, std::ios::out | std::ios::trunc); // Initialize *.csv
     gridTargetFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << "\n";
     gridTargetFile[GPU_ID].close();
@@ -444,10 +444,10 @@ struct mgsp_benchmark {
       for (int d = 0; d < 7; d++)
         d_particle_target.back()[d] = host_target[d];
     }
-    flag_pt = 1;
+    flag_pt = true; // Set flag for particle-target
     host_pt_freq = freq; // Set output frequency [Hz] for particle-target aggregate value
     int particle_target_ID = number_of_particle_targets-1;
-    std::string fn_particle_target = std::string{"aggregate_time_series"} + "_particleTarget["+ std::to_string(particle_target_ID)+"]_model[" + std::to_string(MODEL_ID) +"]_dev[" + std::to_string(GPU_ID) + "].csv";
+    std::string fn_particle_target = std::string{"particleTarget"} + "[" + std::to_string(particle_target_ID) + "]_model[" + std::to_string(MODEL_ID) + "]_dev[" + std::to_string(GPU_ID) + "]" + ".csv";
     particleTargetFile[GPU_ID][MODEL_ID].open (fn_particle_target, std::ios::out | std::ios::trunc); 
     particleTargetFile[GPU_ID][MODEL_ID] << "Time" << "," << "Aggregate" << "\n";
     particleTargetFile[GPU_ID][MODEL_ID].close();
@@ -1668,10 +1668,10 @@ struct mgsp_benchmark {
       fmt::print(fg(fmt::color::red), "GPU[{}] Aggregate value in particleTarget: {} \n", did, valAgg);
 
       {
-        std::string fn_track = std::string{"track_time_series"} + "_ID[" + std::to_string(0) + "]" + "_model[" + std::to_string(mid) +  "]" + "_dev[" + std::to_string(did) + "].csv";
-        trackFile[did][mid].open(fn_track, std::ios::out | std::ios::app);
-        trackFile[did][mid] << curTime << "," << trackVal << "\n";
-        trackFile[did][mid].close();
+        std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(mid) +  "]" + "_dev[" + std::to_string(did) + "].csv";
+        particleTrackFile[did][mid].open(fn_track, std::ios::out | std::ios::app);
+        particleTrackFile[did][mid] << curTime << "," << trackVal << "\n";
+        particleTrackFile[did][mid].close();
       }      
       
       //host_particleTarget[did][mid].resize(particle_tarcnt[i][did][mid]);
@@ -1865,7 +1865,7 @@ struct mgsp_benchmark {
       // Output summed grid-target value to *.csv
       if (fmod(curTime, (1.f/host_gt_freq)) < dt) 
       {
-        std::string fn = std::string{"force_time_series"} + "_gridTarget[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
+        std::string fn = std::string{"gridTarget"} + "[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
         gridTargetFile[did].open (fn, std::ios::out | std::ios::app);
         gridTargetFile[did] << curTime << "," << valAgg << "\n";
         gridTargetFile[did].close();
@@ -1894,7 +1894,6 @@ struct mgsp_benchmark {
     cuDev.syncStream<streamIdx::Compute>();
 
     for (int mid=0; mid<getModelCnt(did); mid++) {
-      // int mid = mid + did*g_models_per_gpu;
       timer.tick();
       for (int i = 0; i < number_of_particle_targets; i++) {
         int particleID = rollid^1;
@@ -1937,10 +1936,14 @@ struct mgsp_benchmark {
         }
 
         match(particleBins[particleID][did][mid], pattribs[did][mid])([&](const auto &pb, auto &pa) {
-          cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes_general,
+          // cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes_general,
+          //                     partitions[rollid][did], partitions[rollid ^ 1][did],
+          //                     pb, get<typename std::decay_t<decltype(pb)>>(particleBins[particleID ^ 1][did][mid]), particles[did][mid], pa, d_trackVal, d_parcnt,
+          //                     d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, true);
+          cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_target_attributes_general,
                               partitions[rollid][did], partitions[rollid ^ 1][did],
-                              pb, get<typename std::decay_t<decltype(pb)>>(particleBins[particleID ^ 1][did][mid]), particles[did][mid], pa, d_trackVal, d_parcnt,
-                              d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, true);
+                              pb, get<typename std::decay_t<decltype(pb)>>(particleBins[particleID ^ 1][did][mid]), d_trackVal, d_parcnt,
+                              d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt);
         });
         cuDev.syncStream<streamIdx::Compute>();
 
@@ -1970,14 +1973,14 @@ struct mgsp_benchmark {
               cudaMemcpyAsync(host_particleTarget[did][mid].data(), (void *)&d_particleTarget[did].val_1d(_0, 0), sizeof(std::array<PREC, g_particle_target_attribs>) * (particle_tarcnt[i][did]), cudaMemcpyDefault, cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
         
-          std::string fn = std::string{"particleTarget"}  +"[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]_frame[-1]" + save_suffix;
+          std::string fn = std::string{"particleTarget"}  +"[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
           IO::insert_job([fn, m = host_particleTarget[did][mid]]() { write_partio_particleTarget<PREC, g_particle_target_attribs>(fn, m); });
           fmt::print(fg(fmt::color::red), "GPU[{}] particleTarget[{}] outputted.\n", did, i);
         }
 
         // * particleTarget frequency-set aggregate ouput
         {
-          std::string fn = std::string{"aggregate_time_series"} + "_particleTarget[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]" + ".csv";
+          std::string fn = std::string{"particleTarget"} + "[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]" + ".csv";
           particleTargetFile[did][mid].open (fn, std::ios::out | std::ios::app);
           particleTargetFile[did][mid] << curTime << "," << valAgg << "\n";
           particleTargetFile[did][mid].close();
@@ -2608,7 +2611,7 @@ struct mgsp_benchmark {
 
   std::ofstream particleEnergyFile;
   std::ofstream particleTargetFile[g_device_cnt][g_models_per_gpu];
-  std::ofstream trackFile[g_device_cnt][g_models_per_gpu];
+  std::ofstream particleTrackFile[g_device_cnt][g_models_per_gpu];
   std::ofstream gridEnergyFile;
   std::ofstream gridTargetFile[g_device_cnt];
 
