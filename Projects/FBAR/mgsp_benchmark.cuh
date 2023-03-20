@@ -1900,7 +1900,7 @@ struct mgsp_benchmark {
         parcnt = 0;
         trackVal = 0.0;
         particle_target_cnt = 0;
-        valAgg = 0;
+        valAgg = 0.0;
         checkCudaErrors(
             cudaMemsetAsync(d_parcnt, 0, sizeof(int), cuDev.stream_compute()));
         checkCudaErrors(
@@ -1935,13 +1935,9 @@ struct mgsp_benchmark {
           cuDev.syncStream<streamIdx::Compute>();
         }
 
-        match(particleBins[particleID][did][mid], pattribs[did][mid])([&](const auto &pb, auto &pa) {
-          // cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_buffer_attributes_general,
-          //                     partitions[rollid][did], partitions[rollid ^ 1][did],
-          //                     pb, get<typename std::decay_t<decltype(pb)>>(particleBins[particleID ^ 1][did][mid]), particles[did][mid], pa, d_trackVal, d_parcnt,
-          //                     d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, true);
+        match(particleBins[particleID][did][mid])([&](const auto &pb) {
           cuDev.compute_launch({pbcnt[did], 128}, retrieve_particle_target_attributes_general,
-                              partitions[rollid][did], partitions[rollid ^ 1][did],
+                              partitions[rollid ^ 1][did], partitions[rollid][did],
                               pb, get<typename std::decay_t<decltype(pb)>>(particleBins[particleID ^ 1][did][mid]), d_trackVal, d_parcnt,
                               d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt);
         });

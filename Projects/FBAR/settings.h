@@ -69,7 +69,7 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-#define DEBUG_COUPLED_UP true //< Debugging for CoupleUP
+#define DEBUG_COUPLED_UP false //< Debugging for CoupleUP
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
@@ -154,10 +154,31 @@ constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexc
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
 constexpr int g_max_particle_attribs = 9; //< No. attribute values to output per particle 
-constexpr bool g_particles_output_exterior_only = false; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
+constexpr bool g_particles_output_exterior_only = true; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 
 constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cell/block buckets, etc. are on partition (false) or particle-buffer (true). Used for compatability with original Multi-GPU and Single-GPU data-structure setup. Having them on particle buffer may be better if multiiple models per GPU
 
+
+// * Particle-Targets
+constexpr int g_max_particle_target_nodes = 4096 * 4; //< Max particless per particleTarget
+constexpr int g_particle_target_cells = g_max_particle_target_nodes;
+constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
+
+// * Particle-Trackers
+constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
+std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track for high-freq outputs
+
+// * Grid Boundaries
+constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries in scene
+constexpr int g_grid_boundary_attribs = 7; //< No. of values per grid-boundary node
+
+// * Grid-Targets
+constexpr int g_max_grid_target_nodes = 4096 * 4; //< Max grid-nodes per gridTarget
+constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
+constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
+
+// * Halo Blocks for Multi-GPU Communication
+constexpr std::size_t g_max_halo_block = 1024 * 1; //< Max active halo blocks. Preallocated, can resize.
 
 // * Finite Elements
 constexpr int g_max_fem_vertice_num = 64;  // Max no. vertice on FEM mesh
@@ -166,24 +187,6 @@ constexpr int g_fem_element_bin_capacity = 1; //< Finite elements per bin in ele
 constexpr int g_max_fem_element_bin = 
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
-// * Grid-Targets
-constexpr int g_max_grid_target_nodes = 4096 * 1; //< Max grid-nodes per gridTarget
-constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
-constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
-
-// * Particle-Targets
-constexpr int g_max_particle_target_nodes = 4096 * 4; //< Max particless per particleTarget
-constexpr int g_particle_target_cells = g_max_particle_target_nodes;
-constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
-constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
-std::vector<int> g_track_IDs = {g_track_ID}; //< IDs of particles to track for high-freq outputs
-
-// * Halo Blocks
-constexpr std::size_t g_max_halo_block = 1024 * 2; //< Max active halo blocks. Preallocated, can resize.
-
-// * Grid Boundaries
-constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries in scene
-constexpr int g_grid_boundary_attribs = 7; //< No. of values per grid-boundary node
 
 // Resize ratios
 constexpr std::size_t g_block_check_ratio = 90;
@@ -191,12 +194,12 @@ constexpr std::size_t g_block_resize_ratio = 110;
 constexpr std::size_t g_bin_check_ratio = 90;
 constexpr std::size_t g_bin_resize_ratio = 110;
 
-// Run-time/animation default settings
+// * Run-time/animation default settings
 constexpr int g_log_level = 2; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info/Tips.
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
 constexpr int g_fps = 60; //< Default frames-per-second
 
-// Default material parameters, overrided at run-time
+// * Default material parameters, override at run-time
 #define DENSITY 1000       //< Default density [kg/m^3]
 #define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
 #define POISSON_RATIO 0.3 // Default Poisson Ratio
@@ -205,18 +208,20 @@ constexpr int g_fps = 60; //< Default frames-per-second
 constexpr float cfl = CFL; //< Default CFL Condition Coefficient
 constexpr float g_model_ppc = MODEL_PPC; //< Default particles-per-cell
 
-// Ambient parameters
+// * Ambient parameters
 #define PI_AS_A_DOUBLE 3.14159265358979323846
 #define PI_AS_A_FLOAT  3.14159265358979323846f
 #define GRAVITY -9.81 //< Default gravity (m/s^2)
 constexpr float g_gravity = GRAVITY; //< Default gravity (m/s^2)
 
-// Utility functions
+// * Utility functions
 constexpr material_e get_material_type(int did) noexcept {
   material_e type{material_e::JFluid}; return type; }
 
 constexpr fem_e get_element_type(int did) noexcept {
   fem_e type{fem_e::Tetrahedron}; return type;}
+
+// * Structures for grouping variables
 struct SimulatorConfigs {
   int dim;
   float dx, dxInv;
@@ -248,7 +253,7 @@ struct AlgoConfigs {
   ~AlgoConfigs() {}
 };
 
-
+// * Boundary condition enumerators for easier reading
 enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate};
 enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, OSU_LWF_RAMP, OSU_LWF_PADDLE, USGS_RAMP, USGS_GATE, OSU_TWB_RAMP, OSU_TWB_PADDLE };
 

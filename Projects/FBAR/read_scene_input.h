@@ -2075,17 +2075,23 @@ void parse_scene(std::string fn,
               getchar();
             }
             // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
+            mn::vec<PREC, 3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
             {
-              target[d+1] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
-              target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
+              target[d+1] = model["domain_start"].GetArray()[d].GetDouble() / l + o;
+              target[d+4] = model["domain_end"].GetArray()[d].GetDouble() / l + o;
+              domain_start[d] = model["domain_start"].GetArray()[d].GetFloat()/ l + o;
+              domain_end[d] = model["domain_end"].GetArray()[d].GetFloat()/ l + o;
             }
 
             PREC freq = CheckDouble(model, "output_frequency", 60.);
 
             // mn::config::ParticleTargetConfigs particleTargetConfigs((int)target[6], (int)target[6], (int)target[6], {(float)target[1], (float)target[2], (float)target[3]}, {(float)target[4], (float)target[5], (float)target[6]}, (float)freq);
 
-
+            // Write to OBJ file
+            std::string fn_gb = "particleTarget[" + std::to_string(target_ID) + "].obj";
+            writeBoxOBJ(fn_gb, domain_start, domain_end - domain_start);
+            
             // Initialize on GPUs
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               for (int mid = 0; mid < mn::config::g_models_per_gpu; ++mid) {

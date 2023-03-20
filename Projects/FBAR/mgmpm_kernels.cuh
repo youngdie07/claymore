@@ -11790,7 +11790,7 @@ retrieve_particle_target_attributes_general(Partition partition,
 
   pvec3 point_a {target[1], target[2], target[3]}; // Target point A (low corner)
   pvec3 point_b {target[4], target[5], target[6]}; // Target point B (high corner)
-  PREC tol = g_blocksize * g_dx; // 4 cell tolerance, accounts for advection 
+  PREC tol = (2 * g_blocksize) * g_dx; // 8 cell tolerance, accounts for advection 
   if (((blockid[0]*g_blocksize + 2 + 3)*g_dx < point_a[0]-tol || 
        (blockid[0]*g_blocksize + 2)*g_dx >   point_b[0]+tol) || 
       ((blockid[1]*g_blocksize + 2 + 3)*g_dx < point_a[1]-tol || 
@@ -11816,16 +11816,13 @@ retrieve_particle_target_attributes_general(Partition partition,
     auto _source_bin = g_buckets_on_particle_buffer
           ? pbuffer._binsts[source_blockno] + source_pidib / g_bin_capacity
           : prev_partition._binsts[source_blockno] + source_pidib / g_bin_capacity;
-    auto source_bin = g_buckets_on_particle_buffer
-          ? pbuffer.ch(_0, _source_bin)
-          : pbuffer.ch(_0, _source_bin);
+    auto source_bin = pbuffer.ch(_0, _source_bin);
 
     using attribs_e_ = typename ParticleBuffer<mt>::attribs_e;
     using output_e_ = particle_output_attribs_e;
     PREC l = pbuffer.length;
     PREC o = g_offset;
     //auto global_particle_ID = bucket[pidib];
-    auto parid = atomicAdd(_parcnt, 1); //< Particle count, increments atomically
 
     /// Send positions (x,y,z) [m] to parray (device --> device)
     float3 position; 
@@ -11842,11 +11839,12 @@ retrieve_particle_target_attributes_general(Partition partition,
         (position.y >= (point_a[1]-tol-o)*l && position.y <= (point_b[1]+tol-o)*l) &&
         (position.z >= (point_a[2]-tol-o)*l && position.z <= (point_b[2]+tol-o)*l))
     {
-      auto parcnt_target = atomicAdd(_targetcnt, 1); //< Particle count in target so far
-      if (parcnt_target >= g_max_particle_target_nodes) {
-        if (threadIdx.x == 0)
-          printf("ERROR: Need more memory for particleTarget array! Particle Number[%d]. Increase g_max_particle_target_nodes[%d]! Skipping particle...\n", parcnt_target, g_max_particle_target_nodes);
+      auto parid = atomicAdd(_parcnt, 1); //< Particle count, increments atomically
+      int parcnt_target;
+      if (parid >= g_max_particle_target_nodes) {
+          printf("ERROR: Particle Number[%d] in particleTarget >= g_max_particle_target_nodes[%d]! Increase value! Skipping particle...\n", parid, g_max_particle_target_nodes);
       } else {
+        parcnt_target = atomicAdd(_targetcnt, 1); //< Particle count in target so far
         // Write to particleTarget if appropiate time-step (device)
         particleTarget.val(_0, parcnt_target) = position.x; 
         particleTarget.val(_1, parcnt_target) = position.y; 
@@ -11860,7 +11858,7 @@ retrieve_particle_target_attributes_general(Partition partition,
         caseSwitch_ParticleAttrib(pbuffer, _source_bin, _source_pidib, idx, val);
         
         // Write to particleTarget if appropiate time-step (device)
-        if (parcnt_target < g_max_particle_target_nodes) 
+        if (parid < g_max_particle_target_nodes) 
           particleTarget.val(_3, parcnt_target) = val; 
         
         // TODO : Use warp reduction to reduce atomic operations
