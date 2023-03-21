@@ -2023,16 +2023,24 @@ void parse_scene(std::string fn,
               getchar();
             }
             // * Load and scale target domain
+            mn::vec<PREC_G,3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
             {
               target[d+1] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
               target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
+              domain_start[d] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
+              domain_end[d] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
             }
 
             // * NOTE: Checks for zero length target dimensions, grows by 1 grid-cell if so
             for (int d=0; d < 3; ++d)
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
             PREC_G freq = CheckDouble(model, "output_frequency", 60.);
+
+            // Write to OBJ file
+            std::string fn_gb = "gridTarget[" + std::to_string(target_ID) + "].obj";
+            writeBoxOBJ(fn_gb, domain_start, domain_end - domain_start);
+            
 
             // mn::config::GridTargetConfigs gridTargetConfigs((int)target[6], (int)target[6], (int)target[6], make_float3((float)target[1], (float)target[2], (float)target[3]), make_float3((float)target[4], (float)target[5], (float)target[6]), (float)freq);
 

@@ -69,7 +69,7 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-#define DEBUG_COUPLED_UP false //< Debugging for CoupleUP
+#define DEBUG_COUPLED_UP true //< Debugging for CoupleUP
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
@@ -154,7 +154,7 @@ constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexc
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
 constexpr int g_max_particle_attribs = 9; //< No. attribute values to output per particle 
-constexpr bool g_particles_output_exterior_only = true; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
+constexpr bool g_particles_output_exterior_only = false; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 
 constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cell/block buckets, etc. are on partition (false) or particle-buffer (true). Used for compatability with original Multi-GPU and Single-GPU data-structure setup. Having them on particle buffer may be better if multiiple models per GPU
 

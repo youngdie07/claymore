@@ -1798,11 +1798,12 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
           logJp,
           Velocity_X, Velocity_Y, Velocity_Z,
           JBar, DefGrad_Determinant_FBAR=JBar, 
+          J, // Placeholder
           PorePressure,
           ID,
           END, // Values greater than or equal to END not held on particle
           // REQUIRED: Put N/A variables for specific material below END
-          J, DefGrad_Determinant=J, 
+          DefGrad_Determinant=J, 
           Volume_FBAR 
   };
 

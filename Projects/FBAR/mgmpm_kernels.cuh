@@ -11421,7 +11421,7 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
     pvec3 Principals, Invariants; 
     Principals.set(0.); Invariants.set(0.);
     pbuffer.getDefGrad(_source_bin, _source_pidib, F.data());
-    PREC J =  matrixDeterminant3d(F.data());
+    PREC J = matrixDeterminant3d(F.data());
     PREC sJBar = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib);
     switch (idx) {
       case output_e_::ID:
@@ -11461,7 +11461,7 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
       case output_e_::DefGrad_ZZ:
         val = F[8]; return; // DefGrad_ZZ
       case output_e_::DefGrad_Determinant:
-        val = matrixDeterminant3d(F.data()); return; // J, V/Vo, det| F |
+        val = 1.0 - matrixDeterminant3d(F.data()); return; // J, V/Vo, det| F |
       case output_e_::DefGrad_Determinant_FBAR:
         val = pbuffer.getAttribute<attribs_e_::JBar>(_source_bin, _source_pidib); return; // JBar
       // case output_e_::sJ:
