@@ -595,6 +595,7 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   PREC bath_slope[7];
 
   bathx[0] = 0.0; //- wave_maker_neutral; // Start of bathymetry X direction
+  bathx[0] += 0.085; // Turns out wave-maker starts -2.085m relative to neutral, adjust 8.5cm
   bathx[1] = 14.275 + bathx[0];
   bathx[2] = 3.658 + bathx[1];
   bathx[3] = 10.973 + bathx[2];
@@ -603,7 +604,7 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   bathx[6] = 7.354 + bathx[5];
 
   bathy[0] = 0.0;
-  bathy[1] = (0.15 + 0.076) + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
+  bathy[1] = (0.15 + (0.076 - 0.001)) + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
   bathy[2] = 0.0 + bathy[1];
   bathy[3] = (10.973 / 12.0) + bathy[2];
   bathy[4] = 1.75; //(14.63f / 24.f) + bathy[3];

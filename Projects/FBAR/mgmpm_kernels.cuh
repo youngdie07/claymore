@@ -1417,7 +1417,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           boundary_pos[2] = boundary[2];
           if (gb._object == boundary_object_t::OSU_LWF_RAMP) {
             if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = -2.f - 0.085; // Wave-maker neutral X pos. [m] at OSU LWF        
+              PREC_G wave_maker_neutral = -(2.f); // Wave-maker neutral X pos. [m] at OSU LWF        
               PREC_G ys=0.f, xo=0.f, yo=0.f;
               vec3 ns; //< Ramp boundary surface normal
               ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
@@ -1507,18 +1507,18 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               // * Cap flow below the raised OSU LWF bathymetry slab to prevent water leaks
               // ! Recheck Andrew Winter's OSU LWF papers for better boundary condition
               // TODO : Can fit better to grid-resolution
-              // No X vel. (streamwise) below raised slab (Elev. 0" to 7.5" = 0.226m, Dist. 14.275m to 14.475m + 4 grid-cell buffer <- relative to wave-maker neutral) 
-              if (xc >= (14.275 - wave_maker_neutral)/l+o && xc < (14.275 - wave_maker_neutral)/l + o + 4.f*g_dx) {
-                if (yc < (0.226/l)+o && vel[0] > 0.f) vel[0] = 0.f; 
+              // No X vel. (streamwise) below raised slab (Elev. 0" to 7.5" = 0.226m, Dist. 14.275m to 14.275m + 2 grid-cell buffer <- relative to wave-maker neutral) 
+              if (xc >= (14.275 - wave_maker_neutral)/l+o && xc < (14.275 - wave_maker_neutral)/l + o + 2.f*g_dx) {
+                if (yc < (0.226/l - g_dx)+o && vel[0] > 0.f) vel[0] = 0.f; 
                 // else if (yc >= (0.2/l)+o && yc < ) // Decay layer. Needed?
               }
             }
           }
-          else if (boundary[6] == 12) // Moveable boundary - OSU LWF wave-maker
+          else if (gb._object == boundary_object_t::OSU_LWF_PADDLE) // Moveable boundary - OSU LWF wave-maker
           {
             // OSU Wave-Maker - CSV Controlled
-            PREC_G wave_maker_neutral = -2.f - 0.085; // Streamwise offset from origin (m)
-            if (xc <= (boundary_motion[1] - wave_maker_neutral) / l + o) {
+            PREC_G wave_maker_neutral = (1.915f); // Streamwise offset from origin (m)
+            if (xc <= (boundary_motion[1] + wave_maker_neutral) / l + o) {
               // TODO: Add reflection and/or decay layer?
 #if 1 // Slip vel. (YES seperable)
               if (vel[0] < boundary_motion[2] / l) vel[0] = boundary_motion[2] / l; 
