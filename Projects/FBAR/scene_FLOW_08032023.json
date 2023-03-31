@@ -4,7 +4,7 @@
 		"frames": 180,
 		"default_dt": 1e-4,
 		"default_dx": 0.0625,
-		"domain": [80, 2, 4],
+		"domain": [90, 2, 4],
 		"gravity": [4.905, -8.49571, 0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
@@ -26,6 +26,8 @@
 			"poisson_ratio": 0.3,
 			"friction_angle": 30.0,
 			"cohesion": 0.0,
+			"logJp0": -0.01,
+			"beta": 0.5,
 			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
@@ -55,8 +57,19 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start":[0,0,0],
-			"domain_end": [80.0, 2.0, 2.0],
-			"duration":[0,180]
+			"domain_end": [90.0, 2.0, 2.0],
+			"duration":[0,180],
+			"friction_static": 0.0,
+			"friction_dynamic": 0.0
+		},
+		{
+			"object": "USGS Ramp",
+			"contact": "Separable",
+			"domain_start":[0,0,0],
+			"domain_end": [90.0, 2.0, 2.0],
+			"duration":[0,180],
+			"friction_static": 1,
+			"friction_dynamic": 1
 		}
 	],
 	"grid-targets": [

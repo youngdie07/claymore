@@ -320,6 +320,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "StrainSmall_Determinant")  return out_:: StrainSmall_Determinant;
         else if (n == "VonMisesStrain")  return out_:: VonMisesStrain;
         else if (n == "Dilation")  return out_:: Dilation;
+        else if (n == "PorePressure")  return out_:: PorePressure;
         else if (n == "logJp") return out_:: logJp;
         else return out_:: INVALID_RT;
   }
@@ -1753,7 +1754,7 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
   PREC Ks = 2.2e7; // Soil grain compresibility
   PREC Kperm = 1.0e-5; // Isothropic permeabily
   PREC Q_inv = poro/Kf + (alpha1-poro)/Ks; // +poro/Kf + (alpha1-poro)/Ks = 9.45e-8;
-  PREC masw = std::max(poro * volume * rhow, 1e-6); // liquid phase mass
+  PREC masw = std::max(poro * volume * rhow, 0.); // liquid phase mass
 
   void updateParameters(PREC l, config::MaterialConfigs mat, 
                         config::AlgoConfigs algo) {
@@ -1768,15 +1769,16 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
     cohesion = mat.cohesion;
     beta = mat.beta;
     volumeCorrection = mat.volumeCorrection;
-
+    E =  mat.E;
+    nu = mat.nu;
     rhow = mat.rhow;
     alpha1 = mat.alpha1;
     poro = mat.poro;
     Kf = mat.Kf;
-    Ks = mat.Ks;
+    Ks = mat.E / (3.0 * (1.0 - 2.0*mat.nu));
     Kperm = mat.Kperm;
     Q_inv = poro/Kf + (alpha1-poro)/Ks;
-    masw = std::max(poro * volume * rhow, 1.0e-6);
+    masw = std::max(poro * volume * rhow, 0.);
 
     this->updateAlgorithm(algo);
   }

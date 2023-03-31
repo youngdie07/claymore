@@ -2,7 +2,7 @@
 	"simulation": {
 		"fps": 2,
 		"frames": 80,
-		"default_dt": 2.5e-5,
+		"default_dt": 2.0e-5,
 		"default_dx": 0.025,
 		"domain": [90, 3.0, 1.825],
 		"gravity": [0,-9.81,0],
@@ -67,7 +67,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.998,
+			"FBAR_ratio": 1,
 			"geometry": [
 				{
 					"object": "OSU LWF",
@@ -172,8 +172,8 @@
 		{
 			"object": "Box",
 			"contact": "Separable",
-			"domain_start": [45.79, 2.0, 1.317],
-			"domain_end": [46.86, 2.615, 2.333],
+			"domain_start": [45.79, 2.025, 1.317],
+			"domain_end": [46.805, 2.615, 2.333],
 			"time": [0, 180]
 		},
 		{
@@ -192,8 +192,8 @@
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 120,
-			"domain_start": [45.79, 2.025, 1.350],
-			"domain_end": [45.85, 2.575, 2.300]
+			"domain_start": [45.79, 2.05, 1.350],
+			"domain_end": [45.805, 2.575, 2.300]
 		}
 	],
 	"particle-targets": [
