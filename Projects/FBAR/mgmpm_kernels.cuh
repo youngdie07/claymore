@@ -1660,21 +1660,19 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 ns[0] = -1.f/5.675f; ns[1] = 1.f; ns[2] = 0.f;
                 xo = (80.f + 0.0 - wave_maker_neutral) / l + o;
                 yo = 0.f / l + o;
-                ys = 1.f/20.f * (xc - xo) + yo;
+                ys = (1.f/5.675f) * (xc - xo) + yo;
               } else if (xc >= ((2.5 + 80.0 + 0.0 - wave_maker_neutral)/l)+o && xc < ((2.5 + 2.5 + 80.0 + 0.0 - wave_maker_neutral)/l)+o) {
                 // Flat, 1 m elev., 31.3 - 41.3 m (Debris Staging Platform)
                 ns[0] = -1.f/2.747f; ns[1] = 1.f; ns[2] = 0.f;
-
                 xo = (2.5f + 80.0 + 0.0 - wave_maker_neutral) / l + o;
-                yo = 1.f / l + o;
-                ys = 0.f * (xc - xo) + yo;
+                yo = (2.5f/5.675f) / l + o;
+                ys = (1.f/2.747f) * (xc - xo) + yo;
               } else {
                 // Flat, 0 m elev., 41.3+ m  (Water Overflow Basin)
                 ns[0] = -1.f/1.732f; ns[1] = 1.f; ns[2] = 0.f;
-
                 xo = (2.5 + 2.5 + 80.0 + 0.0 - wave_maker_neutral) / l + o;
-                yo = 0.f / l + o;
-                ys = 0.f * (xc - xo) + yo;
+                yo = (2.5f/2.747f + 2.5f/5.675f) / l + o;
+                ys = (1.f/1.732) * (xc - xo) + yo;
               }
 
               {

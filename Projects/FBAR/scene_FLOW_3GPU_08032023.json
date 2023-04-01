@@ -4,7 +4,7 @@
 		"frames": 90,
 		"default_dt": 5e-5,
 		"default_dx": 0.03125,
-		"domain": [100, 5, 2],
+		"domain": [100, 10, 2],
 		"gravity": [4.905, -8.49571, 0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
@@ -34,7 +34,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.9,
+			"FBAR_ratio": 0.0,
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
@@ -75,7 +75,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.9,
+			"FBAR_ratio": 0.0,
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
@@ -124,7 +124,7 @@
 					"span": [0.5, 0.05, 0.1],
 					"rotate": [0,0,-15],
 					"fulcrum": [0,0,0],
-					"domain_start": [0,0,1.0],
+					"domain_start": [0,0,0.0],
 					"domain_end": [7.0, 1.5, 2.0]
 				}
 			]
