@@ -1,0 +1,228 @@
+{
+	"simulation": {
+		"fps": 120,
+		"frames": 25,
+		"default_dt": 1e-4,
+		"default_dx": 0.05,
+		"domain": [45, 1.5, 10.0],
+		"gravity": -9.81,
+		"save_path": "./",
+		"save_suffix": ".bgeo"
+	},
+	"models": [
+		{
+			"gpu": 0,
+			"model": 0,
+			"type": "particles",
+			"constitutive": "JFluid",
+			"output_attribs": ["ID", "Pressure", "Velocity_X"],
+			"track_particle_id": [0],
+			"track_attribs": ["Position_X"],
+			"target_attribs": ["Position_Y"],
+			"ppc": 8,
+			"CFL": 0.5,
+			"rho": 1000,
+			"bulk_modulus": 5e7,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"use_ASFLIP": false,
+			"use_FEM": false,
+			"use_FBAR": true,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"FBAR_ratio": 0.99,
+			"geometry": [
+				{
+					"object": "OSU TWB",
+					"operation": "add",
+					"span": [31.4, 1.0, 10.0],
+					"offset": [0.0, 0.0, 0.0]
+				}
+			],
+			"partition_start": [0, 0, 0],
+			"partition_end": [31.3, 0.875, 3.5]
+		},
+		{
+			"gpu": 1,
+			"model": 0,
+			"type": "particles",
+			"color": "blue",
+			"constitutive": "JFluid",
+			"output_attribs": ["ID", "Pressure", "Velocity_X"],
+			"track_particle_id": [0],
+			"track_attribs": ["Position_X"],
+			"target_attribs": ["Position_Y"],
+			"ppc": 8,
+			"CFL": 0.5,
+			"rho": 1000,
+			"bulk_modulus": 5e7,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"use_ASFLIP": false,
+			"use_FEM": false,
+			"use_FBAR": true,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"FBAR_ratio": 0.99,
+			"geometry": [
+				{
+					"object": "OSU TWB",
+					"operation": "add",
+					"span": [31.4, 1.0, 10.0],
+					"offset": [0.0, 0.0, 0.0]
+				}
+			],
+			"partition_start": [0, 0, 3.5],
+			"partition_end": [31.3, 0.875, 6.5]
+		},
+		{
+			"gpu": 2,
+			"model": 0,
+			"type": "particles",
+			"color": "blue",
+			"constitutive": "JFluid",
+			"output_attribs": ["ID", "Pressure", "Velocity_X"],
+			"track_particle_id": [0],
+			"track_attribs": ["Position_X"],
+			"target_attribs": ["Position_Y"],
+			"ppc": 8,
+			"CFL": 0.5,
+			"rho": 1000,
+			"bulk_modulus": 5e7,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"use_ASFLIP": false,
+			"use_FEM": false,
+			"use_FBAR": true,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"FBAR_ratio": 0.99,
+			"velocity": [0, 0, 0],
+			"geometry": [
+				{
+					"object": "OSU TWB",
+					"operation": "add",
+					"span": [31.4, 1.0, 10.0],
+					"offset": [0.0, 0.0, 0.0]
+				}
+			],
+			"partition_start": [0, 0, 6.5],
+			"partition_end": [31.3, 0.875, 10]
+		},
+		{
+			"gpu": 1,
+			"model": 1,
+			"type": "particles",
+			"constitutive": "FixedCorotated",
+			"output_attribs": ["ID", "Velocity_X", "Pressure"],
+			"track_particle_id": [0],
+			"track_attribs": ["Position_X"],
+			"target_attribs": ["Position_Y"],
+			"ppc": 8.0,
+			"CFL": 0.5,
+			"rho": 988,
+			"youngs_modulus": 5e7,
+			"poisson_ratio": 0.0,
+			"use_ASFLIP": true,
+			"use_FEM": false,
+			"use_FBAR": false,
+			"alpha": 0,
+			"beta_min": 0,
+			"beta_max": 0,
+			"FBAR_ratio": 0.0,
+			"velocity": [0, 0, 0],
+			"geometry": [
+				{
+					"object": "Box",
+					"operation": "add",
+					"span": [0.1, 0.05, 0.1],
+					"offset": [31.3, 1.0, 2.3],
+					"array": [4, 1, 5],
+					"spacing": [0.15, 0, 0.15]
+				},
+				{
+					"object": "Box",
+					"operation": "add",
+					"span": [0.1, 0.05, 0.1],
+					"offset": [31.3, 1.0, 7.0],
+					"array": [4, 1, 5],
+					"spacing": [0.15, 0, 0.15]
+				}
+			],
+			"partition_start": [31.3, 0, 0],
+			"partition_end": [41.3, 1.5, 10.0]
+		}
+	],
+	"grid-boundaries": [
+		{
+			"object": "Wall",
+			"contact": "Separable",
+			"domain_start": [0.0, 0.0, 0.0],
+			"domain_end": [46, 1.5, 10.0],
+			"time": [0, 60]
+		},
+		{
+			"object": "OSU TWB Ramp",
+			"contact": "Separable",
+			"domain_start": [0.0, 0.0, -0.2],
+			"domain_end": [41.3, 1.5, 10.2],
+			"time": [0, 60]
+		},
+		{
+			"object": "OSU TWB Paddle",
+			"contact": "Separable",
+			"domain_start": [-0.4, -0.2, -0.2],
+			"domain_end": [0.001, 4.0, 10.2],
+			"time": [0, 180],
+			"file": "WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv",
+			"output_frequency": 1200
+		}	
+	],
+	"grid-targets": [
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 60,
+			"domain_start": [45.790, 2.049, 1.317],
+			"domain_end": [45.85, 2.615, 2.333]
+		}
+	],
+	"particle-targets": [
+		{
+			"name": "WG1",
+			"attribute": "Elevation",
+			"operation": "Max",
+			"output_frequency": 60,
+			"domain_start": [14.052, 0.0, 8.540],
+			"domain_end":   [14.152, 1.5, 8.640]
+		},
+		{
+			"name": "WG3",
+			"attribute": "Elevation",
+			"operation": "Max",
+			"output_frequency": 60,
+			"domain_start": [14.039, 0.0, 2.472],
+			"domain_end":   [14.139, 1.5, 2.572]
+		},
+		{
+			"name": "WG5",
+			"attribute": "Elevation",
+			"operation": "Max",
+			"output_frequency": 120,
+			"domain_start": [14.899, 0.0, 2.423],
+			"domain_end": [14.999, 1.5, 2.523]
+		},
+		{
+			"name": "WG9",
+			"attribute": "Elevation",
+			"operation": "Max",
+			"output_frequency": 60,
+			"domain_start": [19.246, 0.0, 2.406],
+			"domain_end": [19.346, 1.5, 2.506]
+		}
+	]
+}

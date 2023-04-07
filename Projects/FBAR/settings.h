@@ -69,7 +69,7 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
-#define DEBUG_COUPLED_UP true //< Debugging for CoupleUP
+#define DEBUG_COUPLED_UP false //< Debugging for CoupleUP
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging for CoupleUP
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
@@ -79,7 +79,7 @@ namespace config /// * Simulation config setup and name-space
 // * g_device_cnt = 4, g_models_per_gpu = 2 ---> g_model_cnt = 8
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
-constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
+constexpr int g_device_cnt = 2; //< IMPORTANT. Num. GPUs to compile for. Default 1.
 constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models in sim.
 
@@ -115,8 +115,8 @@ constexpr float g_offset = g_dx * 8; //< Offset in grid-cells of sim origin from
 constexpr double g_length   = 1.0; // 10.24f; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 8.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 8.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length + 0.0 * g_dx; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length + 0.0 * g_dx; //< Domain y ratio

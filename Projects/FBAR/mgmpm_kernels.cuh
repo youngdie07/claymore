@@ -1353,13 +1353,29 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
             isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
           }
+          
+          if (gb._object == boundary_object_t::USGS_GATE) {
+            if (gb._contact == boundary_contact_t::Separable) {
+              // TODO : Reimplement timed boundaries
+              PREC_G time_start = 1.0f; // Time til start [sec]
+              PREC_G time_end   = 2.0f; // Time at finish [sec]
 
-          // TODO : Reimplement timed boundaries
-          // // Wall boundary, releases after wait time
-          // PREC_G gate = (4.f + o) / l; // Gate position [m]
-          // PREC_G wait = 0.25f; // Time til release [sec]
-          // if (curTime < wait && xc >= gate - tol) 
-          //     vel[0] = vel_FLIP[0] = 0.f;
+              PREC_G gate_x  = (7.f) / l + o; // Gate position [m]
+              PREC_G gate_z1 = (4.f) / l + o; // Gate position [m]
+              PREC_G gate_z2 = (4.f) / l + o; // Gate position [m]
+              if (curTime < time_start && xc >= gate_x) {
+                vel[0] = vel_FLIP[0] = 0.f;
+              }
+              else if (curTime >= time_start && curTime < time_end && xc >= gate_x) {
+                gate_z1 -= 1.f * ((time_end - time_start) - (time_end - curTime));
+                gate_z2 += 1.f * ((time_end - time_start) - (time_end - curTime));
+                if (zc <= gate_z1 || zc >= gate_z2) {
+                  vel[0] = vel_FLIP[0] = 0.f;
+                }
+              }
+            }
+          }
+
         }
 
 #if 0   ///< Sticky contact only
