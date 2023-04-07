@@ -1243,7 +1243,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             }
           }
           // Box rigid boundary - Sticky contact
-          else if (boundary[6]==3) {
+          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Sticky) {
 
             // Check if grid-cell is within sticky interior of box
             isOutStruct  = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
@@ -1252,7 +1252,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
             isInBound |= isOutStruct; // Update with regular boundary for efficiency
           }
-          else if (boundary[6]==4) {
+          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Slip) {
             PREC_G t = 1.5 * g_dx + tol; // Slip layer thickness for box
 
             // Check if grid-cell is within sticky interior of box
@@ -1304,7 +1304,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
             isInBound |= isOnStruct; // OR reduce box sticky collision into isInBound, efficient
           }
-          else if (boundary[6]==5) {
+          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Separable) {
             PREC_G t = 1.0 * g_dx + tol; // Slip layer thickness for box
 
             // Check if grid-cell is within sticky interior of box
@@ -1367,8 +1367,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 vel[0] = vel_FLIP[0] = 0.f;
               }
               else if (curTime >= time_start && curTime < time_end && xc >= gate_x) {
-                gate_z1 -= 1.f * ((time_end - time_start) - (time_end - curTime));
-                gate_z2 += 1.f * ((time_end - time_start) - (time_end - curTime));
+                gate_z1 -= (1.f / l) * ((time_end - time_start) - (time_end - curTime));
+                gate_z2 += (1.f / l) * ((time_end - time_start) - (time_end - curTime));
                 if (zc <= gate_z1 || zc >= gate_z2) {
                   vel[0] = vel_FLIP[0] = 0.f;
                 }
@@ -1410,8 +1410,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         //PREC_G JBar = isInBound == 7 ? 0.0 : 1.0;
 #endif        
         // TODO : Reduce register usage for performance. Put boundaries in shared mem.?
-#pragma unroll 4
-        for (int g = 0; g < 4; g++)
+
+        for (int g = 0; g < g_max_grid_boundaries; g++)
         {
           vec7 boundary;
           for (int d = 0; d < 7; d++) boundary[d] = boundary_array[g][d];

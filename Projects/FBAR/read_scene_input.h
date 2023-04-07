@@ -2221,18 +2221,22 @@ void parse_scene(std::string fn,
             else if (object == "USGS Ramp" || object == "USGS Flume")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_RAMP;
+              h_boundary[6] = 100; 
             }
             else if (object == "USGS Gate" || object == "USGS GATE")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_GATE;
+              h_boundary[6] = 100; 
             }
             else if (object == "OSU TWB Ramp" || object == "OSU_TWB_RAMP" || object == "OSU TWB")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_RAMP;
+              h_boundary[6] = 100; 
             }
             else if (object == "OSU TWB Paddle" || object == "OSU_TWB_PADDLE")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
+              h_boundary[6] = 100; 
             }       
             else 
             {

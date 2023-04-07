@@ -84,7 +84,7 @@ constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per 
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models in sim.
 
 
-constexpr bool g_particles_output_exterior_only = false; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
+constexpr bool g_particles_output_exterior_only = true; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 
 // Grid set-up
 #define DOMAIN_BITS 12 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
@@ -142,7 +142,7 @@ constexpr int g_max_active_block = 25000; //< Max active blocks in gridBlocks. P
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 3000000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 2750000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
