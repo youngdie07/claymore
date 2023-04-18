@@ -1,11 +1,11 @@
 {
 	"simulation": {
-		"fps": 120,
-		"frames": 25,
-		"default_dt": 1e-4,
-		"default_dx": 0.05,
-		"domain": [45, 1.5, 10.0],
-		"gravity": -9.81,
+		"fps": 10,
+		"frames": 60,
+		"default_dt": 1.25e-5,
+		"default_dx": 0.0125,
+		"domain": [9.0, 1.0, 0.125],
+		"gravity": [0, -9.81, 0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
 	},
@@ -22,10 +22,10 @@
 			"ppc": 8,
 			"CFL": 0.5,
 			"rho": 1000,
-			"bulk_modulus": 5e7,
+			"bulk_modulus": 2.2e8,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"use_ASFLIP": false,
+			"use_ASFLIP": true,
 			"use_FEM": false,
 			"use_FBAR": true,
 			"alpha": 0,
@@ -34,83 +34,20 @@
 			"FBAR_ratio": 0.99,
 			"geometry": [
 				{
-					"object": "OSU TWB",
+					"object": "Box",
 					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
+					"span": [3.95, 0.23, 4.0],
+					"offset": [0.5, 0.0, 0.0]
+				},
+				{
+					"object": "Box",
+					"operation": "add",
+					"span": [0.5, 0.9, 4.0],
 					"offset": [0.0, 0.0, 0.0]
 				}
 			],
 			"partition_start": [0, 0, 0],
-			"partition_end": [31.3, 0.875, 3.5]
-		},
-		{
-			"gpu": 1,
-			"model": 0,
-			"type": "particles",
-			"color": "blue",
-			"constitutive": "JFluid",
-			"output_attribs": ["ID", "Pressure", "Velocity_X"],
-			"track_particle_id": [0],
-			"track_attribs": ["Position_X"],
-			"target_attribs": ["Position_Y"],
-			"ppc": 8,
-			"CFL": 0.5,
-			"rho": 1000,
-			"bulk_modulus": 5e7,
-			"gamma": 7.1,
-			"viscosity": 0.001,
-			"use_ASFLIP": false,
-			"use_FEM": false,
-			"use_FBAR": true,
-			"alpha": 0,
-			"beta_min": 0,
-			"beta_max": 0,
-			"FBAR_ratio": 0.99,
-			"geometry": [
-				{
-					"object": "OSU TWB",
-					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
-					"offset": [0.0, 0.0, 0.0]
-				}
-			],
-			"partition_start": [0, 0, 3.5],
-			"partition_end": [31.3, 0.875, 6.5]
-		},
-		{
-			"gpu": 2,
-			"model": 0,
-			"type": "particles",
-			"color": "blue",
-			"constitutive": "JFluid",
-			"output_attribs": ["ID", "Pressure", "Velocity_X"],
-			"track_particle_id": [0],
-			"track_attribs": ["Position_X"],
-			"target_attribs": ["Position_Y"],
-			"ppc": 8,
-			"CFL": 0.5,
-			"rho": 1000,
-			"bulk_modulus": 5e7,
-			"gamma": 7.1,
-			"viscosity": 0.001,
-			"use_ASFLIP": false,
-			"use_FEM": false,
-			"use_FBAR": true,
-			"alpha": 0,
-			"beta_min": 0,
-			"beta_max": 0,
-			"FBAR_ratio": 0.99,
-			"velocity": [0, 0, 0],
-			"geometry": [
-				{
-					"object": "OSU TWB",
-					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
-					"offset": [0.0, 0.0, 0.0]
-				}
-			],
-			"partition_start": [0, 0, 6.5],
-			"partition_end": [31.3, 0.875, 10]
+			"partition_end": [4.45, 0.9, 0.125]
 		},
 		{
 			"gpu": 1,
@@ -161,24 +98,28 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [46, 1.5, 10.0],
-			"time": [0, 60]
+			"domain_end": [9.0, 1.0, 0.125],
+			"time": [0, 60],
+			"friction_static": 0.0,
+			"friction_dynamic": 0.0
 		},
 		{
-			"object": "OSU TWB Ramp",
+			"object": "Box",
 			"contact": "Separable",
-			"domain_start": [0.0, 0.0, -0.2],
-			"domain_end": [41.3, 1.5, 10.2],
-			"time": [0, 60]
+			"domain_start": [4.45, -0.1, -0.1],
+			"domain_end": [9.1, 0.255, 4.1],
+			"time": [0, 60],
+			"friction_static": 0.0,
+			"friction_dynamic": 0.0
 		},
 		{
-			"object": "OSU TWB Paddle",
+			"object": "Box",
 			"contact": "Separable",
-			"domain_start": [-0.4, -0.2, -0.2],
-			"domain_end": [0.001, 4.0, 10.2],
-			"time": [0, 180],
-			"file": "WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv",
-			"output_frequency": 1200
+			"domain_start": [0.5, 0.1, -0.1],
+			"domain_end": [0.55, 1.0, 4.1],
+			"time": [0, 60],
+			"friction_static": 0.0,
+			"friction_dynamic": 0.0
 		}	
 	],
 	"grid-targets": [
@@ -186,7 +127,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "X+",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [45.790, 2.049, 1.317],
 			"domain_end": [45.85, 2.615, 2.333]
 		}
@@ -196,33 +137,33 @@
 			"name": "WG1",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
-			"domain_start": [14.052, 0.0, 8.540],
-			"domain_end":   [14.152, 1.5, 8.640]
+			"output_frequency": 100,
+			"domain_start": [1.85, 0.0, 0.0],
+			"domain_end":   [1.875, 1.5, 0.025]
+		},
+		{
+			"name": "WG2",
+			"attribute": "Elevation",
+			"operation": "Max",
+			"output_frequency": 100,
+			"domain_start": [3.64, 0.0, 0.0],
+			"domain_end":   [3.665, 1.5, 0.025]
 		},
 		{
 			"name": "WG3",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
-			"domain_start": [14.039, 0.0, 2.472],
-			"domain_end":   [14.139, 1.5, 2.572]
+			"output_frequency": 100,
+			"domain_start": [4.69, 0.0, 0.0],
+			"domain_end": [4.725, 1.5, 0.025]
 		},
 		{
-			"name": "WG5",
+			"name": "WG4",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 120,
-			"domain_start": [14.899, 0.0, 2.423],
-			"domain_end": [14.999, 1.5, 2.523]
-		},
-		{
-			"name": "WG9",
-			"attribute": "Elevation",
-			"operation": "Max",
-			"output_frequency": 60,
-			"domain_start": [19.246, 0.0, 2.406],
-			"domain_end": [19.346, 1.5, 2.506]
+			"output_frequency": 100,
+			"domain_start": [6.15, 0.0, 0.0],
+			"domain_end": [6.175, 1.5, 0.025]
 		}
 	]
 }

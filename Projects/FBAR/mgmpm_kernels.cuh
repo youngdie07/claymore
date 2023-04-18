@@ -11775,17 +11775,14 @@ retrieve_particle_buffer_attributes_general(Partition partition,
   int pcnt = g_buckets_on_particle_buffer ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
 
-
-
-
   auto advection_bucket = g_buckets_on_particle_buffer
       ? next_pbuffer._blockbuckets + blockIdx.x * g_particle_num_per_block
       : partition._blockbuckets + blockIdx.x * g_particle_num_per_block;
   //uint32_t blockno = blockIdx.x;
 
   // Check if any of the 27 blocks around the current block has no particles
-  // If no particles, this is a particle block at "surface" ext. of model
-  // saves memory if g_particles_output_exterior_only is true
+  // If no particles, this is a particle block near exterior of model
+  // Saves memory if g_particles_output_exterior_only is true
   if ( g_particles_output_exterior_only ) {
     bool exterior_particles = false;
 #pragma unroll 3
@@ -11795,11 +11792,12 @@ retrieve_particle_buffer_attributes_general(Partition partition,
 #pragma unroll 3
         for (char k = -1; k < 2; ++k) {
           auto ext_blockno = partition.query(blockid + ivec3(i, j, k));
-          // check if valid block
+          // Check if valid block
           auto ext_pcnt = g_buckets_on_particle_buffer 
                     ? next_pbuffer._ppbs[ext_blockno] 
                     : partition._ppbs[ext_blockno];
-          if (ext_pcnt == 0) {
+          constexpr int too_few_particles = 64; // Avoid false positives when block is practically empty visually (e.g. 2 particles may as well be 0)
+          if (ext_pcnt <= too_few_particles) {
             exterior_particles = true;
             break;
           }
@@ -11827,7 +11825,7 @@ retrieve_particle_buffer_attributes_general(Partition partition,
 
     //auto global_particle_ID = bucket[pidib];
     auto parid = atomicAdd(_parcnt, 1); //< Particle count, increments atomically
-    PREC o = g_offset;
+    constexpr PREC o = g_offset;
     PREC l = pbuffer.length;
 
     /// Send positions (x,y,z) [m] to parray (device --> device)
