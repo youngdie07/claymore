@@ -80,7 +80,7 @@ namespace config /// * Simulation config setup and name-space
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
 constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
-constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per GPU. Default 1.
+constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models in sim.
 
 
@@ -137,12 +137,12 @@ constexpr int g_grid_size_z = (int)(g_grid_size * g_grid_ratio_z) +1; //< Domain
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 10000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 16000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Substantially effects memory/performance, exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression.
-constexpr int g_max_particle_num = 1500000; //< Max no. particles. Preallocated, can resize.
+constexpr int g_max_particle_num = 2000000; //< Max no. particles. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Default max_ppc
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -255,7 +255,11 @@ struct AlgoConfigs {
 
 // * Boundary condition enumerators for easier reading
 enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate};
-enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, OSU_LWF_RAMP, OSU_LWF_PADDLE, USGS_RAMP, USGS_GATE, OSU_TWB_RAMP, OSU_TWB_PADDLE };
+enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, 
+OSU_LWF_RAMP, OSU_LWF_PADDLE, 
+USGS_RAMP, USGS_GATE, 
+OSU_TWB_RAMP, OSU_TWB_PADDLE,
+WASIRF_PUMP };
 
 struct GridBoundaryConfigs {
   int _ID; //< Specific grid-target ID, [0, number_of_targets)
@@ -267,6 +271,7 @@ struct GridBoundaryConfigs {
   vec<float, 2> _time;
   // vec3 _normal;
   // vec3 _trans, _transVel;
+  vec<float, 3> _velocity;
   // vec3x3 _rotMat;
   // vec3 _omega; 
 };

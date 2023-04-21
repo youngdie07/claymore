@@ -2138,9 +2138,11 @@ void parse_scene(std::string fn,
             h_gridBoundary._ID = boundary_ID;
             h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0,0,0});
             h_gridBoundary._domain_end = CheckFloatArray(model, "domain_end", mn::vec<float, 3>{1,1,1});
+            h_gridBoundary._velocity = CheckFloatArray(model, "velocity", mn::vec<float, 3>{0,0,0});
             for (int d = 0; d < 3; ++d) {
               h_gridBoundary._domain_start[d] = h_gridBoundary._domain_start[d] / l + o;
               h_gridBoundary._domain_end[d] = h_gridBoundary._domain_end[d] / l + o;
+              h_gridBoundary._velocity[d] = h_gridBoundary._velocity[d] / l;
             }
             h_gridBoundary._time = CheckFloatArray<2>(model, "time", mn::vec<float, 2>{0.f,0.f});
             
@@ -2236,6 +2238,11 @@ void parse_scene(std::string fn,
             else if (object == "OSU TWB Paddle" || object == "OSU_TWB_PADDLE")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
+              h_boundary[6] = 100; 
+            }       
+            else if (object == "WASIRF Pump" || object == "WASIRF_PUMP")
+            {
+              h_gridBoundary._object = mn::config::boundary_object_t::WASIRF_PUMP;
               h_boundary[6] = 100; 
             }       
             else 

@@ -1187,8 +1187,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           
           auto gb = gridBoundary_array[g];
           PREC_G friction_static = gb._friction_static;
-          if (threadIdx.x + blockIdx.x*blockDim.x == 0) 
-            printf("friction_static = %f", friction_static);
 
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;
@@ -1376,6 +1374,21 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             }
           }
 
+          if (gb._object == boundary_object_t::WASIRF_PUMP) {
+            if (gb._contact == boundary_contact_t::Separable) {
+              for (int d=0; d<3; d++) {
+                if (xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0] && 
+                    yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1] && 
+                    zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]) {
+                  if (abs(vel[d]) < gb._velocity[d] / mass) {
+                    vel[d] = gb._velocity[d] / mass; // Set boundary velocity to node
+                    // vel_FLIP[d] = gb._velocity[d]; // Set boundary velocity to node
+                  }
+                }
+              }
+            }
+          }
+
         }
 
 #if 0   ///< Sticky contact only
@@ -1419,8 +1432,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
           auto gb = gridBoundary_array[g];
           PREC_G friction_static = gb._friction_static;
-          // if (threadIdx.x + blockIdx.x*blockDim.x == 0) 
-          //   printf("friction_static = %f", friction_static);
 
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;

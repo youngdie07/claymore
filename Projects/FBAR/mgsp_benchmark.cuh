@@ -486,7 +486,7 @@ struct mgsp_benchmark {
     h_gridBoundaryConfigs[boundary_ID]._domain_start = gridBoundaryConfigs._domain_start;
     h_gridBoundaryConfigs[boundary_ID]._domain_end = gridBoundaryConfigs._domain_end;
     h_gridBoundaryConfigs[boundary_ID]._time = gridBoundaryConfigs._time;
-
+    h_gridBoundaryConfigs[boundary_ID]._velocity = gridBoundaryConfigs._velocity;
 
     fmt::print("gridBoundary[{}]: object[{}], contact[{}]\n", boundary_ID, h_gridBoundaryConfigs[boundary_ID]._object, h_gridBoundaryConfigs[boundary_ID]._contact);
     if (boundary_ID == 0)
