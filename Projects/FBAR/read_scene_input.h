@@ -1479,6 +1479,7 @@ void parse_scene(std::string fn,
             mn::config::MaterialConfigs materialConfigs;
             materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); 
             materialConfigs.rho = CheckDouble(model, "rho", 1e3); 
+            materialConfigs.CFL = CheckDouble(model, "CFL", 0.5);
 
             auto initModel = [&](auto &positions, auto &velocity) {
               bool algo_error = false, mat_error  = false;
@@ -1486,6 +1487,13 @@ void parse_scene(std::string fn,
                 materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); 
                 materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); 
                 materialConfigs.visco = CheckDouble(model, "viscosity", 0.001);
+
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt(materialConfigs.bulk / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity);                    
@@ -1519,6 +1527,13 @@ void parse_scene(std::string fn,
               else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7);
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity);
@@ -1546,6 +1561,13 @@ void parse_scene(std::string fn,
                       constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
@@ -1563,12 +1585,20 @@ void parse_scene(std::string fn,
                 materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
                 materialConfigs.beta = CheckDouble(model, "beta", 0.5);
                 materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
+                
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+                
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity); 
                   benchmark->updateParameters<mn::material_e::Sand>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_id[0], track_attribs, target_attribs);
+
                 }
                 else { algo_error = true; }
               } 
@@ -1587,7 +1617,14 @@ void parse_scene(std::string fn,
                 materialConfigs.Kf = CheckDouble(model, "Kf", 1.0e7); // Bulk modulus of fluid [Pa]
                 materialConfigs.Ks = CheckDouble(model, "Ks", 2.2e7); // Bulk modulus of solid [Pa]
                 materialConfigs.Kperm = CheckDouble(model, "Kperm", 1.0e-5); // Permeability
-
+                
+                // ! TODO: Update time-step calculation for coupled model
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+                
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity); 
@@ -1605,6 +1642,13 @@ void parse_scene(std::string fn,
                 materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
                 materialConfigs.beta = CheckDouble(model, "beta", 0.5);
                 materialConfigs.hardeningOn = CheckBool(model, "hardeningOn", true); 
+
+                // Update time-step for material properties: dt = dx / v_pwave * CFL
+                PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
+                PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
+                benchmark->set_time_step(max_dt); //< Set time-step
+                fmt::print(fg(yellow), "GPU[{}] MODEL[{}] Max time-step[{}] of material.\n", gpu_id, model_id, max_dt);
+                
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
                   benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity);
@@ -2288,7 +2332,7 @@ void parse_scene(std::string fn,
             }
             else if (motion_velocity != model.MemberEnd() && motion_file == model.MemberEnd())
             {
-              fmt::print(fg(blue),"Found velocity for grid-boundary[{}]. Loading...", boundary_ID);
+              fmt::print(fg(blue),"Found velocity for grid-boundary[{}]. Loading...\n", boundary_ID);
               mn::vec<PREC_G, 3> velocity;
               for (int d=0; d<3; d++) velocity[d] = model["velocity"].GetArray()[d].GetDouble() / l;
             }

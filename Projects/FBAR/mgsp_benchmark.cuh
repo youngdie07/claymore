@@ -133,6 +133,7 @@ struct mgsp_benchmark {
     // Loop and initialize each device/CUDA context.
     if constexpr (GPU_ID + 1 < g_device_cnt) initParticles<GPU_ID + 1>();
   }
+
   mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), float dt = 1e-4, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, std::string suffix = ".bgeo")
       : length(l), domainCellCnt(dCC), dtDefault(dt), curTime(0.f), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), bRunning(true) {
 
@@ -189,6 +190,10 @@ struct mgsp_benchmark {
     fmt::print("Threads finished.\n");
     printDiv();
   }
+
+  // Set time step for sim. min() sets to smallest step needed for a material in sim.
+  template <typename T = float>
+  void set_time_step(T dt) { dtDefault = std::min(dtDefault, (float) dt); }
 
   // Initialize particle models. Allow for varied materials on GPUs.
   template <material_e m>

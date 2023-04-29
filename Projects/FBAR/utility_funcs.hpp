@@ -31,7 +31,7 @@ constexpr float compute_dt(float maxVel, const float cur, const float next,
   if (next < cur)
     return 0.f;
   float dt = dtDefault;
-  if (maxVel > 0. && (maxVel = config::g_dx * config::cfl / maxVel) < dtDefault)
+  if (maxVel > 0. && (maxVel = config::g_dx * config::g_cfl / maxVel) < dtDefault)
     dt = maxVel;
 
   if (cur + dt >= next)

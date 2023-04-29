@@ -10,6 +10,9 @@
 
 namespace mn {
 
+/// * Enable/disable cluster communication for multi-node simulations
+#define CLUSTER_COMM_STYLE 0 //< 0 = None, 1 = MPI, 2 = CUDA-aware MPI, 3 = NVSHMEM
+
 /// * Set computational precisions (double = good but expensive, float = low but fast)
 #define PREC double //< Particle floating-point precision
 #define PREC_P double //< Particle floating-point precision
@@ -203,9 +206,9 @@ constexpr int g_fps = 60; //< Default frames-per-second
 #define DENSITY 1000       //< Default density [kg/m^3]
 #define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
 #define POISSON_RATIO 0.3 // Default Poisson Ratio
-#define CFL 0.5
+#define CFL_CONDITION 0.5
 #define MODEL_PPC 1.0 //< Default particles-per-cell
-constexpr float cfl = CFL; //< Default CFL Condition Coefficient
+constexpr float g_cfl = CFL_CONDITION; //< Default CFL Condition Coefficient
 constexpr float g_model_ppc = MODEL_PPC; //< Default particles-per-cell
 
 // * Ambient parameters
@@ -231,7 +234,7 @@ struct SimulatorConfigs {
 } simConfigs;
 
 struct MaterialConfigs {
-  PREC ppc, rho;
+  PREC ppc, rho, CFL;
   PREC bulk, visco, gamma;
   PREC E, nu;
   PREC logJp0, frictionAngle, cohesion, beta;
