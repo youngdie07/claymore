@@ -17,6 +17,11 @@
 #include <array>
 //#include <thread>
 
+// Scale simulation across nodes if using MPI
+#if CLUSTER_COMM_STYLE == 1
+  #include <mpi.h>
+#endif
+
 #if 0
 #include <ghc/filesystem.hpp>
 namespace fs = ghc::filesystem;
@@ -37,6 +42,19 @@ int main(int argc, char *argv[]) {
   using namespace mn;
   using namespace config;
   
+#if CLUSTER_COMM_STYLE == 1
+  // Initialize MPI
+  MPI_Init(&argc, &argv);
+
+  // Obtain our rank (Node ID) and the total number of ranks (Num Nodes)
+  // Assume we launch MPI with one rank per GPU Node
+  int rank, num_ranks;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+  fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
+#endif
+
+
   IO;
 
   Cuda::startup(); //< Start CUDA GPUs if available.
@@ -74,6 +92,11 @@ int main(int argc, char *argv[]) {
   fmt::print(fg(fmt::color::green),"Shut-down CUDA GPU communication.\n");
   cudaDeviceReset();
   fmt::print(fg(fmt::color::green),"Reset CUDA GPUs.\n");
+
+  // ---------------- Shutdown MPI
+#if CLUSTER_COMM_STYLE == 1
+  MPI_Finalize();
+#endif
 
   // ---------------- Finish application
   fmt::print(fg(fmt::color::green),"Application finished.\n");

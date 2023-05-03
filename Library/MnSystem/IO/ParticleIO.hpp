@@ -388,6 +388,23 @@ auto read_sdf(std::string fn, float ppc, float dx, vec<float, 3> offset,
 }
 
 
+
+template <typename T>
+void translate_rotate_translate_point_IO(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, mn::vec<T,3>& point) {
+  mn::vec<T,3> tmp_point;
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
+  mn::matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
+  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
+}
+
+template <typename T>
+void translate_rotate_translate_point_IO(const mn::vec<T,3> &fulcrum, const mn::vec<T,3,3> &rotate, std::array<T,3>& point) {
+  std::array<T,3> tmp_point;
+  for (int d=0;d<3;d++) tmp_point[d] = point[d] - fulcrum[d]; // Translate to rotation fulcrum
+  mn::matrixVectorMultiplication3d(rotate.data(), tmp_point.data(), point.data()); // Rotate
+  for (int d=0;d<3;d++) point[d] += fulcrum[d]; // Translate back.
+}
+
 // Read SDF file, cartesian/uniform sample position data into an array (JB)
 template <typename T>
 auto read_sdf(std::string fn, std::vector<std::array<T,3>>& data, T ppc, T g_dx, int domainsize,
@@ -434,6 +451,12 @@ auto read_sdf(std::string fn, std::vector<std::array<T,3>>& data, T ppc, T g_dx,
 
   printf("SDF Samples: %f , lengthRatio %f %f %f %f Max-Cells: %f %f %f PPL: %f , samplePerLevelsetCell: %f \n", (float)(samples.size()/3.0), lengthRatio, lengthRatios[0],lengthRatios[1],lengthRatios[2], (float)maxns[0], (float)maxns[1], (float)maxns[2], ppl, samplePerLevelsetCell);
 
+  // Check if non-identity rotation matrix, if so, must rotate points
+  bool must_rotate = false;
+  if (rotation(0,0) != 1.0 || rotation(1,1) != 1.0 || rotation(2,2) != 1.0 || rotation(0,1) != 0 || rotation(0,2) != 0 || rotation(1,0) != 0 || rotation(1,2) != 0 || rotation(2,0) != 0 || rotation(2,1) != 0) {
+      printf("Must rotate points\n");
+      must_rotate = true;
+  }
   // Loop through samples
   for (int i = 0, size = samples.size() / 3; i < size; i++) {
     // Group x,y,z position data
@@ -442,20 +465,21 @@ auto read_sdf(std::string fn, std::vector<std::array<T,3>>& data, T ppc, T g_dx,
     // Scale positions, add-in offset from JSON
     //for (int d = 0; d<3; d++) p[d] = ((p[d] - fpad) * levelsetDx - mins[d]) / length + offset[d]; 
     for (int d = 0; d<3; d++) p[d] = ((p[d] - fpad) * levelsetDx) / length + offset[d]; 
+    if (must_rotate) translate_rotate_translate_point_IO<T>(fulcrum, rotation, p);
 
+    // Check if point is within domain
     if (p[0] >= point_a[0] && p[0] < point_b[0]) {
       if (p[1] >= point_a[1] && p[1] < point_b[1]) {
         if (p[2] >= point_a[2] && p[2] < point_b[2]) {
             //for (int d = 0; d<3; d++) p[d] = p[d] + offset[d];
 
-            // Add (x,y,z) to data in order
-            //translate_rotate_translate_point(fulcrum, rotation, p);
+            // Add (x,y,z) to data vector in order
             data.push_back(std::array<T, 3>{p[0], p[1], p[2]});
         }
       }
     }
   }
-  printf("[%f, %f, %f] - [%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
+  printf("SDF Info: mins[%f, %f, %f] - maxs[%f, %f, %f], scale %f, parcnt %d, lsdx %f, dx %f\n",
          (float)mins[0], (float)mins[1], (float)mins[2], (float)maxs[0], (float)maxs[1], (float)maxs[2], (float)scaling_factor,
          (int)data.size(), (float)levelsetDx, (float)dx);
 }

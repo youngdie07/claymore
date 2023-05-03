@@ -158,22 +158,19 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [90, 4.5, 1.825],
-			"time": [0, 180]
+			"domain_end": [90, 4.5, 1.825]
 		},
 		{
 			"object": "OSU LWF",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [90, 4.5, 1.825],
-			"time": [0, 180]
+			"domain_end": [90, 4.5, 1.825]
 		},	
 		{
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [45.79, 2.0, 1.317],
-			"domain_end": [46.86, 2.615, 2.333],
-			"time": [0, 180]
+			"domain_end": [46.86, 2.615, 2.333]
 		},
 		{
 			"object": "OSU Paddle",

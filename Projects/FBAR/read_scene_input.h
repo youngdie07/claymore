@@ -1266,6 +1266,7 @@ void parse_scene(std::string fn,
                  kTypeNames[itr->value.GetType()]);
     }
     mn::vec<PREC, 3> domain; // Domain size [meters] for whole 3D simulation
+    mn::vec<float, 2> time; // Time range [seconds] for simulation
     {
       auto it = doc.FindMember("simulation");
       if (it != doc.MemberEnd()) {
@@ -1280,6 +1281,8 @@ void parse_scene(std::string fn,
           uint64_t sim_frames = CheckUint64(sim, "frames", 60);
           mn::pvec3 sim_gravity = CheckDoubleArray(sim, "gravity", mn::pvec3{0.,-9.81,0.});
           domain = CheckDoubleArray(sim, "domain", mn::pvec3{1.,1.,1.});
+          time[0] = 0.f;
+          time[1] = (float) sim_frames / (float) sim_fps;
           std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
 
@@ -1434,13 +1437,26 @@ void parse_scene(std::string fn,
     } ///< end mesh parsing
     {
       auto it = doc.FindMember("models");
+      int rank = 0; 
+      int num_ranks = 1;
+#if CLUSTER_COMM_STYLE == 1
+        // Obtain our rank (Node ID) and the total number of ranks (Num Nodes)
+        // Assume we launch MPI with one rank per GPU Node
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+        fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
+#endif
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
           fmt::print(fg(cyan), "Scene file has [{}] particle models. \n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
             int gpu_id = CheckInt(model, "gpu", 0);
+            if (gpu_id >= rank * mn::config::g_device_cnt && gpu_id < (rank + 1) * mn::config::g_device_cnt)
+              gpu_id = gpu_id % mn::config::g_device_cnt;
             int model_id = CheckInt(model, "model", 0);
             int total_id = model_id + gpu_id * mn::config::g_models_per_gpu;
+            int node_id = rank;
+            fmt::print(fg(cyan), "NODE[{}] GPU[{}] MODEL[{}] Begin reading...\n", node_id, gpu_id, model_id);
             if (gpu_id >= mn::config::g_device_cnt) {
               fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds GPUs reserved by g_device_cnt[{}] (settings.h)! Skipping model. Increase g_device_cnt and recompile. \n", model_id, gpu_id, mn::config::g_device_cnt);
               continue;
@@ -1856,7 +1872,7 @@ void parse_scene(std::string fn,
               }
             } //< End geometry
             else {
-              fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] No geometry object! Neccesary to create particles.\n", gpu_id, model_id);
+              fmt::print(fg(red), "ERROR: NODE[{}] GPU[{}] MODEL[{}] No geometry object! Neccesary to create particles.\n", node_id, gpu_id, model_id);
               fmt::print(fg(red), "Press enter to continue...\n"); getchar();
             }
               
@@ -1864,10 +1880,10 @@ void parse_scene(std::string fn,
             mn::IO::insert_job([&]() {
               mn::write_partio<PREC,3>(std::string{p.stem()} + save_suffix,positions); });              
             mn::IO::flush();
-            fmt::print(fg(green), "GPU[{}] MODEL[{}] Saved particles to [{}].\n", gpu_id, model_id, std::string{p.stem()} + save_suffix);
+            fmt::print(fg(green), "NODE[{}] GPU[{}] MODEL[{}] Saved particles to [{}].\n", node_id, gpu_id, model_id, std::string{p.stem()} + save_suffix);
             
             if (positions.size() > mn::config::g_max_particle_num) {
-              fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", gpu_id, model_id, positions.size());
+              fmt::print(fg(red), "ERROR: NODE[{}] GPU[{}] MODEL[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", node_id, gpu_id, model_id, positions.size());
               fmt::print(fg(red), "Press ENTER to continue anyways... \n");
               getchar();
             }
@@ -2183,40 +2199,50 @@ void parse_scene(std::string fn,
             h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0,0,0});
             h_gridBoundary._domain_end = CheckFloatArray(model, "domain_end", mn::vec<float, 3>{1,1,1});
             h_gridBoundary._velocity = CheckFloatArray(model, "velocity", mn::vec<float, 3>{0,0,0});
+            h_gridBoundary._array = CheckIntArray(model, "array", mn::vec<int, 3>{1,1,1});
+            h_gridBoundary._spacing = CheckFloatArray(model, "spacing", mn::vec<float, 3>{0.f,0.f,0.f});
             for (int d = 0; d < 3; ++d) {
               h_gridBoundary._domain_start[d] = h_gridBoundary._domain_start[d] / l + o;
               h_gridBoundary._domain_end[d] = h_gridBoundary._domain_end[d] / l + o;
               h_gridBoundary._velocity[d] = h_gridBoundary._velocity[d] / l;
+              h_gridBoundary._spacing[d] = h_gridBoundary._spacing[d] / l;
             }
-            h_gridBoundary._time = CheckFloatArray<2>(model, "time", mn::vec<float, 2>{0.f,0.f});
             
+            // Time range the boundary is active
+            h_gridBoundary._time = CheckFloatArray<2>(model, "time", time);
             
+            // Boundary object and contact type
             std::string object = CheckString(model, "object", std::string{"box"});
             std::string contact = CheckString(model, "contact", std::string{"Sticky"});
+
             if (contact == "Rigid" || contact == "Sticky" || contact == "Stick" || contact == "rigid" || contact == "sticky" || contact == "stick") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Sticky;
             else if (contact == "Slip" || contact == "slip") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Slip;
-            else if (contact == "Separable" || contact == "separable" || contact == "Separate" || contact == "separable" || contact == "separate") 
+            else if (contact == "Separable" || contact == "separable" || contact == "Seperable" || contact == "seperable" || contact == "Separate" || contact == "separate" || contact == "Separatable" || contact == "separatable") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Separate;
             else {
               fmt::print(fg(red),"ERROR: Invalid contact type for grid-boundary {}.\n", boundary_ID), getchar();
             }
             
-            if (object == "Wall" || object == "wall")
+            if (object == "Wall" || object == "wall" || object == "Walls" || object == "walls")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::Walls;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 0;
+              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 2;
               else if (contact == "Slip") h_boundary[6] = 1;
               else if (contact == "Separable") h_boundary[6] = 2;
               else h_boundary[6] = -1;
+
+              // Write to OBJ file
+              std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
+              writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
             }
             else if (object == "Box" || object == "box")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::Box;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 3;
+              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick" || contact ==  "rigid" || contact == "sticky" || contact == "stick" ) h_boundary[6] = 3;
               else if (contact == "Slip") h_boundary[6] = 4;
-              else if (contact == "Separable") h_boundary[6] = 5;
+              else if (contact == "Separable" || contact == "separable") h_boundary[6] = 5;
               else h_boundary[6] = -1;
 
               // Write to OBJ file
@@ -2232,7 +2258,7 @@ void parse_scene(std::string fn,
               else if (contact == "Separable") h_boundary[6] = 8;
               else h_boundary[6] = -1;
             }
-            else if (object == "OSU LWF" || object == "OSU Flume" || object == "OSU")
+            else if (object == "OSU LWF" || object == "OSU Flume" || object == "OSU_LWF")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_RAMP;
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 9;
@@ -2240,7 +2266,7 @@ void parse_scene(std::string fn,
               else if (contact == "Separable") h_boundary[6] = 9;
               else h_boundary[6] = -1;
             }
-            else if (object == "OSU Paddle" || object == "OSU Wave Maker")
+            else if (object == "OSU Paddle" || object == "OSU Wave Maker" || object == "OSU_LWF_PADDLE")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_PADDLE;
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 12;
@@ -2256,7 +2282,7 @@ void parse_scene(std::string fn,
               else if (contact == "Separable") h_boundary[6] = 17;
               else h_boundary[6] = -1;
             }
-            else if (object == "Plane" || object == "plane")
+            else if (object == "Plane" || object == "plane" || object == "Surface" || object == "surface")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::Plane;
               if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 18;
@@ -2264,12 +2290,12 @@ void parse_scene(std::string fn,
               else if (contact == "Separable") h_boundary[6] = 20;
               else h_boundary[6] = -1;
             }
-            else if (object == "USGS Ramp" || object == "USGS Flume")
+            else if (object == "USGS Ramp" || object == "USGS Flume" || object == "USGS_RAMP")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_RAMP;
               h_boundary[6] = 100; 
             }
-            else if (object == "USGS Gate" || object == "USGS GATE")
+            else if (object == "USGS Gate" || object == "USGS GATE" || object == "USGS_GATE")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_GATE;
               h_boundary[6] = 100; 
@@ -2296,11 +2322,9 @@ void parse_scene(std::string fn,
             }
 
 
-
+            // Set up grid-boundary friction
             h_gridBoundary._friction_static = CheckFloat(model,"friction_static", 0.0f);
             h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", 0.0f);
-
-
 
 
             // Set up moving grid-boundary if applicable

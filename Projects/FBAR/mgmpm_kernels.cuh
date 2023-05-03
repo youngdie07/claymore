@@ -1112,6 +1112,34 @@ __global__ void array_to_buffer(ParticleArray parray,
 //     MPM Grid Update Functions
 // %% ============================================================= %%
 
+
+template <typename T = PREC_G>
+__device__ void apply_friction_to_grid_velocity(T inv_mass, T dt, T length, T grav[3], T ns[3], T& vel, T friction_static, T friction_dynamic) {
+  // TODO: Currently just does static friction, update for dynamic friction
+  // Assume velocity is GPU scale, assume gravity Real Scale (m/s^2)
+  T force[3]; // Force on grid node
+  for (int d=0; d<3; ++d) force[d] = (vel[d] / dt + grav[d] / length) / inv_mass;
+  
+  // Check for contact
+  T normal_force = force[0]*ns[0] + force[1]*ns[1] + force[2]*ns[2]; 
+  if (normal_force < 0.f) {
+    T tangent_force[3];
+    for (int d=0; d<3; d++) tangent_force[d] = force[d] - normal_force * ns[d];
+    T friction_force = sqrt(tangent_force[0]*tangent_force[0] + 
+                            tangent_force[1]*tangent_force[1] + 
+                            tangent_force[2]*tangent_force[2]);
+
+    // Check if exceeding static friction
+    T max_friction_force = -normal_force * friction_static;
+    if (friction_force > max_friction_force) {
+      T friction_force_scale = min(max_friction_force / friction_force, (T) 1.f);
+      vel[0] -= tangent_force[0] * friction_force_scale * inv_mass * dt;
+      vel[1] -= tangent_force[1] * friction_force_scale * inv_mass * dt;
+      vel[2] -= tangent_force[2] * friction_force_scale * inv_mass * dt;
+    }
+  }
+}
+
 template <typename Grid, typename Partition, int boundary_cnt = g_max_grid_boundaries>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                                                Partition partition, float dt,
@@ -1186,208 +1214,219 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           if (boundary[6] == -1) continue; // TODO : Base on gb instead
           
           auto gb = gridBoundary_array[g];
+
+          // Check if boundary is active
+          if (curTime < gb._time[0] && curTime > gb._time[1]) continue;
+
           PREC_G friction_static = gb._friction_static;
 
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;
-          // boundary_dim[0] = boundary[3] - boundary[0]; // Length
-          // boundary_dim[1] = boundary[4] - boundary[1]; // Depth
-          // boundary_dim[2] = boundary[5] - boundary[2]; // Width
-          // boundary_pos[0] = boundary[0];
-          // boundary_pos[1] = boundary[1];
-          // boundary_pos[2] = boundary[2];
+
+          // Loop over array of boundaries if applicable
           boundary_dim[0] = gb._domain_end[0] - gb._domain_start[0];
-          boundary_dim[1] = gb._domain_end[1] - gb._domain_start[1];
-          boundary_dim[2] = gb._domain_end[2] - gb._domain_start[2];
           boundary_pos[0] = gb._domain_start[0];
-          boundary_pos[1] = gb._domain_start[1];
-          boundary_pos[2] = gb._domain_start[2];
- 
-          // Sticky
-          if (gb._object == boundary_object_t::Walls) {
-            if (gb._contact == boundary_contact_t::Sticky) {
-              isOutFlume =  (((xc <= boundary_pos[0] + tol) || (xc >= boundary_pos[0] + boundary_dim[0] - tol)) << 2) |
-                                (((yc <= boundary_pos[1] + tol) || (yc >= boundary_pos[1] + boundary_dim[1] - tol)) << 1) |
-                                ( (zc <= boundary_pos[2] + tol) || (zc >= boundary_pos[2] + boundary_dim[2] - tol));                          
-              if (isOutFlume > 0) isOutFlume = (1 << 2 | 1 << 1 | 1);
-              isInBound |= isOutFlume; // Update with regular boundary for efficiency
-            }
-            // Slip
-            else if (gb._contact == boundary_contact_t::Slip) {
-              isOutFlume =  (((xc <= boundary_pos[0]  + tol - 1.5*g_dx) || (xc >= boundary_pos[0] + boundary_dim[0] - tol + 1.5*g_dx)) << 2) |
-                                (((yc <= boundary_pos[1] + tol - 1.5*g_dx) || (yc >= boundary_pos[1] + boundary_dim[1] - tol + 1.5*g_dx)) << 1) |
-                                  ((zc <= boundary_pos[2] + tol - 1.5*g_dx) || (zc >= boundary_pos[2] + boundary_dim[2] - tol + 1.5*g_dx));                          
-              if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
-              isInBound |= isOutFlume; // Update with regular boundary for efficiency
-              
-              isSlipFlume =  (((xc <= boundary_pos[0] + tol) || (xc >= boundary_pos[0] + boundary_dim[0] - tol)) << 2) |
-                                (((yc <= boundary_pos[1] + tol) || (yc >= boundary_pos[1] + boundary_dim[1] - tol)) << 1) |
-                                  ((zc <= boundary_pos[2] + tol) || (zc >= boundary_pos[2] + boundary_dim[2] - tol));                          
-              isInBound |= isSlipFlume; // Update with regular boundary for efficiency
-            }
-            // Seperable
-            //  else if (boundary[6] == 2) {
-            else if (gb._contact == boundary_contact_t::Separable) {
-              isOutFlume =  (((xc <= boundary_pos[0] + tol - 1.5*g_dx) || (xc >= boundary_pos[0] + boundary_dim[0] - tol + 1.5*g_dx)) << 2) |
-                                (((yc <= boundary_pos[1] + tol - 1.5*g_dx) || (yc >= boundary_pos[1] + boundary_dim[1] - tol + 1.5*g_dx)) << 1) |
-                                (((zc <= boundary_pos[2] + tol - 1.5*g_dx) || (zc >= boundary_pos[2] + boundary_dim[2] - tol + 1.5*g_dx)));                          
-              if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
-              isInBound |= isOutFlume; // Update with regular boundary for efficiency
+          for (int arr_i = 0; arr_i < gb._array[0]; ++arr_i) {
+            boundary_dim[1] = gb._domain_end[1] - gb._domain_start[1];
+            boundary_pos[1] = gb._domain_start[1];
+            for (int arr_j = 0; arr_j < gb._array[1]; ++arr_j) {
+              boundary_dim[2] = gb._domain_end[2] - gb._domain_start[2];
+              boundary_pos[2] = gb._domain_start[2]; 
+              for (int arr_k = 0; arr_k < gb._array[2]; ++arr_k) {
 
-              isSepFlume = (((xc <= boundary_pos[0] + tol && vel[0] < 0) || (xc >= boundary_pos[0] + boundary_dim[0] - tol && vel[0] > 0)) << 2) |
-                              (((yc <= boundary_pos[1] + tol && vel[1] < 0) || (yc >= boundary_pos[1] + boundary_dim[1] - tol && vel[1] > 0)) << 1) |
-                                ((zc <= boundary_pos[2] + tol && vel[2] < 0) || (zc >= boundary_pos[2] + boundary_dim[2] - tol && vel[2] > 0));                          
-              isInBound |= isSepFlume; // Update with regular boundary for efficiency
-            }
-          }
-          // Box rigid boundary - Sticky contact
-          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Sticky) {
+                if (gb._object == boundary_object_t::Walls) {
+                  // Sticky 
+                  // ! Not working?
+                  if (gb._contact == boundary_contact_t::Sticky) {
+                    isOutFlume =  (((xc <= boundary_pos[0]  + tol ) || (xc >= boundary_pos[0] + boundary_dim[0] - tol )) << 2) |
+                                      (((yc <= boundary_pos[1] + tol ) || (yc >= boundary_pos[1] + boundary_dim[1] - tol )) << 1) |
+                                        ((zc <= boundary_pos[2] + tol ) || (zc >= boundary_pos[2] + boundary_dim[2] - tol ));                          
+                    if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
+                    isInBound |= isOutFlume; // Update with regular boundary for efficiency
+                  }
+                  // Slip
+                  else if (gb._contact == boundary_contact_t::Slip) {
+                    isOutFlume =  (((xc <= boundary_pos[0]  + tol - 1.5*g_dx) || (xc >= boundary_pos[0] + boundary_dim[0] - tol + 1.5*g_dx)) << 2) |
+                                      (((yc <= boundary_pos[1] + tol - 1.5*g_dx) || (yc >= boundary_pos[1] + boundary_dim[1] - tol + 1.5*g_dx)) << 1) |
+                                        ((zc <= boundary_pos[2] + tol - 1.5*g_dx) || (zc >= boundary_pos[2] + boundary_dim[2] - tol + 1.5*g_dx));                          
+                    if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
+                    isInBound |= isOutFlume; // Update with regular boundary for efficiency
+                    
+                    isSlipFlume =  (((xc <= boundary_pos[0] + tol) || (xc >= boundary_pos[0] + boundary_dim[0] - tol)) << 2) |
+                                      (((yc <= boundary_pos[1] + tol) || (yc >= boundary_pos[1] + boundary_dim[1] - tol)) << 1) |
+                                        ((zc <= boundary_pos[2] + tol) || (zc >= boundary_pos[2] + boundary_dim[2] - tol));                          
+                    isInBound |= isSlipFlume; // Update with regular boundary for efficiency
+                  }
+                  // Seperable
+                  else if (gb._contact == boundary_contact_t::Separable) {
+                    isOutFlume =  (((xc <= boundary_pos[0] + tol - 1.5*g_dx) || (xc >= boundary_pos[0] + boundary_dim[0] - tol + 1.5*g_dx)) << 2) |
+                                      (((yc <= boundary_pos[1] + tol - 1.5*g_dx) || (yc >= boundary_pos[1] + boundary_dim[1] - tol + 1.5*g_dx)) << 1) |
+                                      (((zc <= boundary_pos[2] + tol - 1.5*g_dx) || (zc >= boundary_pos[2] + boundary_dim[2] - tol + 1.5*g_dx)));                          
+                    if (isOutFlume) isOutFlume = ((1 << 2) | (1 << 1) | 1);
+                    isInBound |= isOutFlume; // Update with regular boundary for efficiency
 
-            // Check if grid-cell is within sticky interior of box
-            isOutStruct  = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                              ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-            isInBound |= isOutStruct; // Update with regular boundary for efficiency
-          }
-          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Slip) {
-            PREC_G t = 1.5 * g_dx + tol; // Slip layer thickness for box
-
-            // Check if grid-cell is within sticky interior of box
-            // Subtract slip-layer thickness from structural box dimension for geometry
-            isOutStruct  = ((xc >= boundary_pos[0] + t && xc < boundary_pos[0] + boundary_dim[0] - t) << 2) | 
-                              ((yc >= boundary_pos[1] + t && yc < boundary_pos[1] + boundary_dim[1] - t) << 1) |
-                                (zc >= boundary_pos[2] + t && zc < boundary_pos[2] + boundary_dim[2] - t);
-            if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-            isInBound |= isOutStruct; // Update with regular boundary for efficiency
-            
-            // Check exterior slip-layer of rigid box
-            // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-            int isOnStructFace[6];
-            // Right (z+)
-            isOnStructFace[0] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] + boundary_dim[2] - t && vel[2] < 0.f && zc < boundary_pos[2] + boundary_dim[2]);
-            // Left (z-)
-            isOnStructFace[1] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && vel[2] > 0.f && zc < boundary_pos[2] + t);        
-            // Top (y+)
-            isOnStructFace[2] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] + boundary_dim[1] - t &&  vel[1] < 0.f && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Bottom (y-)
-            isOnStructFace[3] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && vel[1] > 0.f && yc < boundary_pos[1] + t) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Back (x+)
-            isOnStructFace[4] = ((xc >= boundary_pos[0] + boundary_dim[0] - t && vel[0] < 0.f && xc < boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Front (x-)
-            isOnStructFace[5] = ((xc >= boundary_pos[0] && vel[0] > 0.f && xc < boundary_pos[0] + t) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
-            // TODO: Make below box collider a function
-            // Combine box face collisions (isOnStructFace[]) into isOnStruct, efficient
-            // Check if 111 (i.e. within box = 7, all flags), otherwise set 000 (no collision)
-            // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
-            isOnStruct = 0; // Collision reduction variable
-#pragma unroll 6
-            for (int iter=0; iter<6; iter++) {
-              isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
-              isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
-            }
-            if (isOnStruct == 6 || isOnStruct == 5 ) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
-            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
-            isInBound |= isOnStruct; // OR reduce box sticky collision into isInBound, efficient
-          }
-          else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Separable) {
-            PREC_G t = 1.0 * g_dx + tol; // Slip layer thickness for box
-
-            // Check if grid-cell is within sticky interior of box
-            // Subtract slip-layer thickness from structural box dimension for geometry
-            isOutStruct  = ((xc >= boundary_pos[0] + t && xc < boundary_pos[0] + boundary_dim[0] - t) << 2) | 
-                              ((yc >= boundary_pos[1] + t && yc < boundary_pos[1] + boundary_dim[1] - t) << 1) |
-                                (zc >= boundary_pos[2] + t && zc < boundary_pos[2] + boundary_dim[2] - t);
-            if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
-            isInBound |= isOutStruct; // Update with regular boundary for efficiency
-            
-            // Check exterior slip-layer of rigid box
-            // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
-            int isOnStructFace[6];
-            // Right (z+)
-            isOnStructFace[0] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] + boundary_dim[2] - t && vel[2] < 0.f && zc < boundary_pos[2] + boundary_dim[2]);
-            // Left (z-)
-            isOnStructFace[1] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && vel[2] > 0.f && zc < boundary_pos[2] + t);        
-            // Top (y+)
-            isOnStructFace[2] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] + boundary_dim[1] - t &&  vel[1] < 0.f && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Bottom (y-)
-            isOnStructFace[3] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && vel[1] > 0.f && yc < boundary_pos[1] + t) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Back (x+)
-            isOnStructFace[4] = ((xc >= boundary_pos[0] + boundary_dim[0] - t && vel[0] < 0.f && xc < boundary_pos[0] + boundary_dim[0]) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
-            // Front (x-)
-            isOnStructFace[5] = ((xc >= boundary_pos[0] && vel[0] > 0.f && xc < boundary_pos[0] + t) << 2) | 
-                                ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
-                                (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
-            // Reduce results from box faces to single result
-            isOnStruct = 0; // Collision reduction variable
-#pragma unroll 6
-            for (int iter=0; iter<6; iter++) {
-              isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
-              isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
-            }
-            if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
-            else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
-            isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
-          }
-          
-          if (gb._object == boundary_object_t::USGS_GATE) {
-            if (gb._contact == boundary_contact_t::Separable) {
-              // TODO : Reimplement timed boundaries
-              PREC_G time_start = 1.0f; // Time til start [sec]
-              PREC_G time_end   = 2.0f; // Time at finish [sec]
-
-              PREC_G gate_x  = (7.f) / l + o; // Gate position [m]
-              PREC_G gate_z1 = (4.f) / l + o; // Gate position [m]
-              PREC_G gate_z2 = (4.f) / l + o; // Gate position [m]
-              if (curTime < time_start && xc >= gate_x) {
-                vel[0] = vel_FLIP[0] = 0.f;
-              }
-              else if (curTime >= time_start && curTime < time_end && xc >= gate_x) {
-                gate_z1 -= (1.f / l) * ((time_end - time_start) - (time_end - curTime));
-                gate_z2 += (1.f / l) * ((time_end - time_start) - (time_end - curTime));
-                if (zc <= gate_z1 || zc >= gate_z2) {
-                  vel[0] = vel_FLIP[0] = 0.f;
-                }
-              }
-            }
-          }
-
-          if (gb._object == boundary_object_t::WASIRF_PUMP) {
-            if (gb._contact == boundary_contact_t::Separable) {
-              for (int d=0; d<3; d++) {
-                if (xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0] && 
-                    yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1] && 
-                    zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]) {
-                  if (abs(vel[d]) < gb._velocity[d] / mass) {
-                    vel[d] = gb._velocity[d] / mass; // Set boundary velocity to node
-                    // vel_FLIP[d] = gb._velocity[d]; // Set boundary velocity to node
+                    isSepFlume = (((xc <= boundary_pos[0] + tol && vel[0] < 0) || (xc >= boundary_pos[0] + boundary_dim[0] - tol && vel[0] > 0)) << 2) |
+                                    (((yc <= boundary_pos[1] + tol && vel[1] < 0) || (yc >= boundary_pos[1] + boundary_dim[1] - tol && vel[1] > 0)) << 1) |
+                                      ((zc <= boundary_pos[2] + tol && vel[2] < 0) || (zc >= boundary_pos[2] + boundary_dim[2] - tol && vel[2] > 0));                          
+                    isInBound |= isSepFlume; // Update with regular boundary for efficiency
                   }
                 }
+                // Box rigid boundary - Sticky contact
+                else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Sticky) {
+
+                  // Check if grid-cell is within sticky interior of box
+                  isOutStruct  = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                    ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+                  isInBound |= isOutStruct; // Update with regular boundary for efficiency
+                }
+                else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Slip) {
+                  PREC_G t = 1.5 * g_dx + tol; // Slip layer thickness for box
+
+                  // Check if grid-cell is within sticky interior of box
+                  // Subtract slip-layer thickness from structural box dimension for geometry
+                  isOutStruct  = ((xc >= boundary_pos[0] + t && xc < boundary_pos[0] + boundary_dim[0] - t) << 2) | 
+                                    ((yc >= boundary_pos[1] + t && yc < boundary_pos[1] + boundary_dim[1] - t) << 1) |
+                                      (zc >= boundary_pos[2] + t && zc < boundary_pos[2] + boundary_dim[2] - t);
+                  if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+                  isInBound |= isOutStruct; // Update with regular boundary for efficiency
+                  
+                  // Check exterior slip-layer of rigid box
+                  // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+                  int isOnStructFace[6];
+                  // Right (z+)
+                  isOnStructFace[0] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] + boundary_dim[2] - t && vel[2] < 0.f && zc < boundary_pos[2] + boundary_dim[2]);
+                  // Left (z-)
+                  isOnStructFace[1] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && vel[2] > 0.f && zc < boundary_pos[2] + t);        
+                  // Top (y+)
+                  isOnStructFace[2] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] + boundary_dim[1] - t &&  vel[1] < 0.f && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Bottom (y-)
+                  isOnStructFace[3] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && vel[1] > 0.f && yc < boundary_pos[1] + t) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Back (x+)
+                  isOnStructFace[4] = ((xc >= boundary_pos[0] + boundary_dim[0] - t && vel[0] < 0.f && xc < boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Front (x-)
+                  isOnStructFace[5] = ((xc >= boundary_pos[0] && vel[0] > 0.f && xc < boundary_pos[0] + t) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
+                  // TODO: Make below box collider a function
+                  // Combine box face collisions (isOnStructFace[]) into isOnStruct, efficient
+                  // Check if 111 (i.e. within box = 7, all flags), otherwise set 000 (no collision)
+                  // iter [0, 1, 2, 3, 4, 5] -> iter/2 [0, 1, 2] <->  [z, y, z], used as bit shift.
+                  isOnStruct = 0; // Collision reduction variable
+      #pragma unroll 6
+                  for (int iter=0; iter<6; iter++) {
+                    isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
+                    isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
+                  }
+                  if (isOnStruct == 6 || isOnStruct == 5 ) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
+                  else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
+                  isInBound |= isOnStruct; // OR reduce box sticky collision into isInBound, efficient
+                }
+                else if (gb._object == boundary_object_t::Box && gb._contact == boundary_contact_t::Separable) {
+                  PREC_G t = 1.0 * g_dx + tol; // Slip layer thickness for box
+
+                  // Check if grid-cell is within sticky interior of box
+                  // Subtract slip-layer thickness from structural box dimension for geometry
+                  isOutStruct  = ((xc >= boundary_pos[0] + t && xc < boundary_pos[0] + boundary_dim[0] - t) << 2) | 
+                                    ((yc >= boundary_pos[1] + t && yc < boundary_pos[1] + boundary_dim[1] - t) << 1) |
+                                      (zc >= boundary_pos[2] + t && zc < boundary_pos[2] + boundary_dim[2] - t);
+                  if (isOutStruct != 7) isOutStruct = 0; // Check if 111, reset otherwise
+                  isInBound |= isOutStruct; // Update with regular boundary for efficiency
+                  
+                  // Check exterior slip-layer of rigid box
+                  // One-cell depth, six-faces, order matters! (over-writes on edges, favors front) 
+                  int isOnStructFace[6];
+                  // Right (z+)
+                  isOnStructFace[0] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] + boundary_dim[2] - t && vel[2] < 0.f && zc < boundary_pos[2] + boundary_dim[2]);
+                  // Left (z-)
+                  isOnStructFace[1] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && vel[2] > 0.f && zc < boundary_pos[2] + t);        
+                  // Top (y+)
+                  isOnStructFace[2] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] + boundary_dim[1] - t &&  vel[1] < 0.f && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Bottom (y-)
+                  isOnStructFace[3] = ((xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && vel[1] > 0.f && yc < boundary_pos[1] + t) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Back (x+)
+                  isOnStructFace[4] = ((xc >= boundary_pos[0] + boundary_dim[0] - t && vel[0] < 0.f && xc < boundary_pos[0] + boundary_dim[0]) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);
+                  // Front (x-)
+                  isOnStructFace[5] = ((xc >= boundary_pos[0] && vel[0] > 0.f && xc < boundary_pos[0] + t) << 2) | 
+                                      ((yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1]) << 1) |
+                                      (zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]);                             
+                  // Reduce results from box faces to single result
+                  isOnStruct = 0; // Collision reduction variable
+      #pragma unroll 6
+                  for (int iter=0; iter<6; iter++) {
+                    isOnStructFace[iter] = (isOnStructFace[iter]==7) ? (1 << iter / 2) : 0;
+                    isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
+                  }
+                  if (isOnStruct == 6 || isOnStruct == 5) isOnStruct = 4; // Overlaps front (XY,XZ)->(X)
+                  else if (isOnStruct == 3 || isOnStruct == 7) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
+                  isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
+                }
+                
+                if (gb._object == boundary_object_t::USGS_GATE) {
+                  if (gb._contact == boundary_contact_t::Separable) {
+                    // TODO : Reimplement timed boundaries
+                    PREC_G time_start = 1.0f; // Time til start [sec]
+                    PREC_G time_end   = 2.0f; // Time at finish [sec]
+
+                    PREC_G gate_x  = (4.7f) / l + o; // Gate position [m]
+                    PREC_G gate_z1 = (4.f) / l + o; // Gate position [m]
+                    PREC_G gate_z2 = (4.f) / l + o; // Gate position [m]
+                    if (curTime < time_start && xc >= gate_x) {
+                      vel[0] = vel_FLIP[0] = 0.f;
+                    }
+                    else if (curTime >= time_start && curTime < time_end && xc >= gate_x) {
+                      gate_z1 -= (1.f / l) * ((time_end - time_start) - (time_end - curTime));
+                      gate_z2 += (1.f / l) * ((time_end - time_start) - (time_end - curTime));
+                      if (zc <= gate_z1 || zc >= gate_z2) {
+                        vel[0] = vel_FLIP[0] = 0.f;
+                      }
+                    }
+                  }
+                }
+
+                if (gb._object == boundary_object_t::WASIRF_PUMP) {
+                  if (gb._contact == boundary_contact_t::Separable) {
+                    for (int d=0; d<3; d++) {
+                      if (xc >= boundary_pos[0] && xc <= boundary_pos[0] + boundary_dim[0] && 
+                          yc >= boundary_pos[1] && yc <= boundary_pos[1] + boundary_dim[1] && 
+                          zc >= boundary_pos[2] && zc <= boundary_pos[2] + boundary_dim[2]) {
+                        if (abs(vel[d]) < gb._velocity[d] / mass) {
+                          vel[d] = gb._velocity[d] / mass; // Set boundary velocity to node
+                          // vel_FLIP[d] = gb._velocity[d]; // Set boundary velocity to node
+                        }
+                      }
+                    }
+                  }
+                }
+
+                boundary_pos[2] += gb._spacing[2];
               }
+              boundary_pos[1] += gb._spacing[1];
             }
+            boundary_pos[0] += gb._spacing[0];
           }
+
 
         }
 
@@ -1430,7 +1469,11 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           for (int d = 0; d < 7; d++) boundary[d] = boundary_array[g][d];
           if (boundary[6] == -1) continue;
 
+
           auto gb = gridBoundary_array[g];
+
+          // Check if boundary is active
+          if (curTime < gb._time[0] && curTime > gb._time[1]) continue;
           PREC_G friction_static = gb._friction_static;
 
           // Set boundaries of scene/flume

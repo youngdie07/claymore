@@ -134,13 +134,24 @@ struct mgsp_benchmark {
     if constexpr (GPU_ID + 1 < g_device_cnt) initParticles<GPU_ID + 1>();
   }
 
+  // Constructor
   mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), float dt = 1e-4, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, std::string suffix = ".bgeo")
       : length(l), domainCellCnt(dCC), dtDefault(dt), curTime(0.f), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), bRunning(true) {
 
-    fmt::print(fg(fmt::color::white),"Entered simulation object. Start GPU data-structure initialization... \n");
+    fmt::print(fg(fmt::color::white),"Entered simulator. Start GPU set-up...\n");
     printDiv();
-    collisionObjs.resize(g_device_cnt);
-    initParticles<0>();
+
+    // Set-up Multi-GPU Multi-Node communication if enabled
+#if CLUSTER_COMM_STYLE == 1
+    // Obtain our rank (Node ID) and the total number of ranks (Num Nodes)
+    // Assume we launch MPI with one rank per GPU Node
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+    fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
+#endif
+
+    collisionObjs.resize(g_device_cnt); // Deprecated boundary method
+    initParticles<0>(); // Set-up basic data-strucutres for each GPU
     printDiv();
     fmt::print("GPU[{}] gridBlocks[0] and gridBlocks[1]  size [{}] + [{}] megabytes.\n", 0,
                (float)std::decay<decltype(*gridBlocks[0].begin())>::type::size / 1000.f / 1000.f,
@@ -150,11 +161,13 @@ struct mgsp_benchmark {
     //            sizeof(partitions[0]),
     //            std::decay<decltype(*partitions[1].begin())>::type::base_t::size); 
 
+    // Grid-energy output
     if (flag_ge) {
       gridEnergyFile.open(std::string{"grid_energy_time_series.csv"}, std::ios::out | std::ios::trunc); 
       gridEnergyFile << "Time" << "," << "Kinetic_FLIP" <<  "," << "Kinetic_PIC" << "\n";
       gridEnergyFile.close();
     }
+    // Particle-energy output
     if (flag_pe) {
       particleEnergyFile.open(std::string{"particle_energy_time_series.csv"}, std::ios::out | std::ios::trunc); 
       particleEnergyFile << "Time" << "," << "Kinetic" << "," << "Gravity" << "," << "Strain" << "\n";
@@ -162,7 +175,7 @@ struct mgsp_benchmark {
     }
     printDiv();
 
-    // Tasks
+    // Tasks for host threads
     fmt::print("Setting host threads as GPU workers.\n");
     for (int did = 0; did < g_device_cnt; ++did) {
       ths[did] = std::thread([this](int did) { this->gpu_worker(did); }, did);
@@ -170,8 +183,10 @@ struct mgsp_benchmark {
     }
     printDiv();
   }
+
+  // Destructor
   ~mgsp_benchmark() {
-    fmt::print("Simulation object destructor. Wait for all threads to finish work. \n");
+    fmt::print("Simulator destructor. Wait on threads to finish work...\n");
     auto is_empty = [this]() {
       for (int did = 0; did < g_device_cnt; ++did)
         if (!jobs[did].empty())
@@ -201,9 +216,17 @@ struct mgsp_benchmark {
                   const vec<PREC, 3> &v0) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
+
+    // Check for valid model size
+    if (model.size() > config::g_max_particle_num)
+      throw std::runtime_error("ERROR: Particle count exceeds maximum particle size.");
+    if (model.size() == 0)
+      throw std::runtime_error("ERROR: Model has zero particles.");
+    pcnt[GPU_ID][MODEL_ID] = model.size(); // Initial particle count
+
     h_model_cnt[GPU_ID] += 1; // Increment model count on GPU
     for (int copyid = 0; copyid < 2; copyid++) {
-      fmt::print("GPU[{}] MODEL[{}] Allocating ParticleBins[{}][{}].\n", GPU_ID, MODEL_ID, copyid, MODEL_ID);
+      fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleBins[{}][{}].\n", rank, GPU_ID, MODEL_ID, copyid, MODEL_ID);
       particleBins[copyid][GPU_ID].emplace_back(ParticleBuffer<m>(device_allocator{},
         config::g_max_particle_bin));
       cuDev.syncStream<streamIdx::Compute>();
@@ -216,8 +239,8 @@ struct mgsp_benchmark {
     for (int i = 0; i < 3; ++i) vel0[GPU_ID][MODEL_ID][i] = v0[i]; // Initial velocity
     cuDev.syncStream<streamIdx::Compute>();
 
-    fmt::print("GPU[{}] MODEL[{}] Allocating ParticleArray.\n", GPU_ID, MODEL_ID);
-    pcnt[GPU_ID][MODEL_ID] = model.size(); // Initial particle count
+    fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleArray.\n", rank, GPU_ID, MODEL_ID);
+
     particles[GPU_ID][MODEL_ID] = spawn<particle_array_, orphan_signature>(device_allocator{});
     bincnt[GPU_ID][MODEL_ID] = 0;
     checkedBinCnts[GPU_ID][MODEL_ID] = 0;
@@ -226,23 +249,23 @@ struct mgsp_benchmark {
                     sizeof(std::array<PREC, 3>) * pcnt[GPU_ID][MODEL_ID],
                     cudaMemcpyDefault, cuDev.stream_compute());
     cuDev.syncStream<streamIdx::Compute>();
-    fmt::print(fg(fmt::color::green), "GPU[{}] MODEL[{}] Initialized device array with [{}] particles.\n", GPU_ID, MODEL_ID, pcnt[GPU_ID][MODEL_ID]);
+    fmt::print(fg(fmt::color::green), "NODE[{}] GPU[{}] MODEL[{}] Initialized device array with [{}] particles.\n", rank, GPU_ID, MODEL_ID, pcnt[GPU_ID][MODEL_ID]);
     printDiv();
 
-    fmt::print("GPU[{}] MODEL[{}] ParticleBins[0] and [1]: size [{}] and [{}] megabytes.\n", GPU_ID, MODEL_ID,
+    fmt::print("NODE[{}] GPU[{}] MODEL[{}] ParticleBins[0] and [1]: size [{}] and [{}] megabytes.\n", rank, GPU_ID, MODEL_ID,
                (float)match(particleBins[0][GPU_ID][MODEL_ID])([&](auto &pb) {return pb.size;})/1000/1000,
                (float)match(particleBins[1][GPU_ID][MODEL_ID])([&](auto &pb) {return pb.size;})/1000/1000);    
     printDiv();
 
 
     // Set-up particle ID tracker file
-    std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID) + "].csv";
+    std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID + rank * mn::config::g_device_cnt) + "].csv";
     particleTrackFile[GPU_ID][MODEL_ID].open (fn_track, std::ios::out | std::ios::trunc); 
     particleTrackFile[GPU_ID][MODEL_ID] << "Time" << "," << "Value" << "\n";
     particleTrackFile[GPU_ID][MODEL_ID].close();
     printDiv();
     // Output initial particle model
-    std::string fn = std::string{"model["} + std::to_string(MODEL_ID) + "]"  "_dev[" + std::to_string(GPU_ID) +
+    std::string fn = std::string{"model["} + std::to_string(MODEL_ID) + "]"  "_dev[" + std::to_string(GPU_ID + rank * mn::config::g_device_cnt) +
                      "]_frame[-1]" + save_suffix;
     IO::insert_job([fn, model]() { write_partio<PREC, 3>(fn, model); });
     IO::flush();
@@ -486,12 +509,15 @@ struct mgsp_benchmark {
     h_gridBoundaryConfigs[boundary_ID]._ID = gridBoundaryConfigs._ID;
     h_gridBoundaryConfigs[boundary_ID]._object = gridBoundaryConfigs._object;
     h_gridBoundaryConfigs[boundary_ID]._contact = gridBoundaryConfigs._contact;
-    h_gridBoundaryConfigs[boundary_ID]._friction_static = gridBoundaryConfigs._friction_static;
-    h_gridBoundaryConfigs[boundary_ID]._friction_dynamic = gridBoundaryConfigs._friction_dynamic;
     h_gridBoundaryConfigs[boundary_ID]._domain_start = gridBoundaryConfigs._domain_start;
     h_gridBoundaryConfigs[boundary_ID]._domain_end = gridBoundaryConfigs._domain_end;
     h_gridBoundaryConfigs[boundary_ID]._time = gridBoundaryConfigs._time;
     h_gridBoundaryConfigs[boundary_ID]._velocity = gridBoundaryConfigs._velocity;
+    h_gridBoundaryConfigs[boundary_ID]._array = gridBoundaryConfigs._array;
+    h_gridBoundaryConfigs[boundary_ID]._spacing = gridBoundaryConfigs._spacing;
+    
+    h_gridBoundaryConfigs[boundary_ID]._friction_static = gridBoundaryConfigs._friction_static;
+    h_gridBoundaryConfigs[boundary_ID]._friction_dynamic = gridBoundaryConfigs._friction_dynamic;
 
     fmt::print("gridBoundary[{}]: object[{}], contact[{}]\n", boundary_ID, h_gridBoundaryConfigs[boundary_ID]._object, h_gridBoundaryConfigs[boundary_ID]._contact);
     if (boundary_ID == 0)
@@ -1673,7 +1699,7 @@ struct mgsp_benchmark {
       fmt::print(fg(fmt::color::red), "GPU[{}] Aggregate value in particleTarget: {} \n", did, valAgg);
 
       {
-        std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(mid) +  "]" + "_dev[" + std::to_string(did) + "].csv";
+        std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(mid) +  "]" + "_dev[" + std::to_string(did + rank * g_device_cnt) + "].csv";
         particleTrackFile[did][mid].open(fn_track, std::ios::out | std::ios::app);
         particleTrackFile[did][mid] << curTime << "," << trackVal << "\n";
         particleTrackFile[did][mid].close();
@@ -1696,14 +1722,14 @@ struct mgsp_benchmark {
                                             cudaMemcpyDefault, cuDev.stream_compute()));
             cuDev.syncStream<streamIdx::Compute>();
             fmt::print("Updated attribs, [{}] particles with [{}] elements for [{}] output attributes.\n", attribs[did][mid].size() / pa.numAttributes, attribs[did][mid].size() / parcnt, pa.numAttributes);
-            std::string fn = std::string{"model["} + std::to_string(mid) + "]" + "_dev[" + std::to_string(did) +
+            std::string fn = std::string{"model["} + std::to_string(mid) + "]" + "_dev[" + std::to_string(did + rank * g_device_cnt) +
                             "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
             IO::insert_job([fn, m = models[did][mid], a = attribs[did][mid], labels = pb.output_labels, dim_out = pa.numAttributes]() { write_partio_particles<PREC>(fn, m, a, labels); });
           }
         });
       }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} retrieve_particles", did, mid, curFrame, curStep));
+      timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles", rank, did, mid, curFrame, curStep));
     }
   }
 
@@ -1974,22 +2000,21 @@ struct mgsp_benchmark {
               cudaMemcpyAsync(host_particleTarget[did][mid].data(), (void *)&d_particleTarget[did].val_1d(_0, 0), sizeof(std::array<PREC, g_particle_target_attribs>) * (particle_tarcnt[i][did]), cudaMemcpyDefault, cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
         
-          std::string fn = std::string{"particleTarget"}  +"[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
+          std::string fn = std::string{"particleTarget"}  +"[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did + rank * g_device_cnt) + "]_frame[" + std::to_string(curFrame) + "]" + save_suffix;
           IO::insert_job([fn, m = host_particleTarget[did][mid]]() { write_partio_particleTarget<PREC, g_particle_target_attribs>(fn, m); });
-          fmt::print(fg(fmt::color::red), "GPU[{}] particleTarget[{}] outputted.\n", did, i);
+          fmt::print(fg(fmt::color::red), "NODE[{}] GPU[{}] particleTarget[{}] outputted.\n", rank, did, i);
         }
 
         // * particleTarget frequency-set aggregate ouput
         {
-          std::string fn = std::string{"particleTarget"} + "[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did) + "]" + ".csv";
+          std::string fn = std::string{"particleTarget"} + "[" + std::to_string(i) + "]" + "_model["+ std::to_string(mid) + "]" + "_dev[" + std::to_string(did + rank * g_device_cnt) + "]" + ".csv";
           particleTargetFile[did][mid].open (fn, std::ios::out | std::ios::app);
           particleTargetFile[did][mid] << curTime << "," << valAgg << "\n";
           particleTargetFile[did][mid].close();
         }
         // * IO::flush(); 
         cuDev.syncStream<streamIdx::Compute>();
-        timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_particle_targets", did,
-                              curFrame, curStep));
+        timer.tock(fmt::format("NODE[{}] GPU[{}] frame {} step {} retrieve_particle_targets", rank, did, curFrame, curStep));
       }
     }
   }
@@ -2075,11 +2100,11 @@ struct mgsp_benchmark {
                   sizeof(int), cudaMemcpyDefault, cuDev.stream_compute()));
               cuDev.syncStream<streamIdx::Compute>();
               if (flag_pi[did][mid]) {
-                  fmt::print("array_to_buffer with initial attributes.\n");
+                  fmt::print("GPU[{}] MODEL[{}] array_to_buffer with initial attributes.\n", did, mid);
                   cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did][mid], 
                   pi, pb, partitions[rollid ^ 1][did], vel0[did][mid]);
               } else {
-                fmt::print("array_to_buffer without initial attributes.\n");
+                fmt::print("GPU[{}] MODEL[{}] array_to_buffer without initial attributes.\n", did, mid);
                 cuDev.compute_launch({pbcnt[did], 128}, array_to_buffer, particles[did][mid],
                                     pb, partitions[rollid ^ 1][did], vel0[did][mid]);
               }
@@ -2572,8 +2597,8 @@ struct mgsp_benchmark {
   vec<PREC_G, g_device_cnt> strain_energy_particle_vals; //< Total GPU Strain energy of particles 
   PREC init_gravity_energy_particles;
   
-  vec<int, g_device_cnt> pbcnt, nbcnt, ebcnt; ///< num blocks
-  vec<vec<int, g_models_per_gpu>, g_device_cnt> bincnt; ///< num bins
+  vec<int, g_device_cnt> pbcnt, nbcnt, ebcnt; ///< Num blocks
+  vec<vec<int, g_models_per_gpu>, g_device_cnt> bincnt; ///< Num par. bins
   vec<vec<uint32_t, g_models_per_gpu>, g_device_cnt> pcnt; ///< Num. particles
   vec<int, g_device_cnt> element_cnt;
   vec<int, g_device_cnt> vertice_cnt;
@@ -2629,6 +2654,10 @@ struct mgsp_benchmark {
   /// Computations per substep
   std::vector<std::function<void(int)>> init_tasks;
   std::vector<std::function<void(int)>> loop_tasks;
+
+  // Node Communication 
+  int rank = 0; //< MPI rank, i.e. GPU Node ID, default root = 0
+  int num_ranks = 1; //< Num. of MPI ranks, i.e. total GPU nodes
 
   bool verb = false; //< If true, print more information to terminal
   std::string save_suffix; //< Suffix for output files, e.g. bgeo, using PartIO

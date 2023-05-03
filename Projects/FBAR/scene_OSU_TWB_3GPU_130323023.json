@@ -161,15 +161,13 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [46, 1.5, 10.0],
-			"time": [0, 60]
+			"domain_end": [46, 1.5, 10.0]
 		},
 		{
 			"object": "OSU TWB Ramp",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, -0.2],
-			"domain_end": [41.3, 1.5, 10.2],
-			"time": [0, 60]
+			"domain_end": [41.3, 1.5, 10.2]
 		},
 		{
 			"object": "OSU TWB Paddle",
