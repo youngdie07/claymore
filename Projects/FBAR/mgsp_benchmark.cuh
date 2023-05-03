@@ -23,6 +23,10 @@
 #include <vector>
 #include <numeric>
 
+#if CLUSTER_COMM_STYLE == 1
+#include <mpi.h>
+#endif
+
 namespace mn {
 using namespace config;
 

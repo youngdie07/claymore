@@ -19,6 +19,10 @@
 #include <array>
 #include <cassert>
 
+#if CLUSTER_COMM_STYLE == 1
+#include <mpi.h>
+#endif
+
 #if 0
 #include <ghc/filesystem.hpp>
 namespace fs = ghc::filesystem;
