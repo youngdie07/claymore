@@ -1398,13 +1398,20 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                     PREC_G gate_y = gate_slope * ((xc-o)*l - gate_x); // Gate Y for an X [m]
 
                     if (curTime < time_start && (xc >= gate_x / l + o || yc >= gate_y / l + o) ) {
-                      vel[0] = vel_FLIP[0] = 0.f;
+                      constexpr PREC_G gate_n[3] = {-0.866025403784f, -0.5f, 0.f}; // Gate normal vector, 60 deg slant backwards relative to 30 deg flume (XZ Plane)
+                      PREC_G dot = gate_n[0] * vel[0] + gate_n[1] * vel[1] + gate_n[2] * vel[2];
+                      if (dot < 0.f) 
+                        for (int d=0; d<3; ++d) vel[d] = vel_FLIP[d] = vel[d] - dot * gate_n[d];
+
                     }
                     else if (curTime >= time_start && curTime < time_end && (xc >= gate_x / l + o || yc >= gate_y / l + o)) {
                       gate_z1 = (gate_z1 / l + o) - (gate_width / l) * ((time_end - time_start) - (time_end - curTime));
                       gate_z2 = (gate_z2 / l + o) + (gate_width / l) * ((time_end - time_start) - (time_end - curTime));
                       if (zc <= gate_z1 || zc >= gate_z2) {
-                        vel[0] = vel_FLIP[0] = 0.f;
+                        constexpr PREC_G gate_n[3] = {-0.866025403784f, -0.5f, 0.f}; // Gate normal vector, 60 deg slant backwards relative to 30 deg flume (XZ Plane)
+                        PREC_G dot = gate_n[0] * vel[0] + gate_n[1] * vel[1] + gate_n[2] * vel[2];
+                        if (dot < 0.f) 
+                          for (int d=0; d<3; ++d) vel[d] = vel_FLIP[d] = vel[d] - dot * gate_n[d];
                       }
                     }
                   }
@@ -1789,7 +1796,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               // Friction
               constexpr PREC_G FRICTION_OF_SAND_ON_CONCRETE = 1.f;
               constexpr PREC_G X_BEGIN_BUMPY_TILES = 6.f; // Bumpy flume tiles go from 6 - 79 m;
-              if (xc < X_BEGIN_BUMPY_TILES / l + o) friction_static = 1.f; 
+              if (xc < X_BEGIN_BUMPY_TILES / l + o) friction_static = FRICTION_OF_SAND_ON_CONCRETE; 
               if ( ySF > 0.f && ySF <= 1.f) {
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
                   PREC_G force[3];
