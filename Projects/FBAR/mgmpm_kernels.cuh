@@ -1386,18 +1386,23 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 if (gb._object == boundary_object_t::USGS_GATE) {
                   if (gb._contact == boundary_contact_t::Separable) {
                     // TODO : Reimplement timed boundaries
-                    PREC_G time_start = 1.0f; // Time til start [sec]
-                    PREC_G time_end   = 2.0f; // Time at finish [sec]
+                    constexpr PREC_G time_start = 1.0f; // Time til motion start [sec]
+                    constexpr PREC_G time_end   = 2.0f; // Time at motion finish [sec]
 
-                    PREC_G gate_x  = (4.7f) / l + o; // Gate position [m]
-                    PREC_G gate_z1 = (4.f) / l + o; // Gate position [m]
-                    PREC_G gate_z2 = (4.f) / l + o; // Gate position [m]
-                    if (curTime < time_start && xc >= gate_x) {
+                    PREC_G gate_x  = 4.7f; // Gate base X position [m]
+                    PREC_G gate_z1 = 4.0f; // Gate center Z position [m]
+                    PREC_G gate_z2 = 4.0f; // Gate center Z position [m]
+                    constexpr PREC_G gate_width = 1.f; // Gate single door (x2) Z width [m]
+                    
+                    constexpr PREC_G gate_slope = -1.73205080757f; // -tangent(60.f * 3.14159265358979323846f / 180.f); // Gate slope [m]
+                    PREC_G gate_y = gate_slope * ((xc-o)*l - gate_x); // Gate Y for an X [m]
+
+                    if (curTime < time_start && (xc >= gate_x / l + o || yc >= gate_y / l + o) ) {
                       vel[0] = vel_FLIP[0] = 0.f;
                     }
-                    else if (curTime >= time_start && curTime < time_end && xc >= gate_x) {
-                      gate_z1 -= (1.f / l) * ((time_end - time_start) - (time_end - curTime));
-                      gate_z2 += (1.f / l) * ((time_end - time_start) - (time_end - curTime));
+                    else if (curTime >= time_start && curTime < time_end && (xc >= gate_x / l + o || yc >= gate_y / l + o)) {
+                      gate_z1 = (gate_z1 / l + o) - (gate_width / l) * ((time_end - time_start) - (time_end - curTime));
+                      gate_z2 = (gate_z2 / l + o) + (gate_width / l) * ((time_end - time_start) - (time_end - curTime));
                       if (zc <= gate_z1 || zc >= gate_z2) {
                         vel[0] = vel_FLIP[0] = 0.f;
                       }
@@ -1714,34 +1719,33 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
           if (gb._object == boundary_object_t::USGS_RAMP) {
             if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = 0.f; // Wave-maker neutral X pos. [m] at OSU TWB       
               PREC_G ys=0.f, xo=0.f, yo=0.f;
               vec3 ns; //< Ramp boundary surface normal
               ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
 
               // Ramp bathymetry for OSU TWB Flume, H. Park et al. 2021
-              if (xc < ((80.0 + 0.0 - wave_maker_neutral)/l)+o) {
+              if (xc < ((80.0)/l)+o) {
                 // Flat, 0 elev., 0 - 11.3m (Wave Far-Field)
-                xo = (0.0 - wave_maker_neutral) / l + o;
+                xo = (0.0) / l + o;
                 yo = 0.f / l + o;
                 ys = 0.f * (xc-xo) + yo;
-              } else if (xc >= ((80.0 + 0.0 - wave_maker_neutral)/l)+o && xc < ((2.5 + 80.0 + 0.0 - wave_maker_neutral)/l)+o){
+              } else if (xc >= ((80.0)/l)+o && xc < ((1.25 + 80.0)/l)+o){
                 // 1:20, 0 elev., 11.3 - 31.3 m (Ramp)
                 ns[0] = -1.f/5.675f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (80.f + 0.0 - wave_maker_neutral) / l + o;
+                xo = (80.f) / l + o;
                 yo = 0.f / l + o;
                 ys = (1.f/5.675f) * (xc - xo) + yo;
-              } else if (xc >= ((2.5 + 80.0 + 0.0 - wave_maker_neutral)/l)+o && xc < ((2.5 + 2.5 + 80.0 + 0.0 - wave_maker_neutral)/l)+o) {
+              } else if (xc >= ((1.25 + 80.0)/l)+o && xc < ((2.5 + 80.0)/l)+o) {
                 // Flat, 1 m elev., 31.3 - 41.3 m (Debris Staging Platform)
                 ns[0] = -1.f/2.747f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (2.5f + 80.0 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (2.5f/5.675f) / l + o;
+                xo = (1.25f + 80.0) / l + o;
+                yo = (1.25f/5.675f) / l + o;
                 ys = (1.f/2.747f) * (xc - xo) + yo;
               } else {
                 // Flat, 0 m elev., 41.3+ m  (Water Overflow Basin)
                 ns[0] = -1.f/1.732f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (2.5 + 2.5 + 80.0 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (2.5f/2.747f + 2.5f/5.675f) / l + o;
+                xo = (2.5 + 80.0) / l + o;
+                yo = (1.25f/2.747f + 1.25f/5.675f) / l + o;
                 ys = (1.f/1.732) * (xc - xo) + yo;
               }
 
@@ -1752,11 +1756,11 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
 
               // --------- Wen-Chia Yang's disseration, UW 2016, p. 50? ---------
+              PREC_G ySF=0.f; // Boundary decay coef. 
               {
                 // f_boundary = -f_internal - f_external - (1/dt)*p
                 // Node accel. = (f_internal + f_external + ySf*f_boundary) / mass
                 // TODO : Reimplement for all Wen-Chia Yang boundary conditions (e.g. linear, quadratic, sinusoidal, etc.)
-                // In throw-away scope for register reuse
 
                 // Boundary thickness and cell distance
                 //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
@@ -1764,7 +1768,6 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
                 // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
                 // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
-                PREC_G ySF=0.f; // Boundary decay coef. 
                 // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
                 if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
                 else if (yc <= ys && yc > (ys - 1.5f*g_dx)) ySF = 1.f; // Below boundary surface
@@ -1784,7 +1787,10 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               }
 
               // Friction
-              if ( yc <= ys) {
+              constexpr PREC_G FRICTION_OF_SAND_ON_CONCRETE = 1.f;
+              constexpr PREC_G X_BEGIN_BUMPY_TILES = 6.f; // Bumpy flume tiles go from 6 - 79 m;
+              if (xc < X_BEGIN_BUMPY_TILES / l + o) friction_static = 1.f; 
+              if ( ySF > 0.f && ySF <= 1.f) {
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
                   PREC_G force[3];
                   force[0] = ((vel[0] ) / dt + grav[0] / l) / mass;
@@ -1802,13 +1808,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                     // Check if exceeding static friction
                     if (friction_force > max_friction_force) {
                       PREC_G friction_force_scale = min(max_friction_force / friction_force, 1.f);
-                      vel[0] -= tangent_force[0] * friction_force_scale * mass * dt;
-                      vel[1] -= tangent_force[1] * friction_force_scale * mass * dt;
-                      vel[2] -= tangent_force[2] * friction_force_scale * mass * dt;
+                      vel[0] -= ySF * tangent_force[0] * friction_force_scale * mass * dt;
+                      vel[1] -= ySF * tangent_force[1] * friction_force_scale * mass * dt;
+                      vel[2] -= ySF * tangent_force[2] * friction_force_scale * mass * dt;
                     } else {
-                      vel[0] -= tangent_force[0] * mass * dt;
-                      vel[1] -= tangent_force[1] * mass * dt;
-                      vel[2] -= tangent_force[2] * mass * dt;
+                      vel[0] -= ySF * tangent_force[0] * mass * dt;
+                      vel[1] -= ySF * tangent_force[1] * mass * dt;
+                      vel[2] -= ySF * tangent_force[2] * mass * dt;
                     }
                   }
                 }
