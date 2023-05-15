@@ -1107,6 +1107,46 @@ mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, const std::string &key
   return backup;
 }
 
+/// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an integer array.
+/// Return retrieved integer array from JSON or return backup value if not found/is not a double.
+std::vector<int> CheckIntArray(rapidjson::Value &object, const std::string &key, std::vector<int> backup) {
+  auto check = object.FindMember(key.c_str());
+  if (check != object.MemberEnd()) { 
+    if (object[key.c_str()].IsArray()) {
+      int dim = object[key.c_str()].GetArray().Size();
+      std::vector<int> arr; 
+      if (!object[key.c_str()].GetArray()[0].IsInt()) {
+        fmt::print(fg(red), "ERROR: Input [{}] not an array of integers! Fix and retry. Current type: {}.\n", key, kTypeNames[object[key.c_str()].GetArray()[0].GetType()]);
+      }
+      else {
+        // for (int d=0; d<dim; d++) assert(object[key.c_str()].GetArray()[d].GetInt());
+        for (int d=0; d<dim; d++) {
+          arr.push_back(object[key.c_str()].GetArray()[d].GetInt());
+          fmt::print(fg(green), "Input [{}] found: [{}].\n", key, arr[d]);
+        }
+        return arr;
+      }
+      
+    }
+    else {
+      fmt::print(fg(red), "ERROR: Input [{}] not an Array! Fix and retry. Current type: {}.\n", key, object[key.c_str()].GetType());
+    }
+  }
+  else {
+    fmt::print(fg(red), "ERROR: Input [{}] not in scene file! \n ", key);
+    fmt::print(fg(orange), "WARNING: Using default value: [ ");
+    for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
+    fmt::print(fg(orange), "]\n");
+    return backup;
+  }
+  fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: ", key);
+  fmt::print(fg(orange), " [ ");
+  for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
+  fmt::print(fg(orange), "]\n");
+  getchar();
+  return backup;
+}
+
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is a double.
 /// Return retrieved double from JSON or return backup value if not found/is not a double.
 double CheckDouble(rapidjson::Value &object, const std::string &key, double backup) {
@@ -1285,8 +1325,8 @@ void parse_scene(std::string fn,
           uint64_t sim_frames = CheckUint64(sim, "frames", 60);
           mn::pvec3 sim_gravity = CheckDoubleArray(sim, "gravity", mn::pvec3{0.,-9.81,0.});
           domain = CheckDoubleArray(sim, "domain", mn::pvec3{1.,1.,1.});
-          time[0] = 0.f;
-          time[1] = (float) sim_frames / (float) sim_fps;
+          time[0] = CheckFloat(sim, "time", 0.f);
+          time[1] = time[0] + (float) sim_frames / (float) sim_fps;
           std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
 
@@ -1333,7 +1373,11 @@ void parse_scene(std::string fn,
             std::vector<std::string> output_attribs;
             for (int d = 0; d < model["output_attribs"].GetArray().Size(); ++d) output_attribs.emplace_back(model["output_attribs"].GetArray()[d].GetString());
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
-                      
+            
+            // TODO: Fix particle tracker for FEM
+            std::vector<int> track_particle_ids;
+            track_particle_ids = CheckIntArray(model, "track_particle_id", std::vector<int>{0});
+
             mn::config::AlgoConfigs algoConfigs;
             algoConfigs.use_FEM = CheckBool(model,std::string{"use_FEM"}, false);
             algoConfigs.use_ASFLIP = CheckBool(model, std::string{"use_ASFLIP"}, true);
@@ -1360,7 +1404,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM FBAR Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron_FBar>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedFBARParameters(
@@ -1373,7 +1417,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedParameters(
@@ -1483,7 +1527,8 @@ void parse_scene(std::string fn,
             std::vector<std::string> input_attribs;
             std::vector<std::string> target_attribs;
             std::vector<std::string> track_attribs;
-            mn::vec<int, 1> track_particle_id;
+            //mn::vec<int, 1> track_particle_id;
+            std::vector<int> track_particle_ids;
             bool has_attributes = false;
             std::vector<std::vector<PREC>> attributes; //< Initial attributes (not incl. position)
 
@@ -1516,31 +1561,31 @@ void parse_scene(std::string fn,
 
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity);                    
+                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity, track_particle_ids);                    
                   benchmark->updateParameters<mn::material_e::JFluid>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, model_id, positions, velocity);                    
+                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids);                    
                   benchmark->updateParameters<mn::material_e::JFluid_ASFLIP>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::JBarFluid>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 } 
                 else if (!algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::JFluid_FBAR>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
               } 
@@ -1556,24 +1601,24 @@ void parse_scene(std::string fn,
 
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::FixedCorotated>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP_FBAR>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
               } 
@@ -1590,10 +1635,10 @@ void parse_scene(std::string fn,
 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::NeoHookean_ASFLIP_FBAR>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
-                      output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                      output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
               } 
@@ -1614,10 +1659,10 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity); 
+                  benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity, track_particle_ids); 
                   benchmark->updateParameters<mn::material_e::Sand>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
-                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                        output_attribs, track_particle_ids, track_attribs, target_attribs);
 
                 }
                 else { algo_error = true; }
@@ -1647,10 +1692,10 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity); 
+                  benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity, track_particle_ids); 
                   benchmark->updateParameters<mn::material_e::CoupledUP>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
-                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                        output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
               } 
@@ -1671,10 +1716,10 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity);
+                  benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity, track_particle_ids);
                   benchmark->updateParameters<mn::material_e::NACC>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
-                        output_attribs, track_particle_id[0], track_attribs, target_attribs);
+                        output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else { algo_error = true; }
               } 
@@ -1704,12 +1749,17 @@ void parse_scene(std::string fn,
             }
             output_attribs = CheckStringArray(model, "output_attribs", std::vector<std::string> {{"ID"}});
             track_attribs = CheckStringArray(model, "track_attribs", std::vector<std::string> {{"Position_Y"}});
-            track_particle_id = CheckIntArray(model, "track_particle_id", mn::vec<int, 1> {0});
+            track_particle_ids = CheckIntArray(model, "track_particle_id", std::vector<int>{0});
             target_attribs = CheckStringArray(model, "target_attribs", std::vector<std::string> {{"Position_Y"}});
             if (output_attribs.size() > mn::config::g_max_particle_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] output_attribs value supported.\n", gpu_id, mn::config::g_max_particle_attribs); }
             if (track_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] track_attribs value supported currently.\n", gpu_id); }
-            if (sizeof(track_particle_id) / sizeof(int) > 1) { fmt::print(fg(red), "ERROR: Only [1] track__particle_id value supported currently.\n"); }
-            fmt::print("GPU[{}] Track attributes [{}] on particle IDs [{}].\n", gpu_id, track_attribs[0], track_particle_id[0]);
+            if (track_particle_ids.size() > 1) { fmt::print(fg(red), "ERROR: Only [{}] track__particle_id value supported currently.\n", mn::config::g_max_particle_trackers); }
+            
+            if (track_particle_ids.size() != 0 && track_attribs.size() == 0) 
+              fmt::print(fg(red),"ERROR: GPU[{}] MODEL[{}] track_particle_ids provided but no track_attribs provided. \n", gpu_id, model_id);
+            if (track_particle_ids.size() == 0 && track_attribs.size() != 0) 
+              fmt::print(fg(red),"ERROR: GPU[{}] MODEL[{}] track_particle_ids is not provided but track_attribs is provided. \n", gpu_id, model_id);
+            if (track_particle_ids.size() != 0 && track_attribs.size() != 0) fmt::print("GPU[{}] Track attributes [{}] on particle IDs [{}].\n", gpu_id, track_attribs[0], track_particle_ids[0]);
             if (target_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] target_attribs value supported currently.\n", gpu_id); }
 
             // * Begin particle geometry construction 
@@ -1841,8 +1891,10 @@ void parse_scene(std::string fn,
                         }
                         attributes.resize(0, std::vector<PREC>(input_attribs.size()));
                         mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
-                        fmt::print("Size of attributes after reading in initial data: Particles {}, Attributess {}\n", attributes.size(), attributes[0].size());
-                        fmt::print("First element: {} \n", attributes[0][0]);
+                        fmt::print("Size of attributes after reading in initial data: Particles {}, Attributes {}\n", attributes.size(), attributes[0].size());
+                        for (int i = 0; i < attributes[0].size(); i++) {
+                            fmt::print("Input Attribute[{}][{}]:  Label[{}] Value[{}]\n", 0, i, input_attribs[i], attributes[0][i]);
+                        }
 
                         // Scale particle positions to 1x1x1 simulation
                         for (int part=0; part < models[total_id].size(); part++) {

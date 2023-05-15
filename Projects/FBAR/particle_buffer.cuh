@@ -326,12 +326,20 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   }
 
   int track_ID = 0;
+  vec<int, 32> track_IDs;
   vec<int, 1> track_attribs;
   std::vector<std::string> track_labels;   
-  void updateTrack(std::vector<std::string> names, int trackID=0) {
-    track_ID = trackID;
+  void updateTrack(std::vector<std::string> names, std::vector<int> runtime_trackIDs) {
     int i = 0;
+    for (auto ID : runtime_trackIDs) {
+      if (i >= mn::config::g_max_particle_trackers) continue;
+      track_IDs[i] = ID;
+      i++;
+    }
+
+    i = 0;
     for (auto n : names) {
+      if (i>=1) continue; // TODO: Expand to >1 track attributes
       track_labels.emplace_back(n);
       track_attribs[i] = static_cast<int>(mapAttributeStringToIndex(n));
       i = i+1;
@@ -821,8 +829,8 @@ struct ParticleBuffer<material_e::JBarFluid>
           Position_X=0, Position_Y=1, Position_Z=2,
           J, DefGrad_Determinant=J, 
           Velocity_X, Velocity_Y, Velocity_Z,
-          ID,
           JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
           END, // Values greater than or equal to END not held on particle
           // REQUIRED: Put N/A variables for specific material below END
           DefGrad_XX, DefGrad_XY, DefGrad_XZ,

@@ -78,7 +78,7 @@ void read_partio_general(std::string filename,
   for(int i=0;i<parts->numAttributes();i++){
       Partio::ParticleAttribute attr;
       parts->attributeInfo(i,attr);
-      std::cout<<"Attribute["<<i<<"] is "<<attr.name<<std::endl;
+      std::cout<<"Attribute["<<i<<"] is ["<<attr.name<<"]"<<std::endl;
   }
 
   // Position processing
@@ -92,6 +92,8 @@ void read_partio_general(std::string filename,
   for (auto label : labels) {
     if(!parts->attributeInfo(label.c_str(), genericAttr[d]) || genericAttr[d].type !=  Partio::FLOAT || genericAttr[d].count != 1)
         printf("ERROR: PartIO failed to read value as FLOAT of size 1");
+
+    std::cout << "PartIO: Input label[" << label << "] found in index[" << d << "] of file." << std::endl;
     d++;
   }
 
