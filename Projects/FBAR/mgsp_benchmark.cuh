@@ -886,22 +886,22 @@ struct mgsp_benchmark {
           for (int mid=0; mid<getModelCnt(did); mid++) {
             // int mid = mid + did*g_models_per_gpu;
             match(particleBins[rollid][did][mid])([&](const auto &pb) {
-              // Grid-to-Particle-to-Grid - g2p2g 
-              if (!pb.use_ASFLIP && !pb.use_FEM && !pb.use_FBAR) {
-                fmt::print("GPU[{}] ERROR: Still need to reimplement g2p2g without ASFLIP, FBAR, or FEM. Try turning on ASFLIP or FBAR.\n", did);
-              }
 
               // Set shared memory carveout initially, once, for functions
               // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-              if (curFrame == 1) {
-                // Grid-to-Particle-to-Grid - g2p2g
-                checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-                
-                // Grid-to-Particle - F-Bar Update
-                checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-                // Particle-to-Grid - F-Bar Update
-                checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-
+              //if (curFrame == 1) {
+              // Grid-to-Particle-to-Grid - g2p2g
+              checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+              
+              // Grid-to-Particle - F-Bar Update
+              checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+              // Particle-to-Grid - F-Bar Update
+              checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+              //}
+              
+              // Grid-to-Particle-to-Grid - g2p2g 
+              if (!pb.use_ASFLIP && !pb.use_FEM && !pb.use_FBAR) {
+                fmt::print("GPU[{}] ERROR: Still need to reimplement g2p2g without ASFLIP, FBAR, or FEM. Try turning on ASFLIP or FBAR.\n", did);
               }
 
               // Grid-to-Particle-to-Grid - g2p2g 

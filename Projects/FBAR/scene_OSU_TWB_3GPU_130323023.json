@@ -3,7 +3,7 @@
 		"fps": 10,
 		"frames": 400,
 		"time": 0.0,
-		"default_dt": 1e-4,
+		"default_dt": 8.4e-5,
 		"default_dx": 0.025,
 		"domain": [45, 1.5, 1.0],
 		"gravity": [0.0,-9.81,0.0],
@@ -32,7 +32,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.995,
+			"FBAR_ratio": 0.999,
 			"geometry": [
 				{
 					"object": "OSU TWB",
@@ -42,7 +42,7 @@
 				}
 			],
 			"partition_start": [0, 0, 0],
-			"partition_end": [6, 0.875, 0.025]
+			"partition_end": [7.0, 0.875, 0.025]
 		},
 		{
 			"gpu": 1,
@@ -66,7 +66,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.995,
+			"FBAR_ratio": 0.999,
 			"geometry": [
 				{
 					"object": "OSU TWB",
@@ -75,7 +75,7 @@
 					"offset": [0.0, 0.0, 0.0]
 				}
 			],
-			"partition_start": [6.0, 0, 0],
+			"partition_start": [7.0, 0, 0],
 			"partition_end": [14.0, 0.875, 0.025]
 		},
 		{
@@ -100,7 +100,7 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.995,
+			"FBAR_ratio": 0.999,
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
@@ -176,7 +176,7 @@
 			"domain_start": [-0.4, -0.2, -0.2],
 			"domain_end": [0.001, 4.0, 10.2],
 			"time": [0, 180],
-			"file": "WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv",
+			"file": "WaveMaker/wmdisp_TWB_Amp2_SF375_twm10sec_1200hz_16052023.csv",
 			"output_frequency": 1200
 		}	
 	],
@@ -185,7 +185,7 @@
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "X+",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [45.790, 2.049, 1.317],
 			"domain_end": [45.85, 2.615, 2.333]
 		}
@@ -195,49 +195,49 @@
 			"name": "WG1",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [14.052, 0.5, 0],
-			"domain_end":   [14.152, 1.5, 8.640]
+			"domain_end":   [14.102, 1.5, 8.640]
 		},
 		{
 			"name": "WG3",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [14.039, 0.5, 0],
-			"domain_end":   [14.139, 1.5, 2.572]
+			"domain_end":   [14.089, 1.5, 2.572]
 		},
 		{
 			"name": "WG5",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [14.899, 0.5, 0],
-			"domain_end": [14.999, 1.5, 2.523]
+			"domain_end": [14.949, 1.5, 2.523]
 		},
 		{
 			"name": "WG9",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [19.246, 0.5, 0],
-			"domain_end": [19.346, 1.5, 2.506]
+			"domain_end": [19.296, 1.5, 2.506]
 		},
 		{
 			"name": "USWG5",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [28.298, 0.5, 0],
-			"domain_end": [28.398, 1.5, 5.0]
+			"domain_end": [28.348, 1.5, 5.0]
 		},
 		{
 			"name": "USWGh5",
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 60,
+			"output_frequency": 100,
 			"domain_start": [35.531, 0.5, 0],
-			"domain_end": [35.631, 1.5, 5.0]
+			"domain_end": [35.581, 1.5, 5.0]
 		}
 	]
 }
