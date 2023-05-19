@@ -1,7 +1,7 @@
 {
 	"simulation": {
 		"fps": 10,
-		"frames": 50,
+		"frames": 40,
 		"time": 2.5,
 		"default_dt": 1e-5,
 		"default_dx": 0.0125,
@@ -39,7 +39,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/TOKYO_FBAR0.999_Thin/model[0]_dev[0]_frame[25].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 320],
 					"spacing": [0.0, 0.0, 0.0125]
@@ -74,7 +74,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/TOKYO_FBAR0.999_Thin/model[0]_dev[1]_frame[25].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 320],
 					"spacing": [0.0, 0.0, 0.0125]
@@ -109,7 +109,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/TOKYO_FBAR0.999_Thin/model[0]_dev[2]_frame[25].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 320],
 					"spacing": [0.0, 0.0, 0.0125]
@@ -143,7 +143,7 @@
 					"object": "Box",
 					"operation": "add",
 					"span": [0.0625, 0.0625, 0.15],
-					"offset": [4.68, 0.25, 2.3],
+					"offset": [4.68, 0.25, 1.725],
 					"array": [1, 1, 3],
 					"spacing": [0.0, 0.0625, 0.2]
 				}
@@ -162,7 +162,7 @@
 			"friction_dynamic": 0.0
 		},
 		{
-			"object": "Box",
+			"object": "TOKYO_HARBOR",
 			"contact": "Separable",
 			"domain_start": [4.45, -0.1, -0.1],
 			"domain_end": [9.1, 0.255, 4.1],
@@ -194,8 +194,8 @@
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 100,
-			"domain_start": [45.790, 0.0125, 1.3125],
-			"domain_end": [45.85, 0.4425, 1.3875]
+			"domain_start": [9.16, 0.0125, 1.3125],
+			"domain_end": [9.18, 0.4425, 1.3875]
 		}
 	],
 	"particle-targets": [

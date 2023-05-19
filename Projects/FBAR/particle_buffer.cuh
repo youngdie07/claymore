@@ -26,6 +26,7 @@ enum class particle_output_attribs_e : int {
         ID = 0, Mass, Volume,
         Position_X, Position_Y, Position_Z,
         Velocity_X, Velocity_Y, Velocity_Z,
+        Velocity_Magnitude,
         DefGrad_XX, DefGrad_XY, DefGrad_XZ,
         DefGrad_YX, DefGrad_YY, DefGrad_YZ,
         DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
@@ -149,8 +150,8 @@ using particle_bin20_f_ =
                f_>; ///< pos, F, vel, vol_Bar, J_Bar, mass_water, rho_water, ID
 
 template <material_e mt> struct particle_bin_;
-template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {};
-template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {};
+template <> struct particle_bin_<material_e::JFluid> : particle_bin4_f_ {}; // No ID
+template <> struct particle_bin_<material_e::JFluid_ASFLIP> : particle_bin7_f_ {}; // No ID
 template <> struct particle_bin_<material_e::JFluid_FBAR> : particle_bin6_f_ {};
 template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin13_f_ {};
@@ -253,6 +254,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
         else if (n == "Velocity_X") return out_:: Velocity_X;
         else if (n == "Velocity_Y") return out_:: Velocity_Y;
         else if (n == "Velocity_Z") return out_:: Velocity_Z;
+        else if (n == "Velocity" || n == "Velocity_Magnitude") return out_:: Velocity_Magnitude;
         else if (n == "DefGrad_XX") return out_:: DefGrad_XX;
         else if (n == "DefGrad_XY") return out_:: DefGrad_XY;
         else if (n == "DefGrad_XZ") return out_:: DefGrad_XZ;

@@ -89,7 +89,7 @@ constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. partic
 constexpr bool g_particles_output_exterior_only = false; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 
 // Grid set-up
-#define DOMAIN_BITS 10 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -139,7 +139,7 @@ constexpr int g_grid_size_z = (int)(g_grid_size * g_grid_ratio_z) +1; //< Domain
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 60000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 50000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 /// 62500 bytes for active mask
 
 // * Particles
@@ -176,7 +176,7 @@ constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries in scene
 constexpr int g_grid_boundary_attribs = 7; //< No. of values per grid-boundary node
 
 // * Grid-Targets
-constexpr int g_max_grid_target_nodes = 1024 * 4 * 2; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 1024 * 2 * 1; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
 

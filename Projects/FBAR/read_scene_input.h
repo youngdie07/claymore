@@ -1807,6 +1807,16 @@ void parse_scene(std::string fn,
                   geometry_offset_updated[2] = geometry_offset[2];
                   for (int k = 0; k < geometry_array[2]; k++)
                   {
+                  std::vector<int> geo_track_particle_ids; //< Particle IDs to track for this geometry instance
+                  geo_track_particle_ids = CheckIntArray(geo, "track_particle_id", std::vector<int>{0});
+                  // * Shift geometry local particle IDs to track global IDs
+                  for (int geo_idx = 0; geo_idx < geo_track_particle_ids; ++geo_idx) {
+                    geo_track_particle_ids[geo_idx] += keep_track_of_particles * keep_track_of_array; // ! May need to adjust for previous geometry particles, e.g. + model.size()
+                  }
+
+                  track_particle_ids.insert(track_particle_ids.end(), geo_track_particle_ids.begin(), geo_track_particle_ids.end()); //< Append to global track_particle_ids
+                  if (track_particle_ids.size() > mn::config::g_max_particle_trackers) { fmt::print(fg(red), "ERROR: Only [{}] track_particle_id value supported currently.\n", mn::config::g_max_particle_trackers); }
+
                   if (type == "Box" || type == "box")
                   {
                     if (operation == "Add" || operation == "add") {

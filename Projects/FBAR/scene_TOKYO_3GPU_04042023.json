@@ -117,7 +117,7 @@
 		},
 		{
 			"gpu": 2,
-			"model": 1,
+			"model": 2,
 			"type": "particles",
 			"constitutive": "FixedCorotated",
 			"output_attribs": ["ID", "Velocity_X", "Velocity_Z", "Pressure"],
@@ -142,7 +142,7 @@
 					"object": "Box",
 					"operation": "add",
 					"span": [0.0625, 0.0625, 0.15],
-					"offset": [4.68, 0.25, 2.3],
+					"offset": [4.68, 0.25, 1.725],
 					"array": [1, 1, 3],
 					"spacing": [0.0, 0.0625, 0.2]
 				}
@@ -161,7 +161,7 @@
 			"friction_dynamic": 0.0
 		},
 		{
-			"object": "Box",
+			"object": "TOKYO_HARBOR",
 			"contact": "Separable",
 			"domain_start": [4.45, -0.1, -0.1],
 			"domain_end": [9.1, 0.255, 4.1],
@@ -179,8 +179,8 @@
 		{
 			"object": "box",
 			"contact": "Separable",
-			"domain_start": [9, 0.0, 1.3],
-			"domain_end": [9.1, 0.455, 1.4],
+			"domain_start": [9.16, 0.0, 1.3],
+			"domain_end": [9.26, 0.455, 1.4],
 			"array": [1, 1, 5],
 			"spacing": [0.45, 0, 0.325],
 			"friction_static": 0.0,
@@ -193,8 +193,8 @@
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 100,
-			"domain_start": [45.790, 2.049, 1.317],
-			"domain_end": [45.85, 2.615, 2.333]
+			"domain_start": [9.16, 0.0125, 1.3125],
+			"domain_end": [9.18, 0.4425, 1.3875]
 		}
 	],
 	"particle-targets": [

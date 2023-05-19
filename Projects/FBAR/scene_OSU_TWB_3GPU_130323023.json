@@ -115,7 +115,7 @@
 		},
 		{
 			"gpu": 2,
-			"model": 1,
+			"model": 2,
 			"type": "particles",
 			"constitutive": "FixedCorotated",
 			"output_attribs": ["ID", "Velocity_X", "Velocity_Y", "Pressure"],

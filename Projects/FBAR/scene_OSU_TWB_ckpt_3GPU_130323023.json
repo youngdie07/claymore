@@ -39,7 +39,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[0]_frame[200].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 200],
 					"spacing": [0.0, 0.0, 0.025]
@@ -75,7 +75,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[1]_frame[200].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 200],
 					"spacing": [0.0, 0.0, 0.025]
@@ -112,7 +112,7 @@
 					"operation": "Add",
 					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[2]_frame[200].bgeo",
 					"has_attributes": true,
-					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
 					"offset": [0.0, 0.0, 0.0],
 					"array": [1, 1, 200],
 					"spacing": [0.0, 0.0, 0.025]

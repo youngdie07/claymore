@@ -527,6 +527,145 @@ __global__ void rasterize(uint32_t particleCount,
       }
 }
 
+
+// Specialize particle-to-grid rasterize for materials with initial input attributes
+template <typename ParticleArray, num_attribs_e N, typename Grid, typename Partition>
+__global__ void rasterize(uint32_t particleCount, 
+                          const ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
+                          const ParticleArray parray, const ParticleAttrib<N> pattrib,
+                          Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
+  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (parid >= particleCount)
+    return;
+  PREC length = pbuffer.length;
+  PREC mass = pbuffer.mass;
+  PREC volume = pbuffer.volume;
+  pvec3 local_pos{(PREC)parray.val(_0, parid), (PREC)parray.val(_1, parid),
+                 (PREC)parray.val(_2, parid)};
+  pvec3 vel;
+  pvec9 contrib, C;
+  vel.set(0.), contrib.set(0.), C.set(0.);
+
+  // TODO : Clean this up to use a loop and enums
+  PREC val = 0;
+  unsigned i = 0;
+  getParticleAttrib(pattrib, i, parid, val); 
+  PREC sJ = val;
+  PREC J = 1.0 - sJ;  // Volume ratio, Det def. gradient. 1 for t0 
+  PREC JInc = 0.0; // sJInc, assume 0 i.e. no change in J this time-step
+
+  i++;
+  getParticleAttrib(pattrib, i, parid, val); 
+  vel[0] = val;
+
+  i++;
+  getParticleAttrib(pattrib, i, parid, val); 
+  vel[1] = val;
+
+  i++;
+  getParticleAttrib(pattrib, i, parid, val); 
+  vel[2] = val;
+
+  i++;
+  getParticleAttrib(pattrib, i, parid, val); 
+  PREC sJBar = val;
+
+  i++;
+  getParticleAttrib(pattrib, i, parid, val); 
+  PREC ID = val;
+
+  // TODO : Init. with material's Cauchy stress, not just pressure for fluid
+  // PREC pressure =  (pbuffer.bulk / pbuffer.gamma) * (  pow((1.0-sJBar), -pbuffer.gamma) - 1.0 );
+  PREC pressure = (pbuffer.bulk / pbuffer.gamma) * expm1(-pbuffer.gamma*log1p(-sJBar));
+  PREC voln = (1.0 - sJ) * volume;
+  contrib[0] = - pressure * voln;
+  contrib[4] = - pressure * voln;
+  contrib[8] = - pressure * voln;
+
+  // * Leap-frog init vs symplectic Euler
+  // /if (1) dt = dt / 2.0;
+
+  // Dp^n = Dp^n+1 = (1/4) * dx^2 * I (Quad.)
+  PREC Dp_inv; //< Inverse Intertia-Like Tensor (1/m^2)
+  PREC scale = length * length; //< Area scale (m^2)
+  Dp_inv = g_D_inv / scale;     //< Scalar 4/(dx^2) for Quad. B-Spline
+  contrib = (C * mass - contrib * dt) * Dp_inv;
+  ivec3 global_base_index{int(std::lround(local_pos[0] * g_dx_inv) - 1),
+                          int(std::lround(local_pos[1] * g_dx_inv) - 1),
+                          int(std::lround(local_pos[2] * g_dx_inv) - 1)};
+  local_pos = local_pos - global_base_index * g_dx;
+  vec<vec<PREC, 3>, 3> dws;
+  for (int d = 0; d < 3; ++d)
+    dws[d] = bspline_weight((PREC)local_pos[d]);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      for (int k = 0; k < 3; ++k) {
+        ivec3 offset{i, j, k};
+        pvec3 xixp = offset * g_dx - local_pos;
+        PREC W = dws[0][i] * dws[1][j] * dws[2][k];
+        ivec3 local_index = global_base_index + offset;
+        PREC wm = mass * W;
+        PREC wv = volume * W;
+        int blockno = partition.query(ivec3{local_index[0] >> g_blockbits,
+                                            local_index[1] >> g_blockbits,
+                                            local_index[2] >> g_blockbits});
+        auto grid_block = grid.ch(_0, blockno);
+        for (int d = 0; d < 3; ++d)
+          local_index[d] &= g_blockmask;
+        atomicAdd(
+            &grid_block.val(_0, local_index[0], local_index[1], local_index[2]),
+            wm);
+        atomicAdd(
+            &grid_block.val(_1, local_index[0], local_index[1], local_index[2]),
+            wm * vel[0] + (contrib[0] * xixp[0] + contrib[3] * xixp[1] +
+                           contrib[6] * xixp[2]) *
+                              W);
+        atomicAdd(
+            &grid_block.val(_2, local_index[0], local_index[1], local_index[2]),
+            wm * vel[1] + (contrib[1] * xixp[0] + contrib[4] * xixp[1] +
+                           contrib[7] * xixp[2]) *
+                              W);
+        atomicAdd(
+            &grid_block.val(_3, local_index[0], local_index[1], local_index[2]),
+            wm * vel[2] + (contrib[2] * xixp[0] + contrib[5] * xixp[1] +
+                           contrib[8] * xixp[2]) *
+                              W);
+        // ASFLIP velocity unstressed
+        atomicAdd(
+            &grid_block.val(_4, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[0] + Dp_inv * (C[0] * xixp[0] + C[3] * xixp[1] +
+                           C[6] * xixp[2]) )
+                             );
+        atomicAdd(
+            &grid_block.val(_5, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[1] + Dp_inv * (C[1] * xixp[0] + C[4] * xixp[1] +
+                           C[7] * xixp[2]) )
+                              );
+        atomicAdd(
+            &grid_block.val(_6, local_index[0], local_index[1], local_index[2]),
+            wm * (vel[2] + Dp_inv * (C[2] * xixp[0] + C[5] * xixp[1] +
+                           C[8] * xixp[2]) )
+                              );
+        // Simple FBar: Vol, Vol JBar
+        atomicAdd(
+            &grid_block.val(_7, local_index[0], local_index[1], local_index[2]),
+            wv);
+        // Recheck if JInc is sJInc, difference between 1 and 0
+        atomicAdd(
+            &grid_block.val(_8, local_index[0], local_index[1], local_index[2]),
+            wv * (sJBar + sJBar * JInc - JInc));//(sJBar + sJBar * JInc - JInc));
+
+#if DEBUG_COUPLED_UP
+        atomicAdd(
+            &grid_block.val(_9, local_index[0], local_index[1], local_index[2]),
+            wv * 1000);
+        atomicAdd(
+            &grid_block.val(_10, local_index[0], local_index[1], local_index[2]),
+            wv * 1000 * 0);
+#endif
+      }
+}
+
 // %% ============================================================= %%
 //     MPM-FEM Precompute Element Quantities
 // %% ============================================================= %%
@@ -757,7 +896,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 
 
 template <typename ParticleArray, typename Partition>
-__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Four> pattribs,
+__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Six> pattribs,
                                 ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
@@ -814,7 +953,7 @@ __global__ void array_to_buffer(ParticleArray parray,
 
 
 template <typename ParticleArray, typename Partition>
-__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Three> pattribs,
+__global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs_e::Six> pattribs,
                                 ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                                 Partition partition, vec<PREC, 3> vel) {
   uint32_t blockno = blockIdx.x;
@@ -833,9 +972,10 @@ __global__ void array_to_buffer(ParticleArray parray, ParticleAttrib<num_attribs
     pbin.val(_0, pidib % g_bin_capacity) = parray.val(_0, parid); // x
     pbin.val(_1, pidib % g_bin_capacity) = parray.val(_1, parid); // y
     pbin.val(_2, pidib % g_bin_capacity) = parray.val(_2, parid); // z
+    // Uses same attribs layout as JBarFluid (sJ, Velocity_X, Velocity_Y, Velocity_Z, sJBar, ID)
     pbin.val(_3, pidib % g_bin_capacity) = pattribs.val(_0, parid); //< (1 - J) = (1 - V/Vo)
-    pbin.val(_4, pidib % g_bin_capacity) = pattribs.val(_1, parid); //< (1 -JBar) : Simple FBAR 
-    pbin.val(_5, pidib % g_bin_capacity) = pattribs.val(_2, parid); //< ID
+    pbin.val(_4, pidib % g_bin_capacity) = pattribs.val(_4, parid); //< (1 -JBar) : Simple FBAR 
+    pbin.val(_5, pidib % g_bin_capacity) = pattribs.val(_5, parid); //< ID
   }
 }
 
@@ -11817,6 +11957,12 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
         val = pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l; return; // Velocity_Y [m/s]
       case output_e_::Velocity_Z:
         val = pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; return; // Velocity_Z [m/s]
+      case output_e_::Velocity_Magnitude:
+        val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; 
+        val += pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l;
+        val += pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; 
+        val = sqrt(val);
+        return; // Velocity_Magnitude [m/s]
       case output_e_::DefGrad_XX:
         val = F[0]; return; // DefGrad_XX
       case output_e_::DefGrad_XY:
