@@ -1800,16 +1800,20 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
   #pragma unroll 3
                 for (int d=0; d<3; ++d) {
                   // Adjust grid-node velocity via decay layer coef. and surface normal
-                  if (ySF > 1.f) // Fix vel. rigidly if deep below boundary surf.
+                  if (ySF > 1.5f) // Fix vel. rigidly if deep below boundary surf.
                     vel[d] = 0.f;
-                  else if (ySF == 1.f) // Slip vel. below boundary surf. (NO seperable)
+                  else if (ySF == 1.5f) // Slip vel. below boundary surf. (NO seperable)
                     vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                  else if (ySF == 1.f) // Slip vel. below boundary surf. (NO seperable)
+                    if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
                   else // Adjust vel. normal if in decay layer (YES seperable)
                     if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);
                 } 
               }
 
               // Friction
+              constexpr PREC_G START_FRICTION_X = 31.3f; // Start friction at X position [m]
+              if (xc > START_FRICTION_X / l + o)
               if (yc <= ys) {
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
                   PREC_G force[3];
@@ -1835,6 +1839,59 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                   }
                 }
               }
+
+            }
+          }
+          if (gb._object == boundary_object_t::TOKYO_HARBOR) {
+            if (gb._contact == boundary_contact_t::Separable) {
+              PREC_G wave_maker_neutral = 0.f; // Wave-maker neutral X pos. [m] at OSU TWB       
+              PREC_G ys=0.f, xo=0.f, yo=0.f;
+              vec3 ns; //< Ramp boundary surface normal
+              ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
+              constexpr PREC_G START_HARBOR_X = 4.45f; // Start harbor at X position [m]
+              constexpr PREC_G START_HARBOR_Y = 0.255f; // Start harbor at Y position [m]
+
+
+              PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+
+
+              // Friction
+              constexpr PREC_G START_FRICTION_X = START_HARBOR_X + 0.23f; // Start friction at debris X position [m]
+              if (xc >= START_FRICTION_X/l+o)
+              if (yc <= START_HARBOR_Y/l+o) {
+                if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
+                  PREC_G force[3];
+                  force[0] = ((vel[0] ) / dt + grav[0] / l) / mass;
+                  force[1] = ((vel[1] ) / dt + grav[1] / l) / mass;
+                  force[2] = ((vel[2] ) / dt + grav[2] / l) / mass;
+                  vdotns = force[0]*ns[0] + force[1]*ns[1] + force[2]*ns[2]; // Norm force
+                  if (vdotns < 0.f) {
+                    PREC_G tangent_force[3];
+                    tangent_force[0] = force[0] - vdotns * ns[0];
+                    tangent_force[1] = force[1] - vdotns * ns[1];
+                    tangent_force[2] = force[2] - vdotns * ns[2];
+                    PREC_G max_friction_force = - vdotns * friction_static;
+                    PREC_G friction_force = sqrt(tangent_force[0]*tangent_force[0] + tangent_force[1]*tangent_force[1] + tangent_force[2]*tangent_force[2]);
+
+                    // Check if exceeding static friction
+                    if (friction_force > max_friction_force) {
+                      PREC_G friction_force_scale = min(max_friction_force / friction_force, 1.f);
+                      vel[0] -= tangent_force[0] * friction_force_scale * mass * dt;
+                      vel[1] -= tangent_force[1] * friction_force_scale * mass * dt;
+                      vel[2] -= tangent_force[2] * friction_force_scale * mass * dt;
+                    }
+                  }
+                }
+              }
+
+              // Quay wall at harbor face
+              if (((xc >= START_HARBOR_X/l+o && xc <= START_HARBOR_X/l+o + g_dx) && yc <= START_HARBOR_Y / l + o - g_dx) && vel[0] > 0.f){
+                vel[0] = 0.f;
+              } 
+              // Harbor floor
+              if ((xc > START_HARBOR_X/l+o && yc <= START_HARBOR_Y/l+o) && vel[1] < 0.f){
+                vel[1] = 0.f;
+              } 
 
             }
           }

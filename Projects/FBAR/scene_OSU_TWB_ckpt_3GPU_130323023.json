@@ -1,11 +1,11 @@
 {
 	"simulation": {
 		"fps": 10,
-		"frames": 400,
-		"time": 0.0,
+		"frames": 200,
+		"time": 20.0,
 		"default_dt": 8.4e-5,
 		"default_dx": 0.025,
-		"domain": [45, 1.5, 1.0],
+		"domain": [45, 1.5, 5.0],
 		"gravity": [0.0,-9.81,0.0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
@@ -16,7 +16,7 @@
 			"model": 0,
 			"type": "particles",
 			"constitutive": "JFluid",
-			"output_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
+			"output_attribs": ["Pressure", "Velocity_X", "Velocity_Z", "ID"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
@@ -35,14 +35,16 @@
 			"FBAR_ratio": 0.99,
 			"geometry": [
 				{
-					"object": "OSU TWB",
-					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
-					"offset": [0.0, 0.0, 0.0]
+					"object": "file",
+					"operation": "Add",
+					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[0]_frame[200].bgeo",
+					"has_attributes": true,
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"offset": [0.0, 0.0, 0.0],
+					"array": [1, 1, 200],
+					"spacing": [0.0, 0.0, 0.025]
 				}
-			],
-			"partition_start": [0, 0, 0],
-			"partition_end": [7.0, 0.8875, 0.025]
+			]
 		},
 		{
 			"gpu": 1,
@@ -50,7 +52,7 @@
 			"type": "particles",
 			"color": "blue",
 			"constitutive": "JFluid",
-			"output_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
+			"output_attribs": ["Pressure", "Velocity_X",  "Velocity_Z", "ID"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
@@ -69,14 +71,16 @@
 			"FBAR_ratio": 0.99,
 			"geometry": [
 				{
-					"object": "OSU TWB",
-					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
-					"offset": [0.0, 0.0, 0.0]
+					"object": "file",
+					"operation": "Add",
+					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[1]_frame[200].bgeo",
+					"has_attributes": true,
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"offset": [0.0, 0.0, 0.0],
+					"array": [1, 1, 200],
+					"spacing": [0.0, 0.0, 0.025]
 				}
-			],
-			"partition_start": [7.0, 0, 0],
-			"partition_end": [14.0, 0.8875, 0.025]
+			]
 		},
 		{
 			"gpu": 2,
@@ -84,7 +88,7 @@
 			"type": "particles",
 			"color": "blue",
 			"constitutive": "JFluid",
-			"output_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "JBar", "ID"],
+			"output_attribs": ["Pressure", "Velocity_X", "Velocity_Z", "ID"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
@@ -104,14 +108,16 @@
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
-					"object": "OSU TWB",
-					"operation": "add",
-					"span": [31.4, 1.0, 10.0],
-					"offset": [0.0, 0.0, 0.0]
+					"object": "file",
+					"operation": "Add",
+					"file": "MpmParticles/CheckPoints/OSU_TWB_FBAR0.99_Thin/model[0]_dev[2]_frame[200].bgeo",
+					"has_attributes": true,
+					"input_attribs": ["J", "Velocity_X", "Velocity_Y", "Velocity_Z", "ID", "JBar"],
+					"offset": [0.0, 0.0, 0.0],
+					"array": [1, 1, 200],
+					"spacing": [0.0, 0.0, 0.025]
 				}
-			],
-			"partition_start": [14.0, 0, 0.0],
-			"partition_end": [31.3, 0.8875, 0.025]
+			]
 		},
 		{
 			"gpu": 2,
@@ -154,7 +160,7 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [45.9, 1.5, 0.025]
+			"domain_end": [45.9, 1.5, 5.0]
 		},
 		{
 			"object": "OSU TWB Ramp",
@@ -206,7 +212,7 @@
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 100,
-			"domain_start": [14.052, 0.5, 0],
+			"domain_start": [14.052, 0.5, 1.41],
 			"domain_end":   [14.102, 1.5, 1.46]
 		},
 		{
@@ -214,7 +220,7 @@
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 100,
-			"domain_start": [19.246, 0.5, 0],
+			"domain_start": [19.246, 0.5, 2.456],
 			"domain_end": [19.296, 1.5, 2.506]
 		},
 		{
@@ -222,16 +228,16 @@
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 100,
-			"domain_start": [28.298, 0.5, 0],
-			"domain_end": [28.348, 1.5, 5.0]
+			"domain_start": [28.298, 0.5, 4.9],
+			"domain_end": [28.348, 1.5, 4.95]
 		},
 		{
 			"name": "USWGh5",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 100,
-			"domain_start": [35.531, 0.5, 0],
-			"domain_end": [35.601, 1.5, 5.0]
+			"domain_start": [35.531, 0.5, 4.9],
+			"domain_end": [35.601, 1.5, 4.95]
 		}
 	]
 }

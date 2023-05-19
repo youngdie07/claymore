@@ -62,12 +62,12 @@ struct mgsp_benchmark {
     explicit temp_allocator(int did) : did{did} {}
     void *allocate(std::size_t bytes) {
       temp_alloc_cnt++;
-      fmt::print("temp_allocator: CUDA::ref_cuda_context(GPU[{}]).borrow() [{}] megabytes. Depth [{}]\n", did, (float)bytes /1000.f/1000.f, temp_alloc_cnt);
+      if (mn::config::g_log_level >= 3) fmt::print("temp_allocator: CUDA::ref_cuda_context(GPU[{}]).borrow() [{}] megabytes. Depth [{}]\n", did, (float)bytes /1000.f/1000.f, temp_alloc_cnt);
       return Cuda::ref_cuda_context(did).borrow(bytes);
     }
     void deallocate(void *p, std::size_t) {      
       temp_alloc_cnt--;
-      fmt::print("temp_allocator: Deallocate ptr[{}] in CUDA::ref_cuda_context(GPU[{}]). Depth: [{}]\n", p, did, temp_alloc_cnt);
+      if (mn::config::g_log_level >= 3) fmt::print("temp_allocator: Deallocate ptr[{}] in CUDA::ref_cuda_context(GPU[{}]). Depth: [{}]\n", p, did, temp_alloc_cnt);
     }
   };
 

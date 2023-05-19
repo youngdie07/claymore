@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
 
   // ---------------- Run Simulation
   fmt::print(fg(fmt::color::cyan),"Starting simulation...\n");
-  if (g_log_level > 1) { fmt::print(fg(fmt::color::blue),"Press ENTER... \n"); getchar(); }
+  if (g_log_level >= 3) { fmt::print(fg(fmt::color::blue),"Press ENTER... \n"); getchar(); }
   simulator->main_loop();
   if (simulator == nullptr) fmt::print(fg(fmt::color::green),"Simulator nullptr after scope.\n"); 
   

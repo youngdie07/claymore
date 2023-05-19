@@ -921,7 +921,7 @@ std::string CheckString(rapidjson::Value &object, const std::string &key, std::s
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -968,7 +968,7 @@ std::vector<std::string> CheckStringArray(rapidjson::Value &object, const std::s
   fmt::print(fg(orange), " [ ");
   for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
   fmt::print(fg(orange), "]\n");
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1015,7 +1015,7 @@ mn::vec<PREC, dim> CheckDoubleArray(rapidjson::Value &object, const std::string 
   fmt::print(fg(orange), " [ ");
   for (int d=0; d<dim; d++) fmt::print(fg(orange), " {}, ", backup[d]);
   fmt::print(fg(orange), "]\n");
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1062,7 +1062,7 @@ mn::vec<float, dim> CheckFloatArray(rapidjson::Value &object, const std::string 
   fmt::print(fg(orange), " [ ");
   for (int d=0; d<dim; d++) fmt::print(fg(orange), " {}, ", backup[d]);
   fmt::print(fg(orange), "]\n");
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 /// @brief Check if JSON value at 'key' is (i) in JSON script and (ii) is an integer array.
@@ -1103,7 +1103,7 @@ mn::vec<int, dim> CheckIntArray(rapidjson::Value &object, const std::string &key
   fmt::print(fg(orange), " [ ");
   for (int d=0; d<dim; d++) fmt::print(fg(orange), " {}, ", backup[d]);
   fmt::print(fg(orange), "]\n");
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1143,7 +1143,7 @@ std::vector<int> CheckIntArray(rapidjson::Value &object, const std::string &key,
   fmt::print(fg(orange), " [ ");
   for (int d=0; d<backup.size(); d++) fmt::print(fg(orange), " {}, ", backup[d]);
   fmt::print(fg(orange), "]\n");
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1165,7 +1165,7 @@ double CheckDouble(rapidjson::Value &object, const std::string &key, double back
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1187,7 +1187,7 @@ bool CheckBool(rapidjson::Value &object, const std::string &key, bool backup) {
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1209,7 +1209,7 @@ float CheckFloat(rapidjson::Value &object, const std::string &key, float backup)
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1231,7 +1231,7 @@ int CheckInt(rapidjson::Value &object, const std::string &key, int backup) {
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1253,7 +1253,7 @@ uint32_t CheckUint(rapidjson::Value &object, const std::string &key, uint32_t ba
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1275,7 +1275,7 @@ uint64_t CheckUint64(rapidjson::Value &object, const std::string &key, uint64_t 
     fmt::print(fg(red), "ERROR: Input [{}] does not exist in scene file!\n ", key);
   }
   fmt::print(fg(orange), "WARNING: Press ENTER to use default value for [{}]: {}.\n", key, backup);
-  getchar();
+  if (mn::config::g_log_level >= 3) getchar();
   return backup;
 }
 
@@ -1333,7 +1333,8 @@ void parse_scene(std::string fn,
           l = sim_default_dx * mn::config::g_dx_inv_d; 
           if (domain[0] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[1] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[2] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx)) {
             fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx));
-            fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); getchar();
+            fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); 
+            if (mn::config::g_log_level >= 3) getchar();
           } 
           uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil(domain[0] / l * (mn::config::g_grid_size_x))) * static_cast<uint64_t>(std::ceil(domain[1] / domain[1] * (mn::config::g_grid_size_y))) * static_cast<uint64_t>(std::ceil(domain[2] / domain[2] * (mn::config::g_grid_size_z)));
           double reduction = 100. * ( 1. - domainBlockCnt / (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z));
@@ -1433,7 +1434,7 @@ void parse_scene(std::string fn,
                        model["gpu"].GetInt(), constitutive,
                        model["use_ASFLIP"].GetBool(), model["use_FEM"].GetBool(), model["use_FBAR"].GetBool());
                   fmt::print(fg(red), "Press Enter to continue...");
-                  getchar();
+                  if (mn::config::g_log_level >= 3) getchar();
                 }
               }
               else 
@@ -1442,7 +1443,7 @@ void parse_scene(std::string fn,
                       "ERROR: GPU[{}] No material [{}] implemented for finite element meshes! \n", 
                       model["gpu"].GetInt(), constitutive);
                 fmt::print(fg(red), "Press Enter to continue...");
-                getchar();
+                if (mn::config::g_log_level >= 3) getchar();
               }
             };
             
@@ -1510,14 +1511,14 @@ void parse_scene(std::string fn,
               continue;
             } else if (gpu_id < 0) {
               fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] GPU ID cannot be negative. \n", gpu_id, model_id);
-              getchar(); continue;
+              if (mn::config::g_log_level >= 3) getchar(); continue;
             } 
             if (model_id >= mn::config::g_models_per_gpu) {
               fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds models reserved by g_models_per_gpu[{}] (settings.h)! Skipping model. Increase g_models_per_gpu and recompile. \n", model_id, gpu_id, mn::config::g_models_per_gpu);
               continue;
             } else if (model_id < 0) {
               fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] Model ID cannot be negative. \n", gpu_id, model_id);
-              getchar(); continue;
+              if (mn::config::g_log_level >= 3) getchar(); continue;
             }
 
             //std::string constitutive{model["constitutive"].GetString()};
@@ -1725,10 +1726,10 @@ void parse_scene(std::string fn,
               } 
               else { mat_error = true; } //< Requested material doesn't exist in code
               if (mat_error) {
-                fmt::print(fg(red),"ERROR: GPU[{}] constititive[{}] does not exist! Press ENTER to continue...\n",  gpu_id, constitutive); getchar(); return; 
+                fmt::print(fg(red),"ERROR: GPU[{}] constititive[{}] does not exist! Press ENTER to continue...\n",  gpu_id, constitutive); if (mn::config::g_log_level >= 3) getchar(); return; 
               }
               if (algo_error) {
-                fmt::print(fg(red), "ERROR: GPU[{}] Undefined algorithm use for material [{}]: use_ASFLIP[{}], use_FEM[{}], use_FBAR[{}]! Press ENTER to continue...\n", gpu_id, constitutive, algoConfigs.use_ASFLIP, algoConfigs.use_FEM, algoConfigs.use_FBAR); getchar(); return; 
+                fmt::print(fg(red), "ERROR: GPU[{}] Undefined algorithm use for material [{}]: use_ASFLIP[{}], use_FEM[{}], use_FBAR[{}]! Press ENTER to continue...\n", gpu_id, constitutive, algoConfigs.use_ASFLIP, algoConfigs.use_FEM, algoConfigs.use_FBAR); if (mn::config::g_log_level >= 3) getchar(); return; 
               }
               fmt::print(fg(green),"GPU[{}] Material[{}] model set and updated.\n", gpu_id, constitutive);
             };
@@ -1742,9 +1743,9 @@ void parse_scene(std::string fn,
               partition_start[d]  = partition_start[d] / l + o;
               partition_end[d]  = partition_end[d] / l + o;
               if (partition_start[d] > partition_end[d]) {
-                fmt::print(fg(red), "GPU[{}] ERROR: Inverted partition (Element of partition_start > partition_end). Fix and Retry.", gpu_id); getchar();
+                fmt::print(fg(red), "GPU[{}] ERROR: Inverted partition (Element of partition_start > partition_end). Fix and Retry.", gpu_id); if (mn::config::g_log_level >= 3) getchar();
               } else if (partition_end[d] == partition_start[d]) {
-                fmt::print(fg(red), "GPU[{}] ERROR: Zero volume partition (Element of partition_end == partition_start). Fix and Retry.", gpu_id); getchar();
+                fmt::print(fg(red), "GPU[{}] ERROR: Zero volume partition (Element of partition_end == partition_start). Fix and Retry.", gpu_id); if (mn::config::g_log_level >= 3) getchar();
               }
             }
             output_attribs = CheckStringArray(model, "output_attribs", std::vector<std::string> {{"ID"}});
@@ -1753,7 +1754,7 @@ void parse_scene(std::string fn,
             target_attribs = CheckStringArray(model, "target_attribs", std::vector<std::string> {{"Position_Y"}});
             if (output_attribs.size() > mn::config::g_max_particle_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] output_attribs value supported.\n", gpu_id, mn::config::g_max_particle_attribs); }
             if (track_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] track_attribs value supported currently.\n", gpu_id); }
-            if (track_particle_ids.size() > 1) { fmt::print(fg(red), "ERROR: Only [{}] track__particle_id value supported currently.\n", mn::config::g_max_particle_trackers); }
+            if (track_particle_ids.size() > mn::config::g_max_particle_trackers) { fmt::print(fg(red), "ERROR: Only [{}] track_particle_id value supported currently.\n", mn::config::g_max_particle_trackers); }
             
             if (track_particle_ids.size() != 0 && track_attribs.size() == 0) 
               fmt::print(fg(red),"ERROR: GPU[{}] MODEL[{}] track_particle_ids provided but no track_attribs provided. \n", gpu_id, model_id);
@@ -1812,7 +1813,9 @@ void parse_scene(std::string fn,
                     else if (operation == "Union" || operation == "union") { fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") { fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") { fmt::print(fg(red),"Operation not implemented...\n");}
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] geometry operation[{}] invalid! \n", gpu_id, model_id, operation); getchar(); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] geometry operation[{}] invalid! \n", gpu_id, model_id, operation); 
+                      if (mn::config::g_log_level >= 3) getchar(); 
+                    }
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
@@ -1822,7 +1825,7 @@ void parse_scene(std::string fn,
                     if (operation == "Add" || operation == "add") {
                       make_cylinder(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, geometry_axis, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {             subtract_cylinder(models[total_id], geometry_radius, geometry_axis, geometry_span, geometry_offset_updated); }
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
@@ -1831,21 +1834,21 @@ void parse_scene(std::string fn,
                       make_sphere(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
                       subtract_sphere(models[total_id], geometry_radius, geometry_offset_updated); }
-                    else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                    else {  fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
                   else if (type == "OSU LWF" || type == "OSU_LWF_WATER")
                   {
                     if (operation == "Add" || operation == "add") {
                       make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
                   else if (type == "OSU TWB" || type == "OSU_TWB_WATER")
                   {
                     if (operation == "Add" || operation == "add") {
                       make_OSU_TWB(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); getchar(); }
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
                   else if (type == "File" || type == "file") 
                   {
@@ -1865,9 +1868,9 @@ void parse_scene(std::string fn,
                         PREC geometry_scaling_factor = CheckDouble(geometry, "scaling_factor", 1);
                         int geometry_padding = CheckInt(geometry, "padding", 1);
                         if (geometry_scaling_factor <= 0) {
-                          fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); getchar(); }
+                          fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); if (mn::config::g_log_level >= 3) getchar(); }
                         if (geometry_padding < 1) {
-                          fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files require [padding] of atleast [1] (padding is empty exterior cells on sides of model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files.\n"); getchar();}
+                          fmt::print(fg(red), "ERROR: Signed-Distance-Field (.sdf) files require [padding] of atleast [1] (padding is empty exterior cells on sides of model, allows surface definition). Fix and Retry.");fmt::print(fg(yellow), "TIP: Use open-source SDFGen to create *.sdf from *.obj files.\n"); if (mn::config::g_log_level >= 3) getchar();}
                         mn::read_sdf(geometry_fn, models[total_id], materialConfigs.ppc,
                             (PREC)dx, mn::config::g_domain_size, geometry_offset_updated, l,
                             partition_start, partition_end, rotation_matrix, geometry_fulcrum, geometry_scaling_factor, geometry_padding);
@@ -1887,7 +1890,8 @@ void parse_scene(std::string fn,
                         input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
                         if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
                         if (input_attribs.size() > mn::config::g_max_particle_attribs) {
-                          fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); getchar();
+                          fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); 
+                          if (mn::config::g_log_level >= 3) getchar();
                         }
                         attributes.resize(0, std::vector<PREC>(input_attribs.size()));
                         mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
@@ -1913,10 +1917,12 @@ void parse_scene(std::string fn,
                     else if (operation == "Union" || operation == "union") {fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Intersect" || operation == "intersect") {fmt::print(fg(red),"Operation not implemented...\n");}
                     else if (operation == "Difference" || operation == "difference") {fmt::print(fg(red),"Operation not implemented...\n");}
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! Press ENTER to continue...\n", gpu_id, operation); getchar(); 
+                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! Press ENTER to continue...\n", gpu_id, operation); 
+                    if (mn::config::g_log_level >= 3) getchar(); 
                     }
                   }
-                  else  { fmt::print(fg(red), "GPU[{}] ERROR: Geometry object[{}] does not exist! Press ENTER to continue...\n", gpu_id, type); getchar();
+                  else  { fmt::print(fg(red), "GPU[{}] ERROR: Geometry object[{}] does not exist! Press ENTER to continue...\n", gpu_id, type); 
+                    if (mn::config::g_log_level >= 3) getchar();
                   } 
                   geometry_offset_updated[2] += geometry_spacing[2];
                   } 
@@ -1929,7 +1935,7 @@ void parse_scene(std::string fn,
             } //< End geometry
             else {
               fmt::print(fg(red), "ERROR: NODE[{}] GPU[{}] MODEL[{}] No geometry object! Neccesary to create particles.\n", node_id, gpu_id, model_id);
-              fmt::print(fg(red), "Press enter to continue...\n"); getchar();
+              fmt::print(fg(red), "Press enter to continue...\n"); if (mn::config::g_log_level >= 3) getchar();
             }
               
             auto positions = models[total_id];
@@ -1941,7 +1947,7 @@ void parse_scene(std::string fn,
             if (positions.size() > mn::config::g_max_particle_num) {
               fmt::print(fg(red), "ERROR: NODE[{}] GPU[{}] MODEL[{}] Particle count [{}] exceeds g_max_particle_num in settings.h! Increase and recompile to avoid problems. \n", node_id, gpu_id, model_id, positions.size());
               fmt::print(fg(red), "Press ENTER to continue anyways... \n");
-              getchar();
+              if (mn::config::g_log_level >= 3) getchar();
             }
 
             // * Initialize particle positions in simulator and on GPU
@@ -2014,7 +2020,7 @@ void parse_scene(std::string fn,
             // } 
             else if (input_attribs.size() > mn::config::g_max_particle_attribs){
               fmt::print("More than [{}] input_attribs not implemented. You requested [{}].", mn::config::g_max_particle_attribs, input_attribs.size());
-              getchar();
+              if (mn::config::g_log_level >= 3) getchar();
             } else {
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(1);
               benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
@@ -2137,7 +2143,7 @@ void parse_scene(std::string fn,
             else {
               target[0] = -1;
               fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid direction[{}].\n", target_ID, direction);
-              getchar();
+              if (mn::config::g_log_level >= 3) getchar();
             }
             // * Load and scale target domain
             mn::vec<PREC_G,3> domain_start, domain_end;
@@ -2197,7 +2203,7 @@ void parse_scene(std::string fn,
             else {
               target[0] = -1;
               fmt::print(fg(red), "ERROR: particleTarget[{}] has invalid operation[{}].\n", target_ID, operation);
-              getchar();
+              if (mn::config::g_log_level >= 3) getchar();
             }
             // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
             mn::vec<PREC, 3> domain_start, domain_end;
@@ -2278,7 +2284,8 @@ void parse_scene(std::string fn,
             else if (contact == "Separable" || contact == "separable" || contact == "Seperable" || contact == "seperable" || contact == "Separate" || contact == "separate" || contact == "Separatable" || contact == "separatable") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Separate;
             else {
-              fmt::print(fg(red),"ERROR: Invalid contact type for grid-boundary {}.\n", boundary_ID), getchar();
+              fmt::print(fg(red),"ERROR: Invalid contact type for grid-boundary {}.\n", boundary_ID); 
+              if (mn::config::g_log_level >= 3)  getchar();
             }
             
             if (object == "Wall" || object == "wall" || object == "Walls" || object == "walls")
@@ -2370,6 +2377,11 @@ void parse_scene(std::string fn,
             {
               h_gridBoundary._object = mn::config::boundary_object_t::WASIRF_PUMP;
               h_boundary[6] = 100; 
+            }
+            else if (object == "TOKYO Harbor" || object == "TOKYO_HARBOR")
+            {
+              h_gridBoundary._object = mn::config::boundary_object_t::TOKYO_HARBOR;
+              h_boundary[6] = 100;
             }       
             else 
             {
