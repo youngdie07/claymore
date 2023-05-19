@@ -1794,6 +1794,9 @@ void parse_scene(std::string fn,
                   fmt::print("Rotation Matrix: \n");
                   for (int i=0;i<3;i++) {for (int j=0;j<3;j++) fmt::print("{} ",rotation_matrix(i,j)); fmt::print("\n");}
 
+
+                  int keep_track_of_array = 0; // Current index in array operation
+                  int keep_track_of_particles = 0; // Particles per single array operation
                   mn::vec<PREC, 3> geometry_offset_updated;
                   geometry_offset_updated[0] = geometry_offset[0];
                   for (int i = 0; i < geometry_array[0]; i++)
@@ -1886,29 +1889,37 @@ void parse_scene(std::string fn,
                           geometry_file_path.extension() == ".pdb" ||
                           geometry_file_path.extension() == ".ptc") 
                       {
-                        has_attributes = CheckBool(geometry, "has_attributes", false);
-                        input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
-                        if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
-                        if (input_attribs.size() > mn::config::g_max_particle_attribs) {
-                          fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); 
-                          if (mn::config::g_log_level >= 3) getchar();
+                        if (keep_track_of_array == 0) {
+                          has_attributes = CheckBool(geometry, "has_attributes", false);
+                          input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
+                          if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
+                          if (input_attribs.size() > mn::config::g_max_particle_attribs) {
+                            fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); 
+                            if (mn::config::g_log_level >= 3) getchar();
+                          }
+                          attributes.resize(0, std::vector<PREC>(input_attribs.size()));
                         }
-                        attributes.resize(0, std::vector<PREC>(input_attribs.size()));
+                        // Read in particle positions and attributes from file
                         mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
-                        fmt::print("Size of attributes after reading in initial data: Particles {}, Attributes {}\n", attributes.size(), attributes[0].size());
-                        for (int i = 0; i < attributes[0].size(); i++) {
-                            fmt::print("Input Attribute[{}][{}]:  Label[{}] Value[{}]\n", 0, i, input_attribs[i], attributes[0][i]);
+
+                        if (keep_track_of_array == 0) {
+                          keep_track_of_particles = models[total_id].size();
+                          fmt::print("Size of attributes after reading in initial data: Particles {}, Attributes {}\n", attributes.size(), attributes[0].size());
+                          for (int i = 0; i < attributes[0].size(); i++) {
+                              fmt::print("Input Attribute[{}][{}]:  Label[{}] Value[{}]\n", 0, i, input_attribs[i], attributes[0][i]);
+                          }
                         }
 
+                        int shift_idx = keep_track_of_particles * keep_track_of_array;
                         // Scale particle positions to 1x1x1 simulation
-                        for (int part=0; part < models[total_id].size(); part++) {
+                        for (int part=0; part < keep_track_of_particles; part++) {
                           for (int d = 0; d<3; d++) {
-                            models[total_id][part][d] = models[total_id][part][d] / l + geometry_offset_updated[d];
+                            models[total_id][part + shift_idx][d] = models[total_id][part + shift_idx][d] / l + geometry_offset_updated[d];
                           }
                           // Scale length based attributes to 1x1x1 simulation (e.g. Velocity)
                           for (int d = 0; d < input_attribs.size(); d++) {
                             if (input_attribs[d] == "Velocity_X" || input_attribs[d] == "Velocity_Y" || input_attribs[d] == "Velocity_Z" )
-                              attributes[part][d] = attributes[part][d] / l; 
+                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] / l; 
                           }
                         }
                       }
@@ -1924,6 +1935,7 @@ void parse_scene(std::string fn,
                   else  { fmt::print(fg(red), "GPU[{}] ERROR: Geometry object[{}] does not exist! Press ENTER to continue...\n", gpu_id, type); 
                     if (mn::config::g_log_level >= 3) getchar();
                   } 
+                  keep_track_of_array++; // * Keep track of how many times we've iterated through the array
                   geometry_offset_updated[2] += geometry_spacing[2];
                   } 
                   geometry_offset_updated[1] += geometry_spacing[1];
