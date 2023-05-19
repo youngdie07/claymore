@@ -1808,9 +1808,9 @@ void parse_scene(std::string fn,
                   for (int k = 0; k < geometry_array[2]; k++)
                   {
                   std::vector<int> geo_track_particle_ids; //< Particle IDs to track for this geometry instance
-                  geo_track_particle_ids = CheckIntArray(geo, "track_particle_id", std::vector<int>{0});
+                  geo_track_particle_ids = CheckIntArray(geometry, "track_particle_id", std::vector<int>{0});
                   // * Shift geometry local particle IDs to track global IDs
-                  for (int geo_idx = 0; geo_idx < geo_track_particle_ids; ++geo_idx) {
+                  for (int geo_idx = 0; geo_idx < geo_track_particle_ids.size(); ++geo_idx) {
                     geo_track_particle_ids[geo_idx] += keep_track_of_particles * keep_track_of_array; // ! May need to adjust for previous geometry particles, e.g. + model.size()
                   }
 

@@ -166,8 +166,8 @@
 			"contact": "Separable",
 			"domain_start": [4.45, -0.1, -0.1],
 			"domain_end": [9.1, 0.255, 4.1],
-			"friction_static": 0.0,
-			"friction_dynamic": 0.0
+			"friction_static": 0.25,
+			"friction_dynamic": 0.25
 		},
 		{
 			"object": "Box",
@@ -196,6 +196,22 @@
 			"output_frequency": 100,
 			"domain_start": [9.16, 0.0125, 1.3125],
 			"domain_end": [9.18, 0.4425, 1.3875]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.16, 0.0125, 1.6375],
+			"domain_end": [9.18, 0.4425, 1.7125]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.16, 0.0125, 1.9625],
+			"domain_end": [9.18, 0.4425, 2.0375]
 		}
 	],
 	"particle-targets": [
