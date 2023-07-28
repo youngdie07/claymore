@@ -352,7 +352,7 @@ struct structural<structural_type::dynamic, Decoration, Domain, Layout,
     if (capacity != 0) {
       this->_handle.ptr =
           allocator.allocate(capacity * base_t::element_storage_size);
-      std::cout << "Allocated structural dynamic, size: " << capacity * base_t::element_storage_size << "\n";
+      // std::cout << "Allocated structural dynamic, size: " << capacity * base_t::element_storage_size << "\n";
     }
     else {
       this->_handle.ptr = nullptr;
