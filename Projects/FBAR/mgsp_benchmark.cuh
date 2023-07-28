@@ -138,12 +138,12 @@ struct mgsp_benchmark {
     if constexpr (GPU_ID + 1 < g_device_cnt) initParticles<GPU_ID + 1>();
   }
 
-  // Constructor
-  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), float dt = 1e-4, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, std::string suffix = ".bgeo")
-      : length(l), domainCellCnt(dCC), dtDefault(dt), curTime(0.f), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), bRunning(true) {
-
-    fmt::print(fg(fmt::color::white),"Entered simulator. Start GPU set-up...\n");
+  // Constructor of the simulator object. Does some basic initialization for memory.
+  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), double dt = 1e-4, double t0 = 0.0, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, double fr_scale = 1.0, std::string suffix = ".bgeo")
+      : length(l), domainCellCnt(dCC), dtDefault(dt), initTime(t0), curTime(0.0), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), froude_scaling{fr_scale}, bRunning(true) {
     printDiv();
+    fmt::print(fg(fmt::color::white),"Entered simulator. Start GPU set-up...\n");
+    curTime = initTime; // Set current simulation time to given initial time, seconds
 
     // Set-up Multi-GPU Multi-Node communication if enabled
 #if CLUSTER_COMM_STYLE == 1
@@ -154,8 +154,6 @@ struct mgsp_benchmark {
     fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
 #endif
 
-
-    initTime = curTime;
     collisionObjs.resize(g_device_cnt); // Deprecated boundary method
     initParticles<0>(); // Set-up basic data-strucutres for each GPU
     printDiv();
@@ -163,9 +161,6 @@ struct mgsp_benchmark {
                (float)std::decay<decltype(*gridBlocks[0].begin())>::type::size / 1000.f / 1000.f,
                (float)std::decay<decltype(*gridBlocks[1].begin())>::type::size / 1000.f / 1000.f);   
     // TODO: Report preallocated partition and halo partition size
-    // fmt::print("GPU[{}] Partitions, Double-Buffered with Padding: Partitions[0] size {} bytes -vs- Paritions[1] size {} bytes.\n", 0,
-    //            sizeof(partitions[0]),
-    //            std::decay<decltype(*partitions[1].begin())>::type::base_t::size); 
 
     // Grid-energy output
     if (flag_ge) {
@@ -213,8 +208,8 @@ struct mgsp_benchmark {
   }
 
   // Set time step for sim. min() sets to smallest step needed for a material in sim.
-  template <typename T = float>
-  void set_time_step(T dt) { dtDefault = std::min(dtDefault, (float) dt); }
+  template <typename T = double>
+  void set_time_step(T dt) { dtDefault = std::min(dtDefault, (double) dt); }
 
   // Initialize particle models. Allow for varied materials on GPUs.
   template <material_e m>
@@ -223,11 +218,11 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
 
-    // Check for valid model size
+    // Check for valid particle model size
     if (model.size() > config::g_max_particle_num)
-      throw std::runtime_error("ERROR: Particle count exceeds maximum particle size.");
+      throw std::runtime_error("ERROR: Particle count of model exceeds max particles g_max_particle_num in settings.h.");
     if (model.size() == 0)
-      throw std::runtime_error("ERROR: Model has zero particles.");
+      throw std::runtime_error("ERROR: Model has zero particles. Not allowed. Likely an input script error.");
     pcnt[GPU_ID][MODEL_ID] = model.size(); // Initial particle count
 
     h_model_cnt[GPU_ID] += 1; // Increment model count on GPU
@@ -242,7 +237,7 @@ struct mgsp_benchmark {
         });
       printDiv();
     }
-    for (int i = 0; i < 3; ++i) vel0[GPU_ID][MODEL_ID][i] = v0[i]; // Initial velocity
+    for (int i = 0; i < 3; ++i) vel0[GPU_ID][MODEL_ID][i] = v0[i]; // Set initial velocity
     cuDev.syncStream<streamIdx::Compute>();
 
     fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleArray.\n", rank, GPU_ID, MODEL_ID);
@@ -264,14 +259,14 @@ struct mgsp_benchmark {
                (float)match(particleBins[1][GPU_ID][MODEL_ID])([&](auto &pb) {return pb.size;})/1000/1000);    
     printDiv();
 
-
     // Set-up particle ID tracker file
     num_particle_trackers[GPU_ID][MODEL_ID] = trackIDs.size();
     std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID + rank * mn::config::g_device_cnt) + "].csv";
     particleTrackFile[GPU_ID][MODEL_ID].open (fn_track, std::ios::out | std::ios::trunc); 
-    particleTrackFile[GPU_ID][MODEL_ID] << "Time";
-    for (int i = 0; i < trackIDs.size(); ++i) 
-     particleTrackFile[GPU_ID][MODEL_ID] << "," << "ParticleID" << trackIDs[i]; 
+    particleTrackFile[GPU_ID][MODEL_ID] << "Time"; // Time column header
+    for (int i = 0; i < trackIDs.size(); ++i) { // Add column for each tracked ID
+      particleTrackFile[GPU_ID][MODEL_ID] << "," << "ParticleID" << trackIDs[i]; 
+    }
     particleTrackFile[GPU_ID][MODEL_ID] << "\n";
     particleTrackFile[GPU_ID][MODEL_ID].close();
     printDiv();
@@ -473,19 +468,18 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initParticleTarget in mgsp_benchmark.cuh.\n");
-    // Set points a/b (device) for particle-target volume using (host, from JSON)
-    if (MODEL_ID >= getModelCnt(GPU_ID)) return;
-    if (MODEL_ID == 0 && GPU_ID == 0) 
-    {
+    if (MODEL_ID >= getModelCnt(GPU_ID)) return; // Exit if exceeding model count
+    // If first GPU and model, perform initialization work for all
+    if (MODEL_ID == 0 && GPU_ID == 0) {
       number_of_particle_targets += 1; 
       d_particle_target.emplace_back();
       particle_tarcnt.emplace_back();
-      for (int d = 0; d < 7; d++)
+      for (int d = 0; d < 7; d++) // TODO: don't rely on arbitrary number 7
         d_particle_target.back()[d] = host_target[d];
     }
     flag_pt = true; // Set flag for particle-target
     host_pt_freq = freq; // Set output frequency [Hz] for particle-target aggregate value
-    int particle_target_ID = number_of_particle_targets-1;
+    int particle_target_ID = number_of_particle_targets - 1; // TODO: Clean this up
     std::string fn_particle_target = std::string{"particleTarget"} + "[" + std::to_string(particle_target_ID) + "]_model[" + std::to_string(MODEL_ID) + "]_dev[" + std::to_string(GPU_ID) + "]" + ".csv";
     particleTargetFile[GPU_ID][MODEL_ID].open (fn_particle_target, std::ios::out | std::ios::trunc); 
     particleTargetFile[GPU_ID][MODEL_ID] << "Time" << "," << "Aggregate" << "\n";
@@ -544,33 +538,33 @@ struct mgsp_benchmark {
 
   }
 
-  /// Init OSU Motion-Path on device (device_motionPath) from host (&host_motionPath) (JB)
+  /// Init Motion-Paths on device (device_motionPath) from host (&host_motionPath) (JB)
   void initMotionPath(int GPU_ID,
                      const std::vector<std::array<PREC_G, 3>> &motionPath, 
                      float frequency) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initMotionPath. \n");
-    flag_mp = 1;
+    flag_mp = true; // Enable motion-path flag
     host_mp_freq = frequency; // Frequency of motion file rows, 1 / time-step
-    host_motionPath = motionPath;
+    host_motionPath = motionPath; // TODO: Recheck, also consider L1 cache on GPU
     /// Populate Motion-Path (device) with data from Motion-Path (host) (JB)
     for (int d = 0; d < 3; d++) d_motionPath[d] = (PREC_G)host_motionPath[0][d]; //< Set vals
-    fmt::print("Init motionPath with time {}s, disp {}m, vel {}m/s \n", d_motionPath[0], d_motionPath[1], d_motionPath[2]);
+    fmt::print("Init motionPath with time[{} s], disp_x[{} m], vel_x[{} m/s] \n", d_motionPath[0], d_motionPath[1], d_motionPath[2]);
   }  
   
   /// Set a Motion-Path for time-step (JB)
-  void setMotionPath(std::vector<std::array<PREC_G, 3>> &host_motionPath, float curTime) {
-    if (flag_mp) {
-      float check_point_time = 0.f; // TODO : Time of check-point 
-      int step = (int)((curTime + check_point_time)  * host_mp_freq); //< Index for time
+  void setMotionPath(std::vector<std::array<PREC_G, 3>> &host_motionPath, double curTime) {
+    if (flag_mp) { // Set-up d_motionPath values if enabled
+      double check_point_time = 0.0; // initTime; // TODO : Time of check-point 
+      int step = (int)((curTime + check_point_time) * host_mp_freq); //< Index for time
       if (step >= host_motionPath.size()) step = (int)(host_motionPath.size() - 1); //< Index-limit
       else if (step < 0) step = 0;
       for (int d = 0; d < 3; d++) d_motionPath[d] = (PREC_G)host_motionPath[step][d]; //< Set vals
-      fmt::print("Set motionPath with step[{}], dt[{} s], time[{} s], disp[{} m], vel[{} m/s]\n", step, (1.0/host_mp_freq), d_motionPath[0], d_motionPath[1], d_motionPath[2]);
+      if (g_log_level >= 3) fmt::print("Set motionPath with step[{}], dt[{} s], time[{} s], disp_x[{} m], vel_y[{} m/s]\n", step, (1.0/host_mp_freq), d_motionPath[0], d_motionPath[1], d_motionPath[2]);
+    } else {
+      for (int d = 0; d < 3; d++) d_motionPath[d] = 0.f; // Zero-out d_motionPath if not enabled
     }
-    else 
-      for (int d = 0; d < 3; d++) d_motionPath[d] = 0.f;
   }
 
   template<material_e mt>
@@ -682,8 +676,8 @@ struct mgsp_benchmark {
   int getModelCnt(int did) const noexcept { return (int)h_model_cnt[did]; }
   void checkCapacity(int did) {
     // Check active block capacity
-    if (ebcnt[did] > curNumActiveBlocks[did] * 4/5 && checkedCnts[did][0] == 0) {
-      curNumActiveBlocks[did] = std::max(curNumActiveBlocks[did] * 5/4, (std::size_t)ebcnt[did]);
+    if (ebcnt[did] > curNumActiveBlocks[did] * 9/10 && checkedCnts[did][0] == 0) {
+      curNumActiveBlocks[did] = std::max(curNumActiveBlocks[did] * 9/8, (std::size_t)ebcnt[did]);
       checkedCnts[did][0] = 2; // 2 means resize of GPU blocks needed
       fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active blocks soon: [{}] -> [{}]\n", did, ebcnt[did], curNumActiveBlocks[did]);
     }
@@ -693,14 +687,14 @@ struct mgsp_benchmark {
         if (bincnt[did][mid] >= curNumActiveBins[did][mid] * 9/10 && checkedBinCnts[did][mid] == 0) {
           curNumActiveBins[did][mid] = std::max(curNumActiveBins[did][mid] * 9/8, (std::size_t)bincnt[did][mid]);
           checkedBinCnts[did][mid] = 2; // 2 means resize of GPU model's bins needed
-          fmt::print(fg(fmt::color::orange),"GPU[{}] MODEL[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
+          if (g_log_level >= 3) fmt::print(fg(fmt::color::orange),"GPU[{}] MODEL[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
         } 
       }
     } else {
       if (bincnt[did][0] >= curNumActiveBins[did][0] * 9/10 && checkedCnts[did][1] == 0) {
         curNumActiveBins[did][0] = std::max(curNumActiveBins[did][0] * 9/8, (std::size_t)bincnt[did][0]);
         checkedBinCnts[did][0] = 2; // 2 means resize of GPU's bins needed
-        fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, bincnt[did][0], curNumActiveBins[did][0]);
+        if (g_log_level >= 3) fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, bincnt[did][0], curNumActiveBins[did][0]);
       } 
     }
 
@@ -735,7 +729,7 @@ struct mgsp_benchmark {
   void sync() {
     std::unique_lock<std::mutex> lk{mut_ctrl};
     cv_ctrl.wait(lk, [this]() { return this->idleCnt == g_device_cnt; });
-    printDiv();
+    if (g_log_level >= 3) printDiv();
   }
   void issue(std::function<void(int)> job) {
     std::unique_lock<std::mutex> lk{mut_slave};
@@ -746,27 +740,28 @@ struct mgsp_benchmark {
     cv_slave.notify_all();
   }
   void main_loop() {
-    curFrame = 0;
-    nextTime = curTime + 1.0 / fps; // Initial next time
-    dt = dtDefault;
+    //curFrame = 0; // Set current frame as 0
+    nextTime = initTime + 1.0 / fps; // Initial next time
+    dt = dtDefault; // Set time-step to default
     //dt = compute_dt(0.f, curTime, nextTime, dtDefault);
     fmt::print(fmt::emphasis::bold, "curTime[{}] --dt[{}]--> nextTime[{}], defaultDt[{}].\n", curTime, dt, nextTime, dtDefault);
     initial_setup();
     fmt::print("Begin main loop.\n");
     curTime += dt;
     for (curFrame = 1; curFrame <= nframes; ++curFrame) {
+      int step_cnt = 0;
       for (; curTime < nextTime; curTime += dt, curStep++) {
-        setMotionPath(host_motionPath, curTime); //< Update motion-path for time
+        setMotionPath(host_motionPath, curTime); //< Update motion-paths for this time-step
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
-          cuDev.setContext(); // JB
-          checkCapacity(did);
+          cuDev.setContext(); // JB, maybe remove?
+          checkCapacity(did); 
           PREC_G *d_maxVel = tmps[did].d_maxVel;
           PREC_G *d_kinetic_energy_grid = tmps[did].d_kinetic_energy_grid;
           PREC_G *d_gravity_energy_grid = tmps[did].d_gravity_energy_grid;
 
           CudaTimer timer{cuDev.stream_compute()};
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           checkCudaErrors(cudaMemsetAsync(d_maxVel, 0, sizeof(PREC_G),
                                           cuDev.stream_compute()));
           checkCudaErrors(cudaMemsetAsync(d_kinetic_energy_grid, 0, sizeof(PREC_G),
@@ -783,17 +778,18 @@ struct mgsp_benchmark {
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
                 gridBlocks[0][did], partitions[rollid][did], dt,
                 (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime, grav[1]);
+                // TODO: Grav as full vector
           else { // If using basic geometry boundaries
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
                      g_num_grid_blocks_per_cuda_block,
                  g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
                 update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime, grav, gridBoundary, d_gridBoundaryConfigs, d_motionPath, length);
+                gridBlocks[0][did], partitions[rollid][did], dt, d_maxVel, curTime, grav, gridBoundary, d_gridBoundaryConfigs, d_motionPath, length, froude_scaling);
             
 
             // TODO: Query grid-energy at user-specified frequency
-            if (flag_ge && (fmod(curTime, 1/host_ge_freq) < dt || curTime + dt > nextTime)) {
+            if (flag_ge && (fmod(curTime, (double)1.0/host_ge_freq) < dt || curTime + dt > nextTime)) {
               cuDev.syncStream<streamIdx::Compute>(); // May not be needed
               cuDev.compute_launch(
                   {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) / g_num_grid_blocks_per_cuda_block, g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
@@ -802,10 +798,10 @@ struct mgsp_benchmark {
             }
           }
           cuDev.syncStream<streamIdx::Compute>();
-          if (flag_ge && (fmod(curTime, 1/host_ge_freq) < dt || curTime + dt > nextTime)) {
-            checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
-                                            sizeof(PREC_G), cudaMemcpyDefault,
-                                            cuDev.stream_compute()));
+          checkCudaErrors(cudaMemcpyAsync(&maxVels[did], d_maxVel,
+                                          sizeof(PREC_G), cudaMemcpyDefault,
+                                          cuDev.stream_compute()));
+          if (flag_ge && (fmod(curTime, (double)1.0/host_ge_freq) < dt || curTime + dt > nextTime)) {
             checkCudaErrors(cudaMemcpyAsync(&kinetic_energy_grid_vals[did], d_kinetic_energy_grid,
                                             sizeof(PREC_G), cudaMemcpyDefault,
                                             cuDev.stream_compute()));
@@ -813,23 +809,22 @@ struct mgsp_benchmark {
                                             sizeof(PREC_G), cudaMemcpyDefault,
                                             cuDev.stream_compute()));
           }
-          timer.tock(fmt::format("GPU[{}] frame {} step {} grid_update_query.\n",
+          if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} grid_update_query.\n",
                                  did, curFrame, curStep));
         });
         sync();
         //if (curStep == 0) dt = dt*2; //< Use regular time-step after leap-frog init.
 
         /// * Host: Aggregate values from grid update
-        PREC_G maxVel = 0.0; //< Velocity max across all GPUs
+        PREC_G maxVel = 0.0; //< Max grid-node velocity across all GPUs
         for (int did = 0; did < g_device_cnt; ++did)
           if (maxVels[did] > maxVel) maxVel = maxVels[did];
-        maxVel = std::sqrt(maxVel);
+        maxVel = std::sqrt(maxVel); // maxVels squared in update_grid_velocity_query_max()
 
         PREC_G sum_kinetic_energy_grid = 0.0; //< Kinetic energy summed across all GPUs
         PREC_G sum_gravity_energy_grid = 0.0; //< Gravity energy summed across all GPUs
-        if (flag_ge && (fmod(curTime, 1/host_ge_freq) < dt || curTime + dt > nextTime)){
+        if (flag_ge && (fmod(curTime, (double)1.0/host_ge_freq) < dt || curTime + dt > nextTime)){
           for (int did = 0; did < g_device_cnt; ++did) {
-            if (maxVels[did] > maxVel) maxVel = maxVels[did];
             sum_kinetic_energy_grid += kinetic_energy_grid_vals[did];
             sum_gravity_energy_grid += gravity_energy_grid_vals[did];
           }
@@ -837,7 +832,9 @@ struct mgsp_benchmark {
 
         if (false) nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
         else nextDt = dtDefault;
-        fmt::print(fmt::emphasis::bold, "curTime[{}] [s] --nextDt[{}]--> nextTime[{}] [s], defaultDt[{}] [s], maxVel[{}] [m/s], sum_kinetic_energy_grid[{}] [J]\n", curTime,  nextDt, nextTime, dtDefault, (maxVel*length), sum_kinetic_energy_grid);
+        
+        if (g_log_level >= 3 && step_cnt == 0) 
+          fmt::print(fmt::emphasis::bold, "curTime[{}] [s] --nextDt[{}]--> nextTime[{}] [s], defaultDt[{}] [s], maxVel[{}] [m/s], kinetic_energy[{}] [J]\n", curTime,  nextDt, nextTime, dtDefault, (maxVel*length), sum_kinetic_energy_grid);
 
         // * Run g2p2g, g2p-p2g, or g2p2v-v2fem2v-v2p2g pipeline on each GPU
         issue([this](int did) {
@@ -919,7 +916,7 @@ struct mgsp_benchmark {
           
               // Grid-to-Particle - F-Bar Update - Particle-to-Grid
               else if (!pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 // g2g_FBar Halo
                 if (partitions[rollid][did].h_count) {
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
@@ -931,10 +928,10 @@ struct mgsp_benchmark {
                       gridBlocks[0][did], gridBlocks[1][did]);
                 }
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_g2p_FBar", did, mid, curFrame, curStep));
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_g2p_FBar\n", did, mid, curFrame, curStep));
               
                 // p2g_FBar Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 if (partitions[rollid][did].h_count) {
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
                       (512 * 5 * sizeof(PREC_G)) + (512 * 4 * sizeof(PREC_G))},
@@ -944,12 +941,12 @@ struct mgsp_benchmark {
                       partitions[rollid ^ 1][did], partitions[rollid][did],
                       gridBlocks[0][did], gridBlocks[1][did]);
                 }
-                timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_p2g_FBar", did, mid, curFrame, curStep));
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_p2g_FBar\n", did, mid, curFrame, curStep));
               } //< End F-Bar
 
-              // Grid-to-Particle - F-Bar Update - Particle-to-Grid
+              // Grid-to-Particle - F-Bar Update - Particle-to-Grid - ASFLIP
               else if (pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 // g2g_FBar Halo
                 int shmem = (3 + 2) * (512 * sizeof(PREC_G));
                 if (partitions[rollid][did].h_count) {
@@ -962,10 +959,10 @@ struct mgsp_benchmark {
                       gridBlocks[0][did], gridBlocks[1][did]);
                 }
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_g2p_ASFLIP_FBar", did, mid, curFrame, curStep));
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_g2p_ASFLIP_FBar\n", did, mid, curFrame, curStep));
               
                 // p2g_FBar Halo
-                timer.tick();
+                if (g_log_level >= 3)timer.tick();
 #if DEBUG_COUPLED_UP
                   shmem = (10 + 9) * (g_arenavolume * sizeof(PREC_G));
 #else
@@ -981,16 +978,16 @@ struct mgsp_benchmark {
                       partitions[rollid ^ 1][did], partitions[rollid][did],
                       gridBlocks[0][did], gridBlocks[1][did]);
                 }
-                timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_p2g_ASFLIP_FBar", did, mid, curFrame, curStep));
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] MODEL[{}] frame {} step {} halo_p2g_ASFLIP_FBar\n", did, mid, curFrame, curStep));
               } //< End ASFLIP + F-Bar
 
               // Grid-to-Vertices - Update FEM - Vertices-to-Grid
               else if (pb.use_ASFLIP && pb.use_FEM && !pb.use_FBAR) {
                 // g2p2v - Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 if (partitions[rollid][did].h_count) 
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
-                      (512 * 6 * 4)},
+                      (512 * 6 * sizeof(PREC_G))},
                       g2p2v, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -998,11 +995,11 @@ struct mgsp_benchmark {
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2v", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2v\n", did,
                                       curFrame, curStep));
                 // g2p2v - Non-Halo
-                timer.tick();
-                cuDev.compute_launch({pbcnt[did], g_particle_batch, (512 * 6 * 4)}, 
+                if (g_log_level >= 3) timer.tick();
+                cuDev.compute_launch({pbcnt[did], g_particle_batch, (512 * 6 * sizeof(PREC_G))}, 
                     g2p2v, dt, nextDt, 
                     (const ivec3 *)nullptr, pb,
                     get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -1010,39 +1007,39 @@ struct mgsp_benchmark {
                     gridBlocks[0][did], gridBlocks[1][did],
                     d_vertices[did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non-halo_g2p2g", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non-halo_g2p2g\n", did,
                                       curFrame, curStep));
                 // v2fem2v - Halo and Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 match(elementBins[did])([&](const auto &eb) {
                   cuDev.compute_launch({(element_cnt[did] - 1) / 32 + 1, 32},
                       v2fem2v, (uint32_t)element_cnt[did], dt, nextDt,
                       d_vertices[did], d_element_IDs[did], eb);
                 });
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} v2fem2v", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} v2fem2v\n", did,
                                       curFrame, curStep));
                 // v2p2g - Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 if (partitions[rollid][did].h_count)
                   cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch,
-                      (512 * 6 * 4) + (512 * 7 * 4)},
+                      (512 * 6 * sizeof(PREC_G)) + (512 * 7 * sizeof(PREC_G))},
                       v2p2g, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
                       partitions[rollid ^ 1][did], partitions[rollid][did],
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
-                timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2p2g", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2p2g\n", did,
                                       curFrame, curStep));
               } //< End FEM
 
               // Grid-to-Vertices - Update FEM + Simple F-Bar - Vertices-to-Grid
               else if (pb.use_ASFLIP && pb.use_FEM && pb.use_FBAR) {
                 // g2p2v - F-Bar - Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 if (partitions[rollid][did].h_count)
-                  cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch, (512 * 6 * 4)},
+                  cuDev.compute_launch({partitions[rollid][did].h_count, g_particle_batch, (512 * 6 * sizeof(PREC_G))},
                       g2p2v_FBar, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -1050,12 +1047,12 @@ struct mgsp_benchmark {
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2v_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} halo_g2p2v_FBar\n", did,
                                       curFrame, curStep));
             
                 // g2p2v - F-Bar - Non-Halo
-                timer.tick();
-                cuDev.compute_launch({pbcnt[did], g_particle_batch, (512 * 6 * 4)}, 
+                if (g_log_level >= 3) timer.tick();
+                cuDev.compute_launch({pbcnt[did], g_particle_batch, (512 * 6 * sizeof(PREC_G))}, 
                     g2p2v_FBar, dt, nextDt, 
                     (const ivec3 *)nullptr, pb,
                     get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -1063,34 +1060,34 @@ struct mgsp_benchmark {
                     gridBlocks[0][did], gridBlocks[1][did],
                     d_vertices[did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non-halo_g2p2v_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non-halo_g2p2v_FBar\n", did,
                                       curFrame, curStep));
 
                 // v2fem_FBar - Halo and Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 match(elementBins[did])([&](const auto &eb) {
                     cuDev.compute_launch({(element_cnt[did] - 1) / 32 + 1, 32},
                         v2fem_FBar, (uint32_t)element_cnt[did], dt, nextDt,
                         d_vertices[did], d_element_IDs[did], eb);
                 });
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} v2fem_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} v2fem_FBar\n", did,
                                       curFrame, curStep));
                 // fem2v_FBar - Halo and Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 match(elementBins[did])([&](const auto &eb) {
                     cuDev.compute_launch({(element_cnt[did] - 1) / 32 + 1, 32},
                         fem2v_FBar, (uint32_t)element_cnt[did], dt, nextDt,
                         d_vertices[did], d_element_IDs[did], eb);
                 });
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} fem2v_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} fem2v_FBar\n", did,
                                       curFrame, curStep));
                 // v2p2g_FBar - Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 if (partitions[rollid][did].h_count) {
                   cuDev.compute_launch(
-                      {partitions[rollid][did].h_count, g_particle_batch, (512 * 6 * 4) + (512 * 7 * 4)},
+                      {partitions[rollid][did].h_count, g_particle_batch, (512 * 6 * sizeof(PREC_G)) + (512 * 7 * sizeof(PREC_G))},
                       v2p2g_FBar, dt, nextDt,
                       (const ivec3 *)partitions[rollid][did]._haloBlocks, pb,
                       get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
@@ -1098,7 +1095,7 @@ struct mgsp_benchmark {
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
                 }
-                timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2p2g_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} halo_v2p2g_FBar\n", did,
                                       curFrame, curStep));
               }  //< End FEM + F-Bar
             }); //< End Match for ParticleBins
@@ -1117,7 +1114,7 @@ struct mgsp_benchmark {
           //timer.tick();
           for (int mid=0; mid<getModelCnt(did); mid++) {
             match(particleBins[rollid][did][mid])([&](const auto &pb) {
-              // Grid-to-Particle-to-Grid - No ASFLIP
+              // Grid-to-Particle-to-Grid - No ASFLIP -- Default MLS-MPM Version
               if (!pb.use_ASFLIP  && !pb.use_FEM && !pb.use_FBAR) {
                 int shmem = (3 + 4) * (512 * sizeof(PREC_G));
                 cuDev.compute_launch(
@@ -1131,7 +1128,7 @@ struct mgsp_benchmark {
               // Grid-to-Particle-to-Grid - ASFLIP
               else if (pb.use_ASFLIP && !pb.use_FEM && !pb.use_FBAR) {
                 // g2p2g - Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 int shmem = (6 + 7) * (512 * sizeof(PREC_G));
                 cuDev.compute_launch(
                     {pbcnt[did], g_particle_batch, shmem}, g2p2g, dt,
@@ -1140,14 +1137,14 @@ struct mgsp_benchmark {
                         particleBins[rollid ^ 1][did][mid]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did]);
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p2g", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p2g\n", did,
                                       curFrame, curStep));
               } //< End G2P2G (MPM + ASFLIP)
 
               // Grid-to-Particle - Update F-Bar - Particle-to-Grid 
               else if (!pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
                 // g2p F-Bar - Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 // Recheck this
                 int shmem_g2p = (3*216 + 2*512) * (sizeof(PREC_G));
                 cuDev.compute_launch(
@@ -1159,10 +1156,10 @@ struct mgsp_benchmark {
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar\n", did,
                                       curFrame, curStep));          
                 // p2g F-Bar - Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 int shmem_p2g = (5 + 4) * (512 * sizeof(PREC_G));
                 cuDev.compute_launch(
                     {pbcnt[did], g_particle_batch, shmem_p2g}, 
@@ -1171,14 +1168,14 @@ struct mgsp_benchmark {
                     get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did]);
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar\n", did,
                                       curFrame, curStep));
               } //< End Non-Halo F-Bar 
 
               // Grid-to-Particle - Update F-Bar - Particle-to-Grid ASFLIP
               else if (pb.use_ASFLIP && !pb.use_FEM && pb.use_FBAR) {
                 // g2p F-Bar ASFLIP - Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
                 int shmem = (3 + 2) * (g_arenavolume * sizeof(PREC_G));
                 cuDev.compute_launch(
                     {pbcnt[did], g_particle_batch, shmem}, 
@@ -1189,11 +1186,11 @@ struct mgsp_benchmark {
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did]);
                 cuDev.syncStream<streamIdx::Compute>();
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar_ASFLIP", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_g2p_FBar_ASFLIP\n", did,
                                       curFrame, curStep));          
 
                 // p2g F-Bar - Non-Halo
-                timer.tick();
+                if (g_log_level >= 3) timer.tick();
 #if DEBUG_COUPLED_UP
                 shmem = (10 + 9) * (g_arenavolume * sizeof(PREC_G));
 #else 
@@ -1207,13 +1204,13 @@ struct mgsp_benchmark {
                         particleBins[rollid ^ 1][did][mid]),
                     partitions[rollid ^ 1][did], partitions[rollid][did],
                     gridBlocks[0][did], gridBlocks[1][did]);
-                timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar_ASFLIP", did,
+                if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_p2g_FBar_ASFLIP\n", did,
                                       curFrame, curStep));
               } //< End Non-Halo F-Bar + ASFLIP
 
               // Grid-to-Vertices - Update FEM - Vertices-to-Grid
               else if (pb.use_ASFLIP && pb.use_FEM && !pb.use_FBAR) {
-                  timer.tick();
+                  if (g_log_level >= 3) timer.tick();
                   cuDev.compute_launch(
                       {pbcnt[did], g_particle_batch, (512 * 6 * 4) + (512 * 7 * 4)}, v2p2g, dt,
                       nextDt, (const ivec3 *)nullptr, pb,
@@ -1221,13 +1218,13 @@ struct mgsp_benchmark {
                       partitions[rollid ^ 1][did], partitions[rollid][did],
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
-                  timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2p2g", did,
+                  if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2p2g\n", did,
                                         curFrame, curStep));
               } //< End Non-Halo FEM + ASFLIP
 
               // Grid-to-Vertices - Update FEM + F-Bar - Vertices-to-Grid
               else if (pb.use_ASFLIP && pb.use_FEM && pb.use_FBAR) {
-                  timer.tick();
+                  if (g_log_level >= 3) timer.tick();
                   cuDev.compute_launch(
                       {pbcnt[did], g_particle_batch, (512 * 6 * 4) + (512 * 7 * 4)}, 
                       v2p2g_FBar, dt, nextDt, (const ivec3 *)nullptr, pb,
@@ -1235,14 +1232,14 @@ struct mgsp_benchmark {
                       partitions[rollid ^ 1][did], partitions[rollid][did],
                       gridBlocks[0][did], gridBlocks[1][did],
                       d_vertices[did]);
-                  timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2p2g_FBar", 
+                  if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} non_halo_v2p2g_FBar\n", 
                                           did, curFrame, curStep));
               } //< End Non-Halo FEM + ASFLIP + F-Bar
             });
             cuDev.syncStream<streamIdx::Compute>();
           }
           // Resize partition, particles have moved into/out of cells/blocks in the domain.
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           if (checkedCnts[did][0] > 0) {
             if (g_buckets_on_particle_buffer) {
               partitions[rollid^1][did].resizePartition(device_allocator{}, curNumActiveBlocks[did]);
@@ -1258,7 +1255,7 @@ struct mgsp_benchmark {
             checkedCnts[did][0]--;
           }
           cuDev.syncStream<streamIdx::Compute>();
-          timer.tock(fmt::format("GPU[{}] frame {} step {} resize_buckets", 
+          if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} resize_buckets\n", 
                                   did, curFrame, curStep));
         });
         sync();
@@ -1268,7 +1265,7 @@ struct mgsp_benchmark {
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
           CudaTimer timer{cuDev.stream_compute()};
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           /// * Mark particle blocks
           if (g_buckets_on_particle_buffer) {
             for (int mid=0; mid<getModelCnt(did); mid++) {
@@ -1386,11 +1383,11 @@ struct mgsp_benchmark {
               cuDev.syncStream<streamIdx::Compute>();
             }
           }
-          timer.tock(fmt::format("GPU[{}] frame {} step {} update_partition",
+          if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} update_partition\n",
                                  did, curFrame, curStep));
 
           /// * Register neighboring blocks 
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           cuDev.compute_launch({(pbcnt[did] + 127) / 128, 128},
                                register_neighbor_blocks, (uint32_t)pbcnt[did],
                                partitions[rollid ^ 1][did]);
@@ -1398,8 +1395,8 @@ struct mgsp_benchmark {
           checkCudaErrors(cudaMemcpyAsync(&nbcnt[did], partitions[rollid ^ 1][did]._cnt, 
                                 sizeof(int), cudaMemcpyDefault, cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
-          timer.tock(
-              fmt::format("GPU[{}] frame {} step {} build_partition_for_grid",
+          if (g_log_level >= 3) timer.tock(
+              fmt::format("GPU[{}] frame {} step {} build_partition_for_grid\n",
                           did, curFrame, curStep));
 
           /// * Check grid-block capacity, resize if needed
@@ -1407,7 +1404,7 @@ struct mgsp_benchmark {
             gridBlocks[0][did].resize(device_allocator{}, curNumActiveBlocks[did]);
           }
           /// * Rearrange grid blocks
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           gridBlocks[0][did].reset(ebcnt[did], cuDev);
           cuDev.compute_launch(
               {prev_nbcnt, g_blockvolume}, copy_selected_grid_blocks,
@@ -1415,7 +1412,7 @@ struct mgsp_benchmark {
               partitions[rollid ^ 1][did], (const int *)activeBlockMarks,
               gridBlocks[1][did], gridBlocks[0][did]);
           cuDev.syncStream<streamIdx::Compute>();
-          timer.tock(fmt::format("GPU[{}] frame {} step {} copy_grid_blocks",
+          if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} copy_grid_blocks\n",
                                  did, curFrame, curStep));
           gridBlocks[0][did].reset_FBar(ebcnt[did], cuDev);
 
@@ -1435,7 +1432,7 @@ struct mgsp_benchmark {
           CudaTimer timer{cuDev.stream_compute()};
 
           /// * Register exterior blocks
-          timer.tick();
+          if (g_log_level >= 3) timer.tick();
           cuDev.compute_launch({(pbcnt[did] + 127) / 128, 128},
                                register_exterior_blocks, (uint32_t)pbcnt[did],
                                partitions[rollid ^ 1][did]);
@@ -1443,23 +1440,25 @@ struct mgsp_benchmark {
               &ebcnt[did], partitions[rollid ^ 1][did]._cnt, sizeof(int),
               cudaMemcpyDefault, cuDev.stream_compute()));
           cuDev.syncStream<streamIdx::Compute>();
-          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
+          if (g_log_level >= 3) fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
                      "GPU[{}] Block Count: Particle {}, Neighbor {}, Exterior {}, Allocated [{}]\n",
                      did, pbcnt[did], nbcnt[did], ebcnt[did], curNumActiveBlocks[did]);
-          for (int mid=0; mid < getModelCnt(did); mid++) {
+          if (g_log_level >= 3) for (int mid=0; mid < getModelCnt(did); mid++) {
             fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
                       "GPU[{}] MODEL[{}] Bin Count: Particle Bins {}, Allocated Bins [{}]\n",
                       did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
           }
-          timer.tock(fmt::format(
-              "GPU[{}] frame {} step {} build_partition_for_particles", did,
+          if (g_log_level >= 3) timer.tock(fmt::format(
+              "GPU[{}] frame {} step {} build_partition_for_particles\n", did,
               curFrame, curStep));
         });
         sync();
 
         // * Write grid energy values
-        host_ge_freq = host_gt_freq;
-        if (flag_ge && (fmod(curTime, (1.f/host_ge_freq)) < dt || curTime + dt >= nextTime))
+        //host_ge_freq = host_gt_freq;
+        host_ge_freq = fps * 60; // Placeholder, should let user specify in input scene.json
+        host_pe_freq = fps * 60; // Placeholder, should let user specify in input scene.json
+        if (flag_ge && (fmod(curTime, (1.0/host_ge_freq)) < dt || curTime + dt >= nextTime))
         {
           std::string fn = std::string{"grid_energy_time_series.csv"};
           gridEnergyFile.open(fn, std::ios::out | std::ios::app);
@@ -1468,19 +1467,19 @@ struct mgsp_benchmark {
         }
         
         // * Write particle energy values
-        host_pe_freq = host_gt_freq;
-        if (flag_pe && (fmod(curTime, (1.f/host_pe_freq)) < dt || curTime + dt >= nextTime))
+        if (flag_pe && (fmod(curTime, (1.0/host_pe_freq)) < dt || curTime + dt >= nextTime))
         {
           issue([this](int did) {
             get_particle_energy(did);
           });
           sync();
+          
           output_particle_energy();
+          sync(); // Is this needed? JB
         } //< End of particle energy output
-        sync();
 
         // Check if end of frame or output frequency
-        if (flag_gt && (fmod(curTime, (1.f/host_gt_freq)) < dt || curTime + dt >= nextTime)) {
+        if (flag_gt && (fmod(curTime, (1.0/host_gt_freq)) < dt || curTime + dt >= nextTime)) {
           issue([this](int did) {
             IO::flush();
             output_gridcell_target(did); // Output gridTarget
@@ -1489,7 +1488,7 @@ struct mgsp_benchmark {
         } //< End-of Grid-Target output
 
         // Check if end of frame or output frequency
-        if (flag_pt && (fmod(curTime, (1.f/host_pt_freq)) < dt || curTime + dt >= nextTime)) {
+        if (flag_pt && (fmod(curTime, (1.0/host_pt_freq)) < dt || curTime + dt >= nextTime)) {
           issue([this](int did) {
             IO::flush();
             output_particle_target(did); // Output particleTarget
@@ -1497,6 +1496,7 @@ struct mgsp_benchmark {
           sync();
         } //< End-of Particle-Target output
 
+        step_cnt += 1; // Increment step count
         dt = nextDt; // Update time-step
         rollid ^= 1; // Update rolling index
       } //< End of time-step
@@ -1516,7 +1516,20 @@ struct mgsp_benchmark {
       });
       sync();
 
-      nextTime = 1.f * (curFrame + 1) / fps; // Next frame end time
+      
+      for (int did=0; did < g_device_cnt; ++did) {
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
+                    "GPU[{}] Block Count: Particle {}, Neighbor {}, Exterior {}, Allocated [{}]\n",
+                    did, pbcnt[did], nbcnt[did], ebcnt[did], curNumActiveBlocks[did]);
+        for (int mid=0; mid < getModelCnt(did); mid++) {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow),
+                    "GPU[{}] MODEL[{}] Bin Count: Particle Bins {}, Allocated Bins [{}]\n",
+                    did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
+        }
+      }
+
+      //nextTime = (double)(1.0*( (curFrame + 1) / fps ) + initTime); // Next frame end time
+      nextTime += 1.0 / fps;
       fmt::print(fmt::emphasis::bold | fg(fmt::color::red),
                  "----------------------------------------------------------------\n");
     } //< End of frame
@@ -1600,13 +1613,13 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(did);
     cuDev.setContext();
 
-    if (curTime == 0) rollid = rollid^1;
+    if (curTime == initTime) rollid = rollid^1;
     PREC_G *d_kinetic_energy_particles = tmps[did].d_kinetic_energy_particles;
     PREC_G *d_gravity_energy_particles = tmps[did].d_gravity_energy_particles;
     PREC_G *d_strain_energy_particles  = tmps[did].d_strain_energy_particles;
 
     CudaTimer timer{cuDev.stream_compute()};
-    timer.tick();
+    if (g_log_level >= 3) timer.tick();
 
     checkCudaErrors(cudaMemsetAsync(d_kinetic_energy_particles, 0, sizeof(PREC_G),
                                     cuDev.stream_compute()));
@@ -1616,7 +1629,6 @@ struct mgsp_benchmark {
                                     cuDev.stream_compute()));
     cuDev.syncStream<streamIdx::Compute>();
     for (int mid=0; mid<getModelCnt(did); mid++) {
-      // int mid = mid + did*g_models_per_gpu;
       match(particleBins[rollid ^ 1][did][mid])([&](const auto &pb) {
         cuDev.compute_launch({pbcnt[did], 128}, query_energy_particles,
                             partitions[rollid ^ 1][did], partitions[rollid][did],
@@ -1633,8 +1645,8 @@ struct mgsp_benchmark {
     checkCudaErrors(cudaMemcpyAsync(&strain_energy_particle_vals[did], d_strain_energy_particles,
                                     sizeof(PREC_G), cudaMemcpyDefault,
                                     cuDev.stream_compute()));
-    if (curTime == 0 ) rollid = rollid^1;
-    timer.tock(fmt::format("GPU[{}] frame {} step {} query_energy_particles",
+    if (curTime == initTime ) rollid = rollid^1;
+    if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] frame {} step {} query_energy_particles\n",
                           did, curFrame, curStep));
     cuDev.syncStream<streamIdx::Compute>();
   }
@@ -1673,7 +1685,7 @@ struct mgsp_benchmark {
     cuDev.syncStream<streamIdx::Compute>();
 
     for (int mid=0; mid<getModelCnt(did); mid++) {
-      timer.tick();
+      if (g_log_level >= 3)timer.tick();
       int i = 0;
       parcnt = 0;
       for (int j=0;j<g_max_particle_trackers; j++) 
@@ -1723,7 +1735,7 @@ struct mgsp_benchmark {
           if (j >= num_particle_trackers[did][mid]) continue;
           particleTrackFile[did][mid] << "," << trackVal[j];
         }
-        particleTrackFile[did][mid] << "\n";
+        particleTrackFile[did][mid] << '\n';
         particleTrackFile[did][mid].close();
       }      
       
@@ -1751,7 +1763,7 @@ struct mgsp_benchmark {
         });
       }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles", rank, did, mid, curFrame, curStep));
+      timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles\n", rank, did, mid, curFrame, curStep));
     }
   }
 
@@ -1822,7 +1834,7 @@ struct mgsp_benchmark {
     IO::insert_job(
         [fn, e = host_element_attribs[did]]() { write_partio_finite_elements<PREC>(fn, e); });
     
-    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_elements", did,
+    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_elements\n", did,
                            curFrame, curStep));
     }
   }
@@ -1839,7 +1851,7 @@ struct mgsp_benchmark {
     {
       // * IO::flush();    // Clear IO
       int gridID = 0;
-      if (curTime == 0){
+      if (curTime == initTime){
         gridID += 1;
         rollid = rollid^1;
         host_gridTarget[did].resize(grid_tarcnt[i][did]);
@@ -1898,7 +1910,7 @@ struct mgsp_benchmark {
       fmt::print(fg(fmt::color::red), "GPU[{}] Total number of gridTarget[{}] grid-nodes: {}\n", did, i, grid_tarcnt[i][did]);
       fmt::print(fg(fmt::color::red), "GPU[{}] Value aggregate in gridTarget[{}]: {} \n", did, i, valAgg);
 
-      if (curTime + dt >= nextTime || curTime == 0) 
+      if (curTime + dt >= nextTime || curTime == initTime) 
       {
         // Asynchronously copy data from target (device) to target (host)
         host_gridTarget[did].resize(grid_tarcnt[i][did]);
@@ -1916,19 +1928,19 @@ struct mgsp_benchmark {
       }
     
       // Output summed grid-target value to *.csv
-      if (fmod(curTime, (1.f/host_gt_freq)) < dt) 
+      if (fmod(curTime, (1.0/host_gt_freq)) < dt) 
       {
         std::string fn = std::string{"gridTarget"} + "[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
         gridTargetFile[did].open (fn, std::ios::out | std::ios::app);
         gridTargetFile[did] << curTime << "," << valAgg << "\n";
         gridTargetFile[did].close();
       }
-      if (curTime == 0){
+      if (curTime == initTime){
         IO::flush();    // Clear IO
         rollid = rollid^1;
       }
     }
-    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_cells", did,
+    timer.tock(fmt::format("GPU[{}] frame {} step {} retrieve_cells\n", did,
                            curFrame, curStep));
   }
 
@@ -1964,7 +1976,7 @@ struct mgsp_benchmark {
             cudaMemsetAsync(d_valAgg, 0, sizeof(PREC), cuDev.stream_compute()));
         cuDev.syncStream<streamIdx::Compute>();
 
-        if (curTime == 0) {
+        if (curTime == initTime) {
           particleID = rollid;
           host_particleTarget[did][mid].resize(particle_tarcnt[i][did]);
           checkCudaErrors(
@@ -1980,7 +1992,7 @@ struct mgsp_benchmark {
         }
 
         // Zero-out particleTarget
-        if (curTime + dt >= nextTime || curTime == 0) {
+        if (curTime + dt >= nextTime || curTime == initTime) {
           checkCudaErrors(
               cudaMemsetAsync((void *)&d_particleTarget[did].val_1d(_0, 0), 0,
                               sizeof(std::array<PREC, g_particle_target_attribs>) * (g_particle_target_cells),
@@ -2015,7 +2027,7 @@ struct mgsp_benchmark {
         // }      
 
         // * particleTarget per-frame full output      
-        if (curTime + dt >= nextTime || curTime == 0)
+        if (curTime + dt >= nextTime || curTime == initTime)
         {
           host_particleTarget[did][mid].resize(particle_tarcnt[i][did]);
           checkCudaErrors(
@@ -2065,7 +2077,7 @@ struct mgsp_benchmark {
       checkCudaErrors(cudaMemcpyAsync(
           &pbcnt[did], partitions[rollid ^ 1][did]._cnt, sizeof(int),
           cudaMemcpyDefault, cuDev.stream_compute()));
-      timer.tock(fmt::format("GPU[{}] step {} init_table", did, curStep));
+      timer.tock(fmt::format("GPU[{}] step {} init_table\n", did, curStep));
 
       timer.tick();
       cuDev.resetMem(); // Reset device memory pool
@@ -2293,7 +2305,7 @@ struct mgsp_benchmark {
                           partitions[rollid][did]._blockbuckets);
       }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("GPU[{}] step {} init_grid", did, curStep));
+      timer.tock(fmt::format("GPU[{}] step {} init_grid\n", did, curStep));
     });
     sync();
 
@@ -2402,7 +2414,7 @@ struct mgsp_benchmark {
     issue([this](int did) {
       auto &cuDev = Cuda::ref_cuda_context(did);
       CudaTimer timer{cuDev.stream_compute()};
-      timer.tick();
+      if (g_log_level >= 3) timer.tick();
       /// Initialize GPU grid overlap marks
       partitions[rollid ^ 1][did].resetOverlapMarks(nbcnt[did], cuDev.stream_compute());
       cuDev.syncStream<streamIdx::Compute>();
@@ -2429,12 +2441,12 @@ struct mgsp_benchmark {
       partitions[rollid ^ 1][did].retrieveHaloCount(cuDev.stream_compute());
       outputHaloGridBlocks[did].retrieveCounts(cuDev.stream_compute());
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("GPU[{}] step {} halo_tagging.", did, curStep));
+      if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] step {} halo_tagging.", did, curStep));
 
-      fmt::print(fg(fmt::color::green), "Halo particle blocks GPU[{}]: [{}]\n", did,
+      if (g_log_level >= 3) fmt::print(fg(fmt::color::green), "Halo particle blocks GPU[{}]: [{}]\n", did,
                  partitions[rollid ^ 1][did].h_count);
       for (int otherdid = 0; otherdid < g_device_cnt; otherdid++)
-        fmt::print(fg(fmt::color::green), "Halo grid blocks GPU[{}] with GPU[{}]: [{}]\n", did,
+        if (g_log_level >= 3) fmt::print(fg(fmt::color::green), "Halo grid blocks GPU[{}] with GPU[{}]: [{}]\n", did,
                    otherdid, outputHaloGridBlocks[did].h_counts[otherdid]);
       //cuDev.syncStream<streamIdx::Compute>(); // JB?
       //inputHaloGridBlocks[did].temp_deallocate(temp_allocator{did}); // JB
@@ -2446,7 +2458,7 @@ struct mgsp_benchmark {
     /// init halo grid blocks
     issue([this](int did) {
       auto &cuDev = Cuda::ref_cuda_context(did); //< JB, may need to remove
-      fmt::print(fg(fmt::color::green), " GPU[{}] Start collect halo grid blocks\n", did);
+      if (g_log_level >= 3) fmt::print(fg(fmt::color::green), " GPU[{}] Start collect halo grid blocks\n", did);
       std::vector<uint32_t> counts(g_device_cnt);
       outputHaloGridBlocks[did].initBuffer(temp_allocator{did}, outputHaloGridBlocks[did].h_counts);
       for (int otherdid = 0; otherdid < g_device_cnt; otherdid++)
@@ -2459,7 +2471,7 @@ struct mgsp_benchmark {
     issue([this, gid](int did) {
       auto &cuDev = Cuda::ref_cuda_context(did);
       CppTimer timer{};
-      timer.tick();
+      if (g_log_level >= 3) timer.tick();
       /// Share local GPU active Halo Blocks with neighboring GPUs
       for (int otherdid = 0; otherdid < g_device_cnt; otherdid++)
         if (otherdid != did) {
@@ -2475,7 +2487,7 @@ struct mgsp_benchmark {
           } else
             inputHaloGridBlocks[otherdid].h_counts[did] = 0; //< Zero count if no other GPUs
         }
-      timer.tock(
+      if (g_log_level >= 3) timer.tock(
           fmt::format("GPU[{}] step {} collect_send_halo_grid.\n", did, curStep));
       //inputHaloGridBlocks[did].temp_deallocate(temp_allocator{did});
       //outputHaloGridBlocks[did].temp_deallocate(temp_allocator{did});
@@ -2487,7 +2499,7 @@ struct mgsp_benchmark {
     issue([this, gid](int did) {
       auto &cuDev = Cuda::ref_cuda_context(did);
       CppTimer timer{};
-      timer.tick();
+      if (g_log_level >= 3) timer.tick();
       /// Receiving active Halo Blocks from other GPU devices, merge with local Blocks
       for (int otherdid = 0; otherdid < g_device_cnt; otherdid++)
         if (otherdid != did) {
@@ -2505,7 +2517,7 @@ struct mgsp_benchmark {
           }
         }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("GPU[{}] step {} receive_reduce_halo_grid.\n", did,
+      if (g_log_level >= 3) timer.tock(fmt::format("GPU[{}] step {} receive_reduce_halo_grid.\n", did,
                              curStep));
       //cuDev.resetMem(); // JB
       //inputHaloGridBlocks[did].temp_deallocate(temp_allocator{did}) ; // JB
@@ -2518,11 +2530,14 @@ struct mgsp_benchmark {
   // * Declare Simulation basic run-time settings
   PREC length; ///< Max length of domain, [m]
   uint64_t domainCellCnt; ///< Max number of cells in domain
-  float dt, nextDt, dtDefault, curTime, nextTime, maxVel;
+  double dt, nextDt, dtDefault; // time-step, next time-step, def. time-step [sec]
+  double  curTime, nextTime; // Current time, next time [sec]
+  PREC_G maxVel; // Max velocity on the MPM grid [m/s]
   pvec3 grav; ///< Gravity 3D vector, [m/s^2]
-  uint64_t curFrame, curStep, fps, nframes;
-  pvec3 vel0[g_device_cnt][g_models_per_gpu]; ///< Sets initial velocities per gpu model, not individual particles
-  float initTime = 0.0f; ///< Start time of sim, [sec]
+  uint64_t curFrame, curStep, fps, nframes; // Current frame, cur. step, frames-per-sec, num frames
+  pvec3 vel0[g_device_cnt][g_models_per_gpu]; ///< Set init. velocity on all particles per gpu model
+  double initTime = 0.0; ///< Start time of sim, [sec]
+  double froude_scaling = 1.0; ///< Length scaling factor for Froude similarity
 
   // * Data-structures on GPUs or cast by kernels
   std::vector<Partition<1>> partitions[2]; ///< Organizes partition + halo info, halo_buffer.cuh

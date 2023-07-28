@@ -23,6 +23,7 @@
 #include <mpi.h>
 #endif
 
+
 #if 0
 #include <ghc/filesystem.hpp>
 namespace fs = ghc::filesystem;
@@ -30,6 +31,24 @@ namespace fs = ghc::filesystem;
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 #endif
+
+// #if 1
+// #include <ghc/filesystem.hpp>
+// namespace fs = ghc::filesystem;
+// #else
+// #include <experimental/filesystem>
+// namespace fs = std::experimental::filesystem;
+// #endif
+
+// Above had issues, probably C++ version related. Maybe windows/linux 
+// Took this from build/_deps/filesystem-src/include/ghc/filesystem.hpp verbatim:
+// #if defined(__cplusplus) && __cplusplus >= 201703L && defined(__has_include) && __has_include(<filesystem>)
+// #include <filesystem>
+// namespace fs = std::filesystem;
+// #else
+// #include <ghc/filesystem.hpp>
+// namespace fs = ghc::filesystem;
+// #endif
 
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -586,7 +605,7 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum, double fr_scale = 1.0) {
   PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
   int i_lim, j_lim, k_lim; // Number of par. per span direction
   i_lim = (int)((span[0]) / ppl_dx + 1.0); 
@@ -614,6 +633,11 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   bathy[4] = 1.75; //(14.63f / 24.f) + bathy[3];
   bathy[5] = 0.0 + bathy[4];
   bathy[6] = (7.354 / 12.0) + bathy[5]; 
+  // Adjust OSU LWF bathymetry for Froude similarity scaling
+  for (int d=0; d<7; ++d) {
+    bathx[d] *= fr_scale;
+    bathy[d] *= fr_scale;
+  }
 
   bath_slope[0] = 0;
   bath_slope[1] = 0;
@@ -669,7 +693,7 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
 /// @param partition_end End corner of particle GPU partition, cut out everything beyond.
 void make_OSU_TWB(std::vector<std::array<PREC, 3>>& fields, 
                         mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
-                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum) {
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum, double fr_scale = 1.0) {
   PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
   int i_lim, j_lim, k_lim; // Number of par. per span direction
   i_lim = (int)((span[0]) / ppl_dx + 1.0); 
@@ -690,6 +714,12 @@ void make_OSU_TWB(std::vector<std::array<PREC, 3>>& fields,
   bathy[1] = (0.0) + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
   bathy[2] = (20.0 / 20.0) + bathy[1];
   bathy[3] = (0.0) + bathy[2];
+
+  // Adjust OSU TWB bathymetry for Froude similarity scaling
+  for (int d=0; d<4; ++d) {
+    bathx[d] *= fr_scale;
+    bathy[d] *= fr_scale;
+  }
 
   bath_slope[0] = 0.0;
   bath_slope[1] = 0.0;
@@ -874,7 +904,7 @@ void load_FEM_Elements(const std::string& filename, char sep,
 }
 
 
-void load_motionPath(const std::string& filename, char sep, MotionHolder& fields, int rate=1){
+void load_motionPath(const std::string& filename, char sep, MotionHolder& fields, int rate=1, double fr_scale = 1.0){
   std::ifstream in((filename).c_str());
   if (in) {
       int iter = 0;
@@ -887,6 +917,10 @@ void load_motionPath(const std::string& filename, char sep, MotionHolder& fields
           while (getline(sep, field, ',')) {
               if (col >= 3) break;
               if ((iter % rate) == 0) arr[col] = stof(field);
+
+              if (col == 0) arr[col] *= sqrt(fr_scale); // Adjust time for froude scaling
+              else if (col == 1) arr[col] *= fr_scale; // Adjust X position for froude scaling
+              else if (col == 2) arr[col] *= sqrt(fr_scale); // Adjust X velocity for froude scaling
               col++;
           }
           if ((iter % rate) == 0) fields.push_back(arr);
@@ -1310,7 +1344,10 @@ void parse_scene(std::string fn,
                  kTypeNames[itr->value.GetType()]);
     }
     mn::vec<PREC, 3> domain; // Domain size [meters] for whole 3D simulation
-    mn::vec<float, 2> time; // Time range [seconds] for simulation
+    mn::vec<double, 2> time; // Time range [seconds] for simulation
+
+    double froude_scaling = 1.0; // Froude length scaling to apply. Keeps Fr = U / sqrt(gL) constant while increasing lengths.
+
     {
       auto it = doc.FindMember("simulation");
       if (it != doc.MemberEnd()) {
@@ -1319,14 +1356,18 @@ void parse_scene(std::string fn,
           fmt::print(fmt::emphasis::bold,
               "-----------------------------------------------------------"
               "-----\n");
-          PREC sim_default_dx = CheckDouble(sim, "default_dx", 0.1);
-          float sim_default_dt = CheckFloat(sim, "default_dt", sim_default_dx/100.);
+          froude_scaling = CheckDouble(sim, "froude_scaling", 1.0);
+
+          PREC sim_default_dx = CheckDouble(sim, "default_dx", 0.1) * froude_scaling;
+          double sim_default_dt = ceil(CheckDouble(sim, "default_dt", sim_default_dx/100.) * sqrt(froude_scaling));
           uint64_t sim_fps = CheckUint64(sim, "fps", 60);
-          uint64_t sim_frames = CheckUint64(sim, "frames", 60);
+          uint64_t sim_frames = ceil(CheckUint64(sim, "frames", 60) * sqrt(froude_scaling));
           mn::pvec3 sim_gravity = CheckDoubleArray(sim, "gravity", mn::pvec3{0.,-9.81,0.});
           domain = CheckDoubleArray(sim, "domain", mn::pvec3{1.,1.,1.});
-          time[0] = CheckFloat(sim, "time", 0.f);
-          time[1] = time[0] + (float) sim_frames / (float) sim_fps;
+          for (int d=0; d<3 ; ++d) domain[d] *= froude_scaling;
+
+          time[0] = CheckDouble(sim, "time", 0.0) * sqrt(froude_scaling); //< Initial time [sec]
+          time[1] = time[0] + (double) sim_frames / (double) sim_fps; //< End time [sec]
           std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
 
@@ -1341,12 +1382,12 @@ void parse_scene(std::string fn,
           domainBlockCnt = (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z); // Force full domain, fix later
           fmt::print(fg(yellow),"Partitions _indexTable data-structure: Saved [{}] percent memory of preallocated partition _indexTable by reudcing domainBlockCnt from [{}] to run-time of [{}] using domain input relative to DOMAIN_BITS and default_dx.\n", reduction, mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z, domainBlockCnt);
           fmt::print(fg(cyan),
-              "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], fps[{}], frames[{}], gravity[{}, {}, {}], save_suffix[{}]\n",
-              l, domainBlockCnt, sim_default_dx, sim_default_dt,
-              sim_fps, sim_frames, sim_gravity[0], sim_gravity[1], sim_gravity[2], save_suffix);
+              "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], init_time[{}], fps[{}], frames[{}], gravity[{}, {}, {}], save_suffix[{}], froude_scaling[{}]\n", 
+              l, domainBlockCnt, sim_default_dx, sim_default_dt, time[0],
+              sim_fps, sim_frames, sim_gravity[0], sim_gravity[1], sim_gravity[2], save_suffix, froude_scaling);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
-              l, domainBlockCnt, sim_default_dt,
-              sim_fps, sim_frames, sim_gravity, save_suffix);
+              l, domainBlockCnt, sim_default_dt, time[0],
+              sim_fps, sim_frames, sim_gravity, froude_scaling, save_suffix);
           fmt::print(fmt::emphasis::bold,
               "-----------------------------------------------------------"
               "-----\n");
@@ -1540,19 +1581,19 @@ void parse_scene(std::string fn,
             algoConfigs.ASFLIP_beta_min = CheckDouble(model, "beta_min", 0.);
             algoConfigs.ASFLIP_beta_max = CheckDouble(model, "beta_max", 0.);
             algoConfigs.use_FBAR = CheckBool(model, "use_FBAR", true);
-            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.25);
+            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.25); 
 
             mn::config::MaterialConfigs materialConfigs;
-            materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); 
-            materialConfigs.rho = CheckDouble(model, "rho", 1e3); 
-            materialConfigs.CFL = CheckDouble(model, "CFL", 0.5);
+            materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); // particles per cell
+            materialConfigs.rho = CheckDouble(model, "rho", 1e3); // density
+            materialConfigs.CFL = CheckDouble(model, "CFL", 0.5); // CFL number
 
             auto initModel = [&](auto &positions, auto &velocity) {
               bool algo_error = false, mat_error  = false;
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
-                materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); 
-                materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); 
-                materialConfigs.visco = CheckDouble(model, "viscosity", 0.001);
+                materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); // bulk modulus
+                materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); // deriv bulk wrt pressure
+                materialConfigs.visco = CheckDouble(model, "viscosity", 0.001); // viscosity
 
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt(materialConfigs.bulk / materialConfigs.rho);
@@ -1739,9 +1780,12 @@ void parse_scene(std::string fn,
             partition_start = CheckDoubleArray(model, "partition_start", mn::pvec3{0.,0.,0.});
             partition_end = CheckDoubleArray(model, "partition_end", domain);
             for (int d = 0; d < 3; ++d) {
+              velocity[d] *= sqrt(froude_scaling);
               velocity[d] = velocity[d] / l;
-              partition_start[d]  = partition_start[d] / l + o;
-              partition_end[d]  = partition_end[d] / l + o;
+              partition_start[d] *= froude_scaling;
+              partition_start[d] = partition_start[d] / l + o;
+              if (partition_end[d] != domain[d]) partition_end[d] *= froude_scaling;
+              partition_end[d]   = partition_end[d] / l + o;
               if (partition_start[d] > partition_end[d]) {
                 fmt::print(fg(red), "GPU[{}] ERROR: Inverted partition (Element of partition_start > partition_end). Fix and Retry.", gpu_id); if (mn::config::g_log_level >= 3) getchar();
               } else if (partition_end[d] == partition_start[d]) {
@@ -1776,16 +1820,20 @@ void parse_scene(std::string fn,
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
                   mn::vec<PREC, 3> geometry_rotate, geometry_fulcrum, geometry_shear;
-                  geometry_span = CheckDoubleArray(geometry, "span", domain);
+                  geometry_span = CheckDoubleArray(geometry, "span", mn::pvec3{1.,1.,1.});
                   geometry_offset = CheckDoubleArray(geometry, "offset", mn::pvec3{0.,0.,0.});
                   geometry_array = CheckIntArray(geometry, "array", mn::ivec3{1,1,1});
                   geometry_spacing = CheckDoubleArray(geometry, "spacing", mn::pvec3{0.,0.,0.});
                   geometry_rotate = CheckDoubleArray(geometry, "rotate", mn::pvec3{0.,0.,0.});
                   geometry_fulcrum = CheckDoubleArray(geometry, "fulcrum", mn::pvec3{0.,0.,0.});           
                   for (int d = 0; d < 3; ++d) {
+                    geometry_span[d]    *= froude_scaling;
                     geometry_span[d]    = geometry_span[d]    / l;
+                    geometry_offset[d]  *= froude_scaling;
                     geometry_offset[d]  = geometry_offset[d]  / l + o;
-                    geometry_spacing[d] = geometry_spacing[d] / l;                    
+                    geometry_spacing[d] *= froude_scaling;
+                    geometry_spacing[d] = geometry_spacing[d] / l;
+                    geometry_fulcrum[d]  *= froude_scaling;                    
                     geometry_fulcrum[d] = geometry_fulcrum[d] / l + o;
                   }
                   mn::pvec3x3 rotation_matrix; rotation_matrix.set(0.0);
@@ -1832,7 +1880,7 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "Cylinder" || type == "cylinder")
                   {
-                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.);
+                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.) * froude_scaling;
                     std::string geometry_axis = CheckString(geometry, "axis", std::string{"X"});
 
                     if (operation == "Add" || operation == "add") {
@@ -1842,7 +1890,7 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "Sphere" || type == "sphere")
                   {
-                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.);
+                    PREC geometry_radius = CheckDouble(geometry, "radius", 0.) * froude_scaling;
                     if (operation == "Add" || operation == "add") {
                       make_sphere(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, geometry_radius, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
                     else if (operation == "Subtract" || operation == "subtract") {
@@ -1852,14 +1900,14 @@ void parse_scene(std::string fn,
                   else if (type == "OSU LWF" || type == "OSU_LWF_WATER")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                      make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, froude_scaling); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
                   else if (type == "OSU TWB" || type == "OSU_TWB_WATER")
                   {
                     if (operation == "Add" || operation == "add") {
-                      make_OSU_TWB(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum); }
+                      make_OSU_TWB(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, froude_scaling); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
                   }
@@ -1878,7 +1926,7 @@ void parse_scene(std::string fn,
                     if (operation == "Add" || operation == "add") {
                       if (geometry_file_path.extension() == ".sdf") 
                       {
-                        PREC geometry_scaling_factor = CheckDouble(geometry, "scaling_factor", 1);
+                        PREC geometry_scaling_factor = CheckDouble(geometry, "scaling_factor", 1) * froude_scaling;
                         int geometry_padding = CheckInt(geometry, "padding", 1);
                         if (geometry_scaling_factor <= 0) {
                           fmt::print(fg(red), "ERROR: [scaling_factor] must be greater than [0] for SDF file load (e.g. [2] doubles size, [0] erases size). Fix and Retry.\n"); if (mn::config::g_log_level >= 3) getchar(); }
@@ -1924,13 +1972,26 @@ void parse_scene(std::string fn,
                         // Scale particle positions to 1x1x1 simulation
                         for (int part=0; part < keep_track_of_particles; part++) {
                           for (int d = 0; d<3; d++) {
-                            models[total_id][part + shift_idx][d] = models[total_id][part + shift_idx][d] / l + geometry_offset_updated[d];
+                            models[total_id][part + shift_idx][d] = (models[total_id][part + shift_idx][d] * froude_scaling) / l + geometry_offset_updated[d];
                           }
-                          // Scale length based attributes to 1x1x1 simulation (e.g. Velocity)
+                          // Scale velocity based attributes to 1x1x1 simulation 
                           for (int d = 0; d < input_attribs.size(); d++) {
                             if (input_attribs[d] == "Velocity_X" || input_attribs[d] == "Velocity_Y" || input_attribs[d] == "Velocity_Z" )
-                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] / l; 
+                              attributes[part + shift_idx][d] = (attributes[part + shift_idx][d] * sqrt(froude_scaling)) / l; 
                           }
+                          // Scale force based attributes to 1x1x1 simulation 
+                          for (int d = 0; d < input_attribs.size(); d++) {
+                            if (input_attribs[d] == "Force_X" || input_attribs[d] == "Force_Y" || input_attribs[d] == "Force_Z" )
+                              attributes[part + shift_idx][d] = (attributes[part + shift_idx][d] * froude_scaling*froude_scaling*froude_scaling) / l; 
+                          }
+                          // Scale deformation based attributes by froude_scaling
+                          // ! Assumes J = sJ and JBar = sJBar currrently.
+                          // TODO: Fix J to not be sJ (1-J), 
+                          for (int d = 0; d < input_attribs.size(); d++) {
+                            if (input_attribs[d] == "J" || input_attribs[d] == "JBar" || input_attribs[d] == "sJ"|| input_attribs[d] == "sJBar" )
+                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] * froude_scaling;  //< Need to recheck validity, probs not accurate scaling for det | deformation gradient |
+                          }
+
                         }
                       }
                     }
@@ -2171,15 +2232,17 @@ void parse_scene(std::string fn,
             mn::vec<PREC_G,3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
             {
-              target[d+1] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
-              target[d+4] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
-              domain_start[d] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
-              domain_end[d] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
+              target[d+1] = (model["domain_start"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
+              target[d+4] = (model["domain_end"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
+              domain_start[d] = (model["domain_start"].GetArray()[d].GetFloat()  * froude_scaling) / l + o;
+              domain_end[d] = (model["domain_end"].GetArray()[d].GetFloat()  * froude_scaling) / l + o;
             }
 
             // * NOTE: Checks for zero length target dimensions, grows by 1 grid-cell if so
             for (int d=0; d < 3; ++d)
               if (target[d+1] == target[d+4]) target[d+4] = target[d+4] + dx;         
+            
+            // TODO: Should we froude scale the sensor frequency?
             PREC_G freq = CheckDouble(model, "output_frequency", 60.);
 
             // Write to OBJ file
@@ -2231,12 +2294,12 @@ void parse_scene(std::string fn,
             mn::vec<PREC, 3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
             {
-              target[d+1] = model["domain_start"].GetArray()[d].GetDouble() / l + o;
-              target[d+4] = model["domain_end"].GetArray()[d].GetDouble() / l + o;
-              domain_start[d] = model["domain_start"].GetArray()[d].GetFloat()/ l + o;
-              domain_end[d] = model["domain_end"].GetArray()[d].GetFloat()/ l + o;
+              target[d+1] = (model["domain_start"].GetArray()[d].GetDouble() * froude_scaling) / l + o;
+              target[d+4] = (model["domain_end"].GetArray()[d].GetDouble() * froude_scaling) / l + o;
+              domain_start[d] = (model["domain_start"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
+              domain_end[d] = (model["domain_end"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
             }
-
+            // TODO: Should we froude scale sensor frequency?
             PREC freq = CheckDouble(model, "output_frequency", 60.);
 
             // mn::config::ParticleTargetConfigs particleTargetConfigs((int)target[6], (int)target[6], (int)target[6], {(float)target[1], (float)target[2], (float)target[3]}, {(float)target[4], (float)target[5], (float)target[6]}, (float)freq);
@@ -2274,10 +2337,10 @@ void parse_scene(std::string fn,
             mn::GridBoundaryConfigs h_gridBoundary;
             // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
             for (int d = 0; d < 3; ++d) {
-              h_boundary[d] = model["domain_start"].GetArray()[d].GetFloat() / l + o;
+              h_boundary[d] = (model["domain_start"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
             }
             for (int d = 0; d < 3; ++d) {
-              h_boundary[d+3] = model["domain_end"].GetArray()[d].GetFloat() / l + o;
+              h_boundary[d+3] = (model["domain_end"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
             }
             h_gridBoundary._ID = boundary_ID;
             h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0,0,0});
@@ -2286,15 +2349,25 @@ void parse_scene(std::string fn,
             h_gridBoundary._array = CheckIntArray(model, "array", mn::vec<int, 3>{1,1,1});
             h_gridBoundary._spacing = CheckFloatArray(model, "spacing", mn::vec<float, 3>{0.f,0.f,0.f});
             for (int d = 0; d < 3; ++d) {
+              h_gridBoundary._domain_start[d] *= froude_scaling;
               h_gridBoundary._domain_start[d] = h_gridBoundary._domain_start[d] / l + o;
+              h_gridBoundary._domain_end[d] *= froude_scaling;
               h_gridBoundary._domain_end[d] = h_gridBoundary._domain_end[d] / l + o;
+              h_gridBoundary._velocity[d] *= sqrt(froude_scaling);
               h_gridBoundary._velocity[d] = h_gridBoundary._velocity[d] / l;
+              h_gridBoundary._spacing[d] *= froude_scaling;
               h_gridBoundary._spacing[d] = h_gridBoundary._spacing[d] / l;
             }
             
             // Time range the boundary is active
-            h_gridBoundary._time = CheckFloatArray<2>(model, "time", time);
-            
+            mn::vec<float, 2> float_time;
+            float_time[0] = time[0];
+            float_time[1] = time[1];
+            h_gridBoundary._time = CheckFloatArray<2>(model, "time", float_time);
+            // Adjust for froude scaling if not using default
+            if (h_gridBoundary._time[0] != float_time[0] && h_gridBoundary._time[1] != float_time[1]) {
+              for (int d=0; d<2; ++d) h_gridBoundary._time[d] *= sqrt(froude_scaling);
+            }
             // Boundary object and contact type
             std::string object = CheckString(model, "object", std::string{"box"});
             std::string contact = CheckString(model, "contact", std::string{"Sticky"});
@@ -2433,22 +2506,25 @@ void parse_scene(std::string fn,
                 istrm.close();
               }
 
-              load_motionPath(motion_fn, ',', motionPath);
-              
-              PREC_G gb_freq = 1;
-              auto motion_freq = model.FindMember("output_frequency");
-              if (motion_freq != model.MemberEnd()) gb_freq = model["output_frequency"].GetFloat();
+              load_motionPath(motion_fn, ',', motionPath, froude_scaling);
+
+
+
+              PREC_G mp_freq = CheckFloat(model, "output_frequency", 1.0);
+              mp_freq *= 1 / sqrt(froude_scaling);
+              // auto motion_freq = model.FindMember("output_frequency");
+              // if (motion_freq != model.MemberEnd()) mp_freq = model["output_frequency"].GetFloat();
 
               for (int did = 0; did < mn::config::g_device_cnt; ++did) {
-                benchmark->initMotionPath(did, motionPath, gb_freq);
-                fmt::print(fg(green),"GPU[{}] gridBoundary[{}] motion file[{}] initialized with frequency[{}].\n", did, boundary_ID, model["file"].GetString(), gb_freq);
+                benchmark->initMotionPath(did, motionPath, mp_freq);
+                fmt::print(fg(green),"GPU[{}] gridBoundary[{}] motion file[{}] initialized with frequency[{}].\n", did, boundary_ID, model["file"].GetString(), mp_freq);
               }
             }
             else if (motion_velocity != model.MemberEnd() && motion_file == model.MemberEnd())
             {
               fmt::print(fg(blue),"Found velocity for grid-boundary[{}]. Loading...\n", boundary_ID);
               mn::vec<PREC_G, 3> velocity;
-              for (int d=0; d<3; d++) velocity[d] = model["velocity"].GetArray()[d].GetDouble() / l;
+              for (int d=0; d<3; d++) velocity[d] = (model["velocity"].GetArray()[d].GetDouble() * sqrt(froude_scaling)) / l;
             }
             else 
               fmt::print(fg(orange),"No motion file or velocity specified for grid-boundary. Assuming static. \n");

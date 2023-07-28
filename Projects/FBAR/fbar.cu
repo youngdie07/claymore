@@ -22,6 +22,18 @@
   #include <mpi.h>
 #endif
 
+// Filesystem library/namespace declared in read_scene_input.h
+// Buggy, seems to be C++ version dependent
+// #if 0
+// #include <ghc/filesystem.hpp>
+// namespace fs = ghc::filesystem;
+// #else
+// // #include <filesystem>
+// // namespace fs = std::filesystem;
+// // #endif
+// #include <experimental/filesystem>
+// namespace fs = std::experimental::filesystem;
+// #endif
 #if 0
 #include <ghc/filesystem.hpp>
 namespace fs = ghc::filesystem;
@@ -54,6 +66,7 @@ int main(int argc, char *argv[]) {
   fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
 #endif
 
+  std::ios::sync_with_stdio(false); //< Disable synchronization between C and C++ standard streams
 
   IO;
 

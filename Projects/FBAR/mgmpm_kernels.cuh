@@ -165,7 +165,7 @@ register_exterior_blocks(uint32_t blockCount, Partition partition) {
 
 
 template <typename ParticleBuffer, typename ParticleArray, typename Grid, typename Partition>
-__global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, const ParticleArray parray, Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
+__global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, const ParticleArray parray, Grid grid, const Partition partition, double dt, pvec3 vel0, PREC grav) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
   if (parid >= particleCount) return;
   PREC length = pbuffer.length;
@@ -275,7 +275,7 @@ __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer, 
 template <typename ParticleBuffer, typename ParticleArray, num_attribs_e N, typename Grid, typename Partition>
 __global__ void rasterize(uint32_t particleCount, const ParticleBuffer pbuffer,
                           const ParticleArray parray, const ParticleAttrib<N> pattrib,
-                          Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
+                          Grid grid, const Partition partition, double dt, pvec3 vel0, PREC grav) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
   if (parid >= particleCount) return;
   PREC length = pbuffer.length;
@@ -386,7 +386,7 @@ template <typename ParticleArray, num_attribs_e N, typename Grid, typename Parti
 __global__ void rasterize(uint32_t particleCount, 
                           const ParticleBuffer<material_e::JBarFluid> pbuffer,
                           const ParticleArray parray, const ParticleAttrib<N> pattrib,
-                          Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
+                          Grid grid, const Partition partition, double dt, pvec3 vel0, PREC grav) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
   if (parid >= particleCount)
     return;
@@ -533,7 +533,7 @@ template <typename ParticleArray, num_attribs_e N, typename Grid, typename Parti
 __global__ void rasterize(uint32_t particleCount, 
                           const ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                           const ParticleArray parray, const ParticleAttrib<N> pattrib,
-                          Grid grid, const Partition partition, float dt, pvec3 vel0, PREC grav) {
+                          Grid grid, const Partition partition, double dt, pvec3 vel0, PREC grav) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x;
   if (parid >= particleCount)
     return;
@@ -1397,11 +1397,11 @@ __device__ void apply_friction_to_grid_velocity(T inv_mass, T dt, T length, T gr
 
 template <typename Grid, typename Partition, int boundary_cnt = g_max_grid_boundaries>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
-                                               Partition partition, float dt,
-                                               float *maxVel, float curTime, pvec3 grav, 
+                                               Partition partition, double dt,
+                                               float *maxVel, double curTime, pvec3 grav, 
                                                vec<vec7, boundary_cnt> boundary_array,
                                                struct GridBoundaryConfigs * gridBoundary_array, 
-                                               vec3 boundary_motion, PREC length) {
+                                               vec3 boundary_motion, PREC length, double fr_scale) {
   constexpr int bc = g_bc;
   constexpr int numWarps =
       g_num_grid_blocks_per_cuda_block * g_num_warps_per_grid_block; // Num. warps per block
@@ -1641,14 +1641,15 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 if (gb._object == boundary_object_t::USGS_GATE) {
                   if (gb._contact == boundary_contact_t::Separable) {
                     // TODO : Reimplement timed boundaries
-                    constexpr PREC_G time_start = 1.0f; // Time til motion start [sec]
-                    constexpr PREC_G time_end   = 2.0f; // Time at motion finish [sec]
+                    PREC_G time_start = 1.0f * sqrt(fr_scale); // Time til motion start [sec]
+                    PREC_G time_end   = 2.0f * sqrt(fr_scale); // Time at motion finish [sec]
 
-                    PREC_G gate_x  = 4.7f; // Gate base X position [m]
-                    PREC_G gate_z1 = 4.0f; // Gate center Z position [m]
-                    PREC_G gate_z2 = 4.0f; // Gate center Z position [m]
-                    constexpr PREC_G gate_width = 1.f; // Gate single door (x2) Z width [m]
+                    PREC_G gate_x  = 4.7f * fr_scale; // Gate base X position [m]
+                    PREC_G gate_z1 = 4.0f * fr_scale; // Gate center Z position [m]
+                    PREC_G gate_z2 = 4.0f * fr_scale; // Gate center Z position [m]
+                    PREC_G gate_width = 1.f * fr_scale; // Gate single door (x2) Z width [m]
                     
+
                     constexpr PREC_G gate_slope = -1.73205080757f; // -tangent(60.f * 3.14159265358979323846f / 180.f); // Gate slope [m]
                     PREC_G gate_y = gate_slope * ((xc-o)*l - gate_x); // Gate Y for an X [m]
 
@@ -1752,100 +1753,106 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           boundary_pos[1] = boundary[1];
           boundary_pos[2] = boundary[2];
           if (gb._object == boundary_object_t::OSU_LWF_RAMP) {
-            if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = -(2.f); // Wave-maker neutral X pos. [m] at OSU LWF        
-              PREC_G ys=0.f, xo=0.f, yo=0.f;
-              vec3 ns; //< Ramp boundary surface normal
-              ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
+            PREC_G wave_maker_neutral = -2.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU LWF        
+            PREC_G ys=0.f, xo=0.f, yo=0.f;
+            vec3 ns; //< Ramp boundary surface normal
+            ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
 
-              // Ramp segment bounds for OSU flume, Used diagram, Dakota Mascarenas Feb. 2021
-              if (xc < ((14.275 + 0.0 - wave_maker_neutral)/l)+o) {
-                // Flat, 0' elev., 0' - 46'10
-                xo = (0.0 - wave_maker_neutral) / l + o;
-                yo = 0.f / l + o;
-                ys = 0.f * (xc-xo) + yo;
-              } else if (xc >= ((14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o){
-                // Flat (adjustable), 0' elev., 46'10 - 58'10
-                xo = (14.275  + 0.0 - wave_maker_neutral) / l + o;
-                yo = (0.226) / l + o;
-                //yo = (0.2)/l + o; // TODO: Reavaluate treatment of flat bathymetry panels, i.e. no decay?
-                ys = yo;
-              } else if (xc >= ((3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
-                // 1:12, 0' elev., 58'10 - 94'10
-                ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (0.226) / l + o;
-                ys = 1.f/12.f * (xc - xo) + yo;
+            // Ramp segment bounds for OSU flume, Used diagram, Dakota Mascarenas Feb. 2021
+            if (xc < ((fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+              // Flat, 0' elev., 0' - 46'10
+              xo = (0.0 - wave_maker_neutral) / l + o;
+              yo = 0.f / l + o;
+              ys = 0.f * (xc-xo) + yo;
+            } else if (xc >= ((fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o){
+              // Flat (adjustable), 0' elev., 46'10 - 58'10
+              xo = (fr_scale*14.275  + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*0.225) / l + o; // 0.226 rounded down 
+              //yo = (0.2)/l + o; // TODO: Reavaluate treatment of flat bathymetry panels, i.e. no decay?
+              ys = yo;
+            } else if (xc >= ((fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+              // 1:12, 0' elev., 58'10 - 94'10
+              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*0.226) / l + o;
+              ys = 1.f/12.f * (xc - xo) + yo;
 
-              } else if (xc >= ((10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
-                // 1:24, 3' elev., 94'10 - 142'10
-                ns[0] = -1.f/24.f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (1.14) / l + o;
-                ys = 1.f/24.f * (xc - xo) + yo;
+            } else if (xc >= ((fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+              // 1:24, 3' elev., 94'10 - 142'10
+              ns[0] = -1.f/24.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*1.14) / l + o;
+              ys = 1.f/24.f * (xc - xo) + yo;
 
-              } else if (xc >= ((14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
-                // Flat, 5' elev., 142'10 - 262'10
-                xo = (14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (1.75)/ l + o;
-                ys = yo;
+            } else if (xc >= ((fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+              // Flat, 5' elev., 142'10 - 262'10
+              xo = (fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*1.75) / l + o;
+              ys = yo;
 
-              } else if (xc >= ((36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((7.354 + 36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral)/l)+o) {
-                // 1:12, 5' elev., 262'10 - 286'10
-                ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o;
-                yo = (1.75) / l + o;
-                ys = 1.f/12.f * (xc - xo) + yo;
-              } else {
-                // Flat, 7' elev., 286'10 onward
-                xo = (36.57 + 14.63 + 10.973 + 3.658 + 14.275 + 0.0 - wave_maker_neutral) / l + o; // Maybe change, recheck OSU LWF bathymetry far downstream
-                yo = (2.362833 / l) + o;
-                ys = yo;        
-              }
+            } else if (xc >= ((fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*7.354 + fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+              // 1:12, 5' elev., 262'10 - 286'10
+              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
+              xo = (fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*1.75) / l + o;
+              ys = 1.f/12.f * (xc - xo) + yo;
+            } else {
+              // Flat, 7' elev., 286'10 onward
+              xo = (fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o; // Maybe change, recheck OSU LWF bathymetry far downstream
+              yo = (fr_scale*2.362833) / l + o;
+              ys = yo;        
+            }
 
-              {
-                PREC_G normal_inv_magnitude = rsqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
-                for (int d=0; d<3; d++) ns[d] *= normal_inv_magnitude;
-              }
-              PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
+            {
+              PREC_G normal_inv_magnitude = rsqrt(ns[0]*ns[0] + ns[1]*ns[1] + ns[2]*ns[2]);
+              for (int d=0; d<3; d++) ns[d] *= normal_inv_magnitude;
+            }
+            PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
 
-              // --------- Wen-Chia Yang's disseration, UW 2016, p. 50? ---------
-              {
-                // f_boundary = -f_internal - f_external - (1/dt)*p
-                // Node accel. = (f_internal + f_external + ySf*f_boundary) / mass
-                // TODO : Reimplement for all Wen-Chia Yang boundary conditions (e.g. linear, quadratic, sinusoidal, etc.)
-                // In throw-away scope for register reuse
+            // --------- Wen-Chia Yang's disseration, UW 2016, p. 50? ---------
+            {
+              // f_boundary = -f_internal - f_external - (1/dt)*p
+              // Node accel. = (f_internal + f_external + ySf*f_boundary) / mass
+              // TODO : Reimplement for all Wen-Chia Yang boundary conditions (e.g. linear, quadratic, sinusoidal, etc.)
+              // In throw-away scope for register reuse
 
-                // Boundary thickness and cell distance
-                //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
-                //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+              // Boundary thickness and cell distance
+              //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+              //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
 
-                // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
-                // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
-                PREC_G ySF=0.f; // Boundary decay coef. 
-                // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
-                if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
-                else if (yc <= ys && yc > (ys - 1.5f*g_dx)) ySF = 1.f; // Below boundary surface
-                else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
-                else { ySF = (g_dx - (yc - ys)) / g_dx ; ySF *= ySF; } // Decay layer, quadratic
+              // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
+              // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
+              PREC_G ySF=0.f; // Boundary decay coef. 
+              // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
+              if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
+              else if (yc <= ys && yc > (ys - 1.5f*g_dx)) {
+                ySF = (gb._contact == boundary_contact_t::Separable) ? 1.0f 
+                      : ((gb._contact == boundary_contact_t::Slip) ? 1.5f 
+                      : 2.f);
+                } // Below boundary surface
+              else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
+              else { ySF = (g_dx - (yc - ys)) / g_dx ; ySF *= ySF; } // Decay layer, quadratic
 
-  #pragma unroll 3
-                for (int d=0; d<3; ++d) {
-                  // Adjust grid-node velocity via decay layer coef. and surface normal
-                  if (ySF > 1.f) // Fix vel. rigidly if deep below boundary surf.
-                    vel[d] = 0.f;
-                  else if (ySF == 1.f) // Slip vel. below boundary surf. (NO seperable)
-                    vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
-                  else // Adjust vel. normal if in decay layer (YES seperable)
-                    if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);
-                } 
-              }
+#pragma unroll 3
+              for (int d=0; d<3; ++d) {
+                // Adjust grid-node velocity via decay layer coef. and surface normal
+                if (ySF > 1.5f) // Fix vel. rigidly if deep below boundary surf.
+                  vel[d] = 0.f;
+                else if (ySF == 1.f) // Separable vel. below boundary surf.
+                  if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                else if (ySF == 1.5f) // Slip vel. below boundar surf. (NO seperable)
+                  vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                else // Adjust vel. normal if in decay layer (YES seperable)
+                  if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);
+              } 
+            }
+            if (0) { // Deprecated, capping below slab underperforms extending slab to piston
               // * Cap flow below the raised OSU LWF bathymetry slab to prevent water leaks
               // ! Recheck Andrew Winter's OSU LWF papers for better boundary condition
               // TODO : Can fit better to grid-resolution
               // No X vel. (streamwise) below raised slab (Elev. 0" to 7.5" = 0.226m, Dist. 14.275m to 14.275m + 2 grid-cell buffer <- relative to wave-maker neutral) 
-              if (xc >= (14.275 - wave_maker_neutral)/l+o && xc < (14.275 - wave_maker_neutral)/l + o + 2.f*g_dx) {
-                if (yc < (0.226/l - g_dx)+o && vel[0] > 0.f) vel[0] = 0.f; 
+              if (xc >= (fr_scale*14.275 - wave_maker_neutral)/l+o && xc < (fr_scale*14.275 - wave_maker_neutral)/l + o + 2.f*g_dx) {
+                if (yc < (fr_scale*0.225/l - g_dx)+o && vel[0] > 0.f) vel[0] = 0.f; 
                 // else if (yc >= (0.2/l)+o && yc < ) // Decay layer. Needed?
               }
             }
@@ -1853,22 +1860,25 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           else if (gb._object == boundary_object_t::OSU_LWF_PADDLE) // Moveable boundary - OSU LWF wave-maker
           {
             // OSU Wave-Maker - CSV Controlled
-            PREC_G wave_maker_neutral = (1.915f); // Streamwise offset from origin (m)
+            //PREC_G wave_maker_neutral = (1.915f); // Streamwise offset from origin (m)
+            // TODO: Run-time wave_maker_neutral X position
+            PREC_G wave_maker_neutral = (1.925f)*fr_scale; // Streamwise offset from origin (m)
             if (xc <= (boundary_motion[1] + wave_maker_neutral) / l + o) {
               // TODO: Add reflection and/or decay layer?
-#if 1 // Slip vel. (YES seperable)
-              if (vel[0] < boundary_motion[2] / l) vel[0] = boundary_motion[2] / l; 
+              if (gb._contact == boundary_contact_t::Separable) {
+                  if (vel[0] < boundary_motion[2] / l) vel[0] = boundary_motion[2] / l; 
+              } else if (gb._contact == boundary_contact_t::Slip) {
+                  vel[0] = boundary_motion[2] / l; 
+              }
               // if (vel[1] < boundary_motion.vy / l) vel[1] = boundary_motion.vy / l;
               // if (vel[2] < boundary_motion.vz / l) vel[2] = boundary_motion.vz / l;
-#else // Slip vel. (NO seperable) 
-              vel[0] = (boundary_motion[2] / l); // Slip vel. (NO seperable)
-#endif
             }
           }
           else if (gb._object == boundary_object_t::OSU_TWB_PADDLE) // Moveable boundary - OSU LWF wave-maker
           {
             // OSU Wave-Maker - CSV Controlled
-            PREC_G wave_maker_neutral = -0.f; // Streamwise offset from origin (m)
+            // TODO: Run-time wave_maker_neutral X position
+            PREC_G wave_maker_neutral = -0.f * fr_scale; // Streamwise offset from origin (m)
             if (xc <= (boundary_motion[1] - wave_maker_neutral) / l + o) {
               // TODO: Add reflection and/or decay layer?
 #if 1 // Slip vel. (YES seperable)
@@ -1882,31 +1892,31 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           }
           if (gb._object == boundary_object_t::OSU_TWB_RAMP) {
             if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = 0.f; // Wave-maker neutral X pos. [m] at OSU TWB       
+              PREC_G wave_maker_neutral = 0.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU TWB       
               PREC_G ys=0.f, xo=0.f, yo=0.f;
               vec3 ns; //< Ramp boundary surface normal
               ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
 
               // Ramp bathymetry for OSU TWB Flume, H. Park et al. 2021
-              if (xc < ((11.3 + 0.0 - wave_maker_neutral)/l)+o) {
+              if (xc < ((fr_scale*11.3 + 0.0 - wave_maker_neutral)/l)+o) {
                 // Flat, 0 elev., 0 - 11.3m (Wave Far-Field)
                 xo = (0.0 - wave_maker_neutral) / l + o;
                 yo = 0.f / l + o;
                 ys = 0.f * (xc-xo) + yo;
-              } else if (xc >= ((11.3 + 0.0 - wave_maker_neutral)/l)+o && xc < ((20.0 + 11.3 + 0.0 - wave_maker_neutral)/l)+o){
+              } else if (xc >= ((fr_scale*11.3 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*20.0 + fr_scale*11.3 + 0.0 - wave_maker_neutral)/l)+o){
                 // 1:20, 0 elev., 11.3 - 31.3 m (Ramp)
                 ns[0] = -1.f/20.f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (11.3 + 0.0 - wave_maker_neutral) / l + o;
+                xo = (fr_scale*11.3 + 0.0 - wave_maker_neutral) / l + o;
                 yo = 0.f / l + o;
                 ys = 1.f/20.f * (xc - xo) + yo;
-              } else if (xc >= ((20.0 + 11.3 + 0.0 - wave_maker_neutral)/l)+o && xc < ((10.0 + 20.0 + 11.3 + 0.0 - wave_maker_neutral)/l)+o) {
+              } else if (xc >= ((fr_scale*20.0 + fr_scale*11.3 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*10.0 + fr_scale*20.0 + fr_scale*11.3 + 0.0 - wave_maker_neutral)/l)+o) {
                 // Flat, 1 m elev., 31.3 - 41.3 m (Debris Staging Platform)
-                xo = (20.f + 11.3 + 0.0 - wave_maker_neutral) / l + o;
-                yo = 1.f / l + o;
+                xo = (fr_scale*20.f + fr_scale*11.3 + 0.0 - wave_maker_neutral) / l + o;
+                yo = (fr_scale*1.f) / l + o;
                 ys = 0.f * (xc - xo) + yo;
               } else {
                 // Flat, 0 m elev., 41.3+ m  (Water Overflow Basin)
-                xo = (10.0 + 20.0 + 11.3 + 0.0 - wave_maker_neutral) / l + o;
+                xo = (fr_scale*10.0 + fr_scale*20.0 + fr_scale*11.3 + 0.0 - wave_maker_neutral) / l + o;
                 yo = 0.f / l + o;
                 ys = 0.f * (xc - xo) + yo;
               }
@@ -1952,7 +1962,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               }
 
               // Friction
-              constexpr PREC_G START_FRICTION_X = 31.3f; // Start friction at X position [m]
+              PREC_G START_FRICTION_X = 31.3f * fr_scale; // Start friction at X position [m]
               if (xc > START_FRICTION_X / l + o)
               if (yc <= ys) {
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
@@ -1984,19 +1994,17 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           }
           if (gb._object == boundary_object_t::TOKYO_HARBOR) {
             if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = 0.f; // Wave-maker neutral X pos. [m] at OSU TWB       
+              PREC_G wave_maker_neutral = 0.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU TWB       
               PREC_G ys=0.f, xo=0.f, yo=0.f;
               vec3 ns; //< Ramp boundary surface normal
               ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
-              constexpr PREC_G START_HARBOR_X = 4.45f; // Start harbor at X position [m]
-              constexpr PREC_G START_HARBOR_Y = 0.255f; // Start harbor at Y position [m]
-
+              PREC_G START_HARBOR_X = 4.45f * fr_scale; // Start harbor at X position [m]
+              PREC_G START_HARBOR_Y = 0.255f * fr_scale; // Start harbor at Y position [m]
 
               PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1] + vel[2]*ns[2];
 
-
               // Friction
-              constexpr PREC_G START_FRICTION_X = START_HARBOR_X + 0.23f; // Start friction at debris X position [m]
+              PREC_G START_FRICTION_X = START_HARBOR_X + 0.20f * fr_scale; // Start friction at debris X position [m]
               if (xc >= START_FRICTION_X/l+o)
               if (yc <= START_HARBOR_Y/l+o) {
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
@@ -2038,33 +2046,35 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
           if (gb._object == boundary_object_t::USGS_RAMP) {
             if (gb._contact == boundary_contact_t::Separable) {
+              PREC_G X_GATE = 0.f * fr_scale; // Gate X position [m]
+
               PREC_G ys=0.f, xo=0.f, yo=0.f;
               vec3 ns; //< Ramp boundary surface normal
               ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
 
               // Ramp bathymetry for OSU TWB Flume, H. Park et al. 2021
-              if (xc < ((80.0)/l)+o) {
+              if (xc < ((fr_scale*80.0 + X_GATE)/l)+o) {
                 // Flat, 0 elev., 0 - 11.3m (Wave Far-Field)
                 xo = (0.0) / l + o;
                 yo = 0.f / l + o;
                 ys = 0.f * (xc-xo) + yo;
-              } else if (xc >= ((80.0)/l)+o && xc < ((1.25 + 80.0)/l)+o){
+              } else if (xc >= ((fr_scale*80.0 + X_GATE)/l)+o && xc < ((fr_scale*1.25 + fr_scale*80.0 + X_GATE)/l)+o){
                 // 1:20, 0 elev., 11.3 - 31.3 m (Ramp)
                 ns[0] = -1.f/5.675f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (80.f) / l + o;
+                xo = (fr_scale*80.f + X_GATE) / l + o;
                 yo = 0.f / l + o;
                 ys = (1.f/5.675f) * (xc - xo) + yo;
-              } else if (xc >= ((1.25 + 80.0)/l)+o && xc < ((2.5 + 80.0)/l)+o) {
+              } else if (xc >= ((fr_scale*1.25 + fr_scale*80.0 + X_GATE)/l)+o && xc < ((fr_scale*2.5 + fr_scale*80.0 + X_GATE)/l)+o) {
                 // Flat, 1 m elev., 31.3 - 41.3 m (Debris Staging Platform)
                 ns[0] = -1.f/2.747f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (1.25f + 80.0) / l + o;
+                xo = (fr_scale*1.25f + fr_scale*80.0 + X_GATE) / l + o;
                 yo = (1.25f/5.675f) / l + o;
                 ys = (1.f/2.747f) * (xc - xo) + yo;
               } else {
                 // Flat, 0 m elev., 41.3+ m  (Water Overflow Basin)
                 ns[0] = -1.f/1.732f; ns[1] = 1.f; ns[2] = 0.f;
-                xo = (2.5 + 80.0) / l + o;
-                yo = (1.25f/2.747f + 1.25f/5.675f) / l + o;
+                xo = (fr_scale*2.5 + fr_scale*80.0 + X_GATE) / l + o;
+                yo = (fr_scale*1.25f/2.747f + fr_scale*1.25f/5.675f) / l + o;
                 ys = (1.f/1.732) * (xc - xo) + yo;
               }
 
@@ -2088,9 +2098,13 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
                 // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
                 // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
-                if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
-                else if (yc <= ys && yc > (ys - 1.5f*g_dx)) ySF = 1.f; // Below boundary surface
-                else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
+                if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer always "free" from BC
+                else if (yc <= ys && yc > (ys - 1.5f*g_dx)) { // On and below boundary surface
+                  if (gb._contact == boundary_contact_t::Separable) ySF = 1.f; // Separable
+                  else if (gb._contact == boundary_contact_t::Slip) ySF = 1.5f; // Slip
+                  else ySF = 2.f; // Rigid
+                }
+                else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf. always rigid
                 else { ySF = (g_dx - (yc - ys)) / g_dx ; ySF *= ySF; } // Decay layer, quadratic
 
   #pragma unroll 3
@@ -2098,8 +2112,10 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                   // Adjust grid-node velocity via decay layer coef. and surface normal
                   if (ySF > 1.f) // Fix vel. rigidly if deep below boundary surf.
                     vel[d] = 0.f;
-                  else if (ySF == 1.f) // Slip vel. below boundary surf. (NO seperable)
-                    vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                  else if (ySF == 1.f) // Separable vel. below boundary surf. 
+                    if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                  else if (ySF == 1.5f) // Slip vel. below boundary surf. 
+                    vel[d] -= ySF * (vdotns * ns[d]);
                   else // Adjust vel. normal if in decay layer (YES seperable)
                     if (vdotns < 0.f) vel[d] -= ySF * (vdotns * ns[d]);
                 } 
@@ -2107,8 +2123,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
               // Friction
               constexpr PREC_G FRICTION_OF_SAND_ON_CONCRETE = 2.0f;
-              constexpr PREC_G X_BEGIN_BUMPY_TILES = 6.f; // Bumpy flume tiles go from 6 - 79 m;
-              constexpr PREC_G X_END_BUMPY_TILES = 79.f;
+              PREC_G X_BEGIN_BUMPY_TILES = 6.f * fr_scale + X_GATE; // Bumpy flume tiles go from 6 - 79 m;
+              PREC_G X_END_BUMPY_TILES = 79.f * fr_scale + X_GATE;
               if (xc < X_BEGIN_BUMPY_TILES / l + o || xc > X_END_BUMPY_TILES / l + o)
                 friction_static = FRICTION_OF_SAND_ON_CONCRETE; 
               if ( ySF > 0.f && ySF <= 1.f) {
@@ -2197,9 +2213,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
 template <typename Grid, typename Partition, typename Boundary>
 __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
-                                               Partition partition, float dt,
+                                               Partition partition, double dt,
                                                Boundary boundary,
-                                               float *maxVel, float curTime,
+                                               float *maxVel, double curTime,
                                                PREC grav) {
   constexpr int bc = 2;
   constexpr int numWarps =
@@ -2307,8 +2323,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
 template <typename Grid, typename Partition>
 __global__ void update_grid_FBar(uint32_t blockCount, Grid grid,
-                                               Partition partition, float dt,
-                                                float curTime) 
+                                               Partition partition, double dt,
+                                                double curTime) 
 {
   auto grid_block = grid.ch(_0, blockIdx.x);
   for (int cidib = threadIdx.x; cidib < g_blockvolume; cidib += blockDim.x) 
@@ -2327,9 +2343,9 @@ __global__ void update_grid_FBar(uint32_t blockCount, Grid grid,
 
 
 template <typename Grid, typename Partition>
-__global__ void query_energy_grid(uint32_t blockCount, Grid grid, Partition partition, float dt, 
+__global__ void query_energy_grid(uint32_t blockCount, Grid grid, Partition partition, double dt, 
                                   PREC_G *sumKinetic, PREC_G *sumGravity, 
-                                  float curTime, PREC grav, 
+                                  double curTime, PREC grav, 
                                   vec<vec7, g_max_grid_boundaries> boundary_array, 
                                   vec3 boundary_motion, PREC length) {
   constexpr int numWarps =
@@ -3078,14 +3094,14 @@ __global__ void query_energy_particles(Partition partition, Partition prev_parti
 // %% ============================================================= %%
 
 template <typename ParticleBuffer, typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid) { }
 
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid> pbuffer,
                       ParticleBuffer<material_e::JFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -3375,7 +3391,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
 // Grid-to-Particle-to-Grid - Weakly-Incompressible Fluid - ASFLIP Transfer
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid_ASFLIP> pbuffer,
                       ParticleBuffer<material_e::JFluid_ASFLIP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -3709,14 +3725,14 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JBarFluid> pbuffer,
                       ParticleBuffer<material_e::JBarFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
                       const Grid grid, Grid next_grid) { }
 
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -4005,7 +4021,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
 // Grid-to-Particle-to-Grid - Fixed-Corotated - ASFLIP transfer
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated_ASFLIP> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated_ASFLIP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -4339,7 +4355,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Sand> pbuffer,
                       ParticleBuffer<material_e::Sand> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -4682,7 +4698,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 template <typename Partition, typename Grid>
-__global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NACC> pbuffer,
                       ParticleBuffer<material_e::NACC> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -5024,7 +5040,7 @@ __global__ void g2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 template <typename ParticleBuffer, typename Partition, typename Grid, typename VerticeArray>
-__global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2v(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -5034,7 +5050,7 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename Partition, typename Grid, typename VerticeArray>
-__global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2v(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Meshed> pbuffer,
                       ParticleBuffer<material_e::Meshed> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -5233,7 +5249,7 @@ __global__ void g2p2v(float dt, float newDt, const ivec3 *__restrict__ blocks,
 }
 
 template <typename ParticleBuffer, typename Partition, typename Grid, typename VerticeArray>
-__global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2v_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       const ParticleBuffer next_pbuffer,
                       const Partition prev_partition, const Partition partition,
@@ -5243,7 +5259,7 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 // Grid-to-Particle-to-Grid + Mesh Update - F-Bar ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename Partition, typename Grid, typename VerticeArray>
-__global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p2v_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Meshed> pbuffer,
                       const ParticleBuffer<material_e::Meshed> next_pbuffer,
                       const Partition prev_partition, const Partition partition,
@@ -5447,7 +5463,7 @@ __global__ void g2p2v_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 }
 
 template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem2v(uint32_t blockCount, double dt, double newDt,
                        VerticeArray vertice_array,
                        const ElementArray element_array,
                        ElementBuffer elementBins) { return; }
@@ -5455,7 +5471,7 @@ __global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem2v(uint32_t blockCount, double dt, double newDt,
                       VerticeArray vertice_array,
                       const ElementArray element_array,
                       ElementBuffer<fem_e::Tetrahedron> elementBins) {
@@ -5622,12 +5638,12 @@ __global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
   }
 }
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem2v(uint32_t blockCount, double dt, double newDt,
                       VerticeArray vertice_array,
                       ElementArray element_array,
                       ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) { return; }
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem2v(uint32_t blockCount, double dt, double newDt,
                       VerticeArray vertice_array,
                       ElementArray element_array,
                       ElementBuffer<fem_e::Brick> elementBins) { return; }
@@ -5636,13 +5652,13 @@ __global__ void v2fem2v(uint32_t blockCount, float dt, float newDt,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void v2fem_FBar(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem_FBar(uint32_t blockCount, double dt, double newDt,
                            VerticeArray vertice_array,
                            const ElementArray element_array,
                            const ElementBuffer elementBins) { return; }
 
 template <typename VerticeArray, typename ElementArray>
-__global__ void v2fem_FBar(uint32_t blockCount, float dt, float newDt,
+__global__ void v2fem_FBar(uint32_t blockCount, double dt, double newDt,
                       VerticeArray vertice_array,
                       const ElementArray element_array,
                       const ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) 
@@ -5730,7 +5746,7 @@ __global__ void v2fem_FBar(uint32_t blockCount, float dt, float newDt,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename VerticeArray, typename ElementArray>
-__global__ void fem2v_FBar(uint32_t blockCount, float dt, float newDt,
+__global__ void fem2v_FBar(uint32_t blockCount, double dt, double newDt,
                            VerticeArray vertice_array,
                            const ElementArray element_array,
                            ElementBuffer<fem_e::Tetrahedron_FBar> elementBins) 
@@ -5931,19 +5947,19 @@ __global__ void fem2v_FBar(uint32_t blockCount, float dt, float newDt,
 }
 
 template <typename VerticeArray, typename ElementArray, typename ElementBuffer>
-__global__ void fem2v_FBar(uint32_t blockCount, float dt, float newDt,
+__global__ void fem2v_FBar(uint32_t blockCount, double dt, double newDt,
                       VerticeArray vertice_array,
                       const ElementArray element_array,
                       ElementBuffer elementBins) { }
 
 template <typename ParticleBuffer, typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
                       Grid grid, Grid next_grid) {}
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JBarFluid> pbuffer,
                       ParticleBuffer<material_e::JBarFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -6153,7 +6169,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                       ParticleBuffer<material_e::JFluid_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -6432,7 +6448,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -6672,7 +6688,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> pbuffer,
                       ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -6912,7 +6928,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Sand> pbuffer,
                       ParticleBuffer<material_e::Sand> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -7133,7 +7149,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NACC> pbuffer,
                       ParticleBuffer<material_e::NACC> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -7355,7 +7371,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void g2p_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::CoupledUP> pbuffer,
                       ParticleBuffer<material_e::CoupledUP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -7576,7 +7592,7 @@ __global__ void g2p_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename ParticleBuffer, typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -7584,7 +7600,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JFluid_FBAR> pbuffer,
                       ParticleBuffer<material_e::JFluid_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -7947,7 +7963,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::JBarFluid> pbuffer,
                       ParticleBuffer<material_e::JBarFluid> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -8302,7 +8318,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 // template <typename Partition, typename Grid>
-// __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+// __global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
 //                       const ParticleBuffer<material_e::JBarFluid> pbuffer,
 //                       ParticleBuffer<material_e::JBarFluid> next_pbuffer,
 //                       const Partition prev_partition, Partition partition,
@@ -8641,7 +8657,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 // }
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> pbuffer,
                       ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -9021,7 +9037,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> pbuffer,
                       ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -9400,7 +9416,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Sand> pbuffer,
                       ParticleBuffer<material_e::Sand> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -9773,7 +9789,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::NACC> pbuffer,
                       ParticleBuffer<material_e::NACC> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -10141,7 +10157,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 
 
 template <typename Partition, typename Grid>
-__global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::CoupledUP> pbuffer,
                       ParticleBuffer<material_e::CoupledUP> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -10580,7 +10596,7 @@ __global__ void p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks
 }
 
 template <typename ParticleBuffer, typename Partition, typename Grid, typename VerticeArray>
-__global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void v2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -10592,7 +10608,7 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 // Grid-to-Particle-to-Grid + Mesh Update - ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename Partition, typename Grid, typename VerticeArray>
-__global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void v2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Meshed> pbuffer,
                       ParticleBuffer<material_e::Meshed> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -10977,7 +10993,7 @@ __global__ void v2p2g(float dt, float newDt, const ivec3 *__restrict__ blocks,
 
 
 template <typename Partition, typename Grid, typename ParticleBuffer, typename VerticeArray>
-__global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void v2p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer pbuffer,
                       ParticleBuffer next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -10989,7 +11005,7 @@ __global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ bloc
 // Grid-to-Particle-to-Grid + Mesh Update - F-Bar ASFLIP Transfer
 // Stress/Strain not computed here, displacements sent to FE mesh for force calc
 template <typename Partition, typename Grid, typename VerticeArray>
-__global__ void v2p2g_FBar(float dt, float newDt, const ivec3 *__restrict__ blocks,
+__global__ void v2p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ blocks,
                       const ParticleBuffer<material_e::Meshed> pbuffer,
                       ParticleBuffer<material_e::Meshed> next_pbuffer,
                       const Partition prev_partition, Partition partition,
@@ -12794,7 +12810,7 @@ template <typename Partition, typename Grid, typename GridTarget>
 __global__ void retrieve_selected_grid_cells(
     const uint32_t blockCount, const Partition partition,
     const Grid prev_grid, GridTarget garray,
-    const float dt, PREC_G *forceSum, const vec7 target, int *_targetcnt, const PREC length) {
+    const double dt, PREC_G *forceSum, const vec7 target, int *_targetcnt, const PREC length) {
 
   auto blockno = blockIdx.x;  //< Grid block number in partition
   if (blockno < blockCount) 

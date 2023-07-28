@@ -526,7 +526,7 @@ struct ParticleBuffer<material_e::JFluid>
   getAttribute(attribs_e ATTRIBUTE, const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
     else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
-    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
+    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, static_cast<unsigned>(std::min(abs(ATTRIBUTE), static_cast<unsigned>(attribs_e::END-1)))>{}, particle_id_in_bin);
   }
 
   template <typename T>

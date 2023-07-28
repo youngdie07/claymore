@@ -91,7 +91,8 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(&h_count, _count, sizeof(int),
                                     cudaMemcpyDefault, stream));
   }
-  int *_count, h_count; //< Count pointer, h_count isnt a pointer?? // int or char??
+  int *_count; //< Count pointer
+  int h_count; //< int or char??
   char *_haloMarks; ///< Halo particle block marks
   int *_overlapMarks; //< Overlapping marks
   ivec3 *_haloBlocks; //< 3D IDs of Halo Blocks
@@ -237,7 +238,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   void resetTable(cudaStream_t stream) {
     checkCudaErrors(cudaMemsetAsync(this->_indexTable, 0xff,
                                     sizeof(value_t) * _runtimeExtent, stream));
-    fmt::print("Reset partitions _indexTable values to [{}] over [{}] bytes\n", 0xff, sizeof(value_t) * _runtimeExtent);
+    if (g_log_level >= 3) fmt::print("Reset partitions _indexTable values to [{}] over [{}] bytes\n", 0xff, sizeof(value_t) * _runtimeExtent);
   }
 
   template <typename Allocator>
