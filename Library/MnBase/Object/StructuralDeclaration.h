@@ -370,7 +370,7 @@ struct structural<structural_type::dynamic, Decoration, Domain, Layout,
   template <typename Allocator> void deallocate(Allocator allocator) {
     allocator.deallocate(this->_handle.ptr,
                          _capacity * base_t::element_storage_size);
-    std::cout << "Deallocated structural dynamic, size:" << (_capacity * base_t::element_storage_size)  << "\n";
+    //std::cout << "Deallocated structural dynamic, capacity: "<< (_capacity) << ," size:" << (_capacity * base_t::element_storage_size)  << " bytes\n";
     _capacity = 0;
     this->_handle.ptr = nullptr;
   }

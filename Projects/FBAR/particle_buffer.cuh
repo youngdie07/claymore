@@ -14,6 +14,8 @@ namespace mn {
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
 using ParticleBufferDomain = compact_domain<int, config::g_max_particle_bin>;
 using ParticleArrayDomain = compact_domain<int, config::g_max_particle_num>;
+using ParticleArrayLahfDomain = compact_domain<int, config::g_max_particle_num / 2>;
+using ParticleArrayEighthDomain = compact_domain<int, config::g_max_particle_num / 8>;
 using ParticleTargetDomain = compact_domain<int, config::g_max_particle_target_nodes>;
 
 // * All  particle attributes available for ouput.
@@ -184,18 +186,27 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
             _cellbuckets{nullptr}, _blockbuckets{nullptr}, _binsts{nullptr} {
               std::cout << "Constructing ParticleBufferImpl with buckets." << "\n";
             }
-  template <typename Allocator>
-  ParticleBufferImpl(Allocator allocator)
-      : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
-            allocator)} {
-              std::cout << "Constructing ParticleBufferImpl without buckets." << "\n";
-            }
+  // template <typename Allocator>
+  // ParticleBufferImpl(Allocator allocator)
+  //     : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
+  //           allocator)} {
+  //             std::cout << "Constructing ParticleBufferImpl without buckets." << "\n";
+  //           }
+
+  // template <typename Allocator>
+  // ParticleBufferImpl(Allocator allocator, std::size_t count)
+  //     : base_t{spawn<particle_buffer_<particle_bin_<mt>>, orphan_signature>(
+  //           allocator, count)} {
+  //             std::cout << "Constructing ParticleBufferImpl without buckets." << "\n";
+  //           }
 
   // Check if particle buffer can hold n particle blocks, resize if not
   template <typename Allocator>
   void checkCapacity(Allocator allocator, std::size_t capacity) {
-    if (capacity > this->_capacity)
+    if (capacity > this->_capacity) {
+      std::cout << "Resize bins from " << this->_capacity << " to " << capacity << " for total of " << this->base_t::element_storage_size * capacity << " bytes.\n";
       this->resize(allocator, capacity);
+    }
   }
 
   PREC ppc = MODEL_PPC; // Particles per cell
@@ -2136,10 +2147,17 @@ using particle_array_32_ =
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;
-  ParticleArray &operator=(base_t &&instance) {
-    static_cast<base_t &>(*this) = instance;
-    return *this;
-  }
+  // ParticleArray &operator=(base_t &&instance) {
+  //   static_cast<base_t &>(*this) = instance;
+  //   return *this;
+  // }
+	// ParticleArray() = default;
+	// explicit ParticleArray(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
+	// 	: base_t(instance) {}
+	ParticleArray() = default;
+	explicit ParticleArray(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
+		: base_t(instance) {}
+
   //ParticleArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 

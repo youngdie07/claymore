@@ -154,7 +154,7 @@ struct mgsp_benchmark {
     fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
 #endif
 
-    collisionObjs.resize(g_device_cnt); // Deprecated boundary method
+    // collisionObjs.resize(g_device_cnt); // Deprecated boundary method
     initParticles<0>(); // Set-up basic data-strucutres for each GPU
     printDiv();
     fmt::print("GPU[{}] gridBlocks[0] and gridBlocks[1]  size [{}] + [{}] megabytes.\n", 0,
@@ -230,7 +230,7 @@ struct mgsp_benchmark {
 
     pcnt[GPU_ID][MODEL_ID] = model.size(); // Initial particle count
     const float extra_particle_bins_ratio = 1.20f; // Extra particle bins ratio to account for particle movement which may increase bin usage
-    std::size_t max_particle_bin_for_model = (std::size_t) ceil(extra_particle_bins_ratio * (float)pcnt[GPU_ID][MODEL_ID] / (float) mn::config::g_bin_capacity); // Max number of particle bins for this models size
+    std::size_t max_particle_bin_for_model = (std::size_t) std::max(ceil(extra_particle_bins_ratio * (float)pcnt[GPU_ID][MODEL_ID] / (float) mn::config::g_bin_capacity), (float)g_max_active_block); // Max number of particle bins for this models size. Must be atleast big enough to have one bin per max compiled active block to avoid a bunch of resizing.
     // std::size_t max_particle_bin_for_model = g_max_particle_bin;
 
     h_model_cnt[GPU_ID] += 1; // Increment model count on GPU
@@ -254,8 +254,10 @@ struct mgsp_benchmark {
     cuDev.syncStream<streamIdx::Compute>();
 
     fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleArray.\n", rank, GPU_ID, MODEL_ID);
-    particles[GPU_ID][MODEL_ID] = spawn<particle_array_, orphan_signature>(device_allocator{}); // Move assignment operator, should avoid copying memory. Double-check.
-    
+    // particles[GPU_ID][MODEL_ID] = spawn<particle_array_, orphan_signature>(device_allocator{}); // Move assignment operator, should avoid copying memory. Double-check.
+    particles[GPU_ID].emplace_back(spawn<particle_array_, orphan_signature>(device_allocator {}, sizeof(PREC_P) * 3 * model.size()));
+
+    // particles[GPU_ID][MODEL_ID] = static_cast<ParticleArray>(spawn<particle_array_, orphan_signature>(device_allocator {}));
     bincnt[GPU_ID][MODEL_ID] = 0;
     checkedBinCnts[GPU_ID][MODEL_ID] = 0;
     curNumActiveBins[GPU_ID][MODEL_ID] = max_particle_bin_for_model;
@@ -421,21 +423,21 @@ struct mgsp_benchmark {
 
 // ! Mostly deprecated, was used to have SDF set boundary conditions
 // TODO : Reimplement for engineering + improve memory usage
-  void initBoundary(std::string fn) {
-    initFromSignedDistanceFile(fn,
-                               vec<std::size_t, 3>{(std::size_t)1024,
-                                                   (std::size_t)1024,
-                                                   (std::size_t)512},
-                               _hostData);
-    for (int did = 0; did < g_device_cnt; ++did) {
-      auto &cuDev = Cuda::ref_cuda_context(did);
-      cuDev.setContext();
-      fmt::print("GPU[{}] Allocating SDF collisionObjs.\n", did);
-      collisionObjs[did] = SignedDistanceGrid{device_allocator{}};
-      collisionObjs[did]->init(_hostData, cuDev.stream_compute());
-      cuDev.syncStream<streamIdx::Compute>();
-    }
-  }
+  // void initBoundary(std::string fn) {
+  //   initFromSignedDistanceFile(fn,
+  //                              vec<std::size_t, 3>{(std::size_t)1024,
+  //                                                  (std::size_t)1024,
+  //                                                  (std::size_t)512},
+  //                              _hostData);
+  //   for (int did = 0; did < g_device_cnt; ++did) {
+  //     auto &cuDev = Cuda::ref_cuda_context(did);
+  //     cuDev.setContext();
+  //     fmt::print("GPU[{}] Allocating SDF collisionObjs.\n", did);
+  //     collisionObjs[did] = SignedDistanceGrid{device_allocator{}};
+  //     collisionObjs[did]->init(_hostData, cuDev.stream_compute());
+  //     cuDev.syncStream<streamIdx::Compute>();
+  //   }
+  // }
 
   /// Initialize target from host setting (&input_gridTarget), output as *.bgeo (JB)
   void initGridTarget(int GPU_ID,
@@ -690,27 +692,28 @@ struct mgsp_benchmark {
         [&](const auto &particleBuffer) { return (PREC)particleBuffer.volume; });
   }
   int getModelCnt(int did) const noexcept { return (int)h_model_cnt[did]; }
+  // Check if GPU data-structures need to be resized for more bins/blocks
   void checkCapacity(int did) {
     // Check active block capacity
-    if (ebcnt[did] > curNumActiveBlocks[did] * 9/10 && checkedCnts[did][0] == 0) {
-      curNumActiveBlocks[did] = std::max(curNumActiveBlocks[did] * 9/8, (std::size_t)ebcnt[did]);
+    if ((std::size_t)ebcnt[did] > (std::size_t)((float)curNumActiveBlocks[did] * 0.9f) && checkedCnts[did][0] == 0) {
+      curNumActiveBlocks[did] = std::max((std::size_t)((float)curNumActiveBlocks[did] * 1.125f), (std::size_t)ebcnt[did]);
       checkedCnts[did][0] = 2; // 2 means resize of GPU blocks needed
-      fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active blocks soon: [{}] -> [{}]\n", did, ebcnt[did], curNumActiveBlocks[did]);
+      if (g_log_level >= 1) fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active blocks soon: [{}] -> [{}]\n", did, ebcnt[did], curNumActiveBlocks[did]);
     }
     // Check active particle bin capacity
     if (g_buckets_on_particle_buffer) {
       for (int mid = 0; mid < getModelCnt(did); mid++) {
-        if (bincnt[did][mid] >= curNumActiveBins[did][mid] * 9/10 && checkedBinCnts[did][mid] == 0) {
-          curNumActiveBins[did][mid] = std::max(curNumActiveBins[did][mid] * 9/8, (std::size_t)bincnt[did][mid]);
+        if (bincnt[did][mid] >= (std::size_t)((float)curNumActiveBins[did][mid] * 0.9f) && checkedBinCnts[did][mid] == 0) {
+          curNumActiveBins[did][mid] = std::max((std::size_t)((float)curNumActiveBins[did][mid] * 1.125f), (std::size_t)bincnt[did][mid]);
           checkedBinCnts[did][mid] = 2; // 2 means resize of GPU model's bins needed
-          if (g_log_level >= 3) fmt::print(fg(fmt::color::orange),"GPU[{}] MODEL[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
+          if (g_log_level >= 1) fmt::print(fg(fmt::color::orange),"GPU[{}] MODEL[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
         } 
       }
     } else {
       if (bincnt[did][0] >= curNumActiveBins[did][0] * 9/10 && checkedCnts[did][1] == 0) {
         curNumActiveBins[did][0] = std::max(curNumActiveBins[did][0] * 9/8, (std::size_t)bincnt[did][0]);
         checkedBinCnts[did][0] = 2; // 2 means resize of GPU's bins needed
-        if (g_log_level >= 3) fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, bincnt[did][0], curNumActiveBins[did][0]);
+        if (g_log_level >= 1) fmt::print(fg(fmt::color::orange), "GPU[{}] Will resize active particle bins soon: [{}] -> [{}]\n", did, bincnt[did][0], curNumActiveBins[did][0]);
       } 
     }
 
@@ -770,7 +773,7 @@ struct mgsp_benchmark {
         setMotionPath(host_motionPath, curTime); //< Update motion-paths for this time-step
         issue([this](int did) {
           auto &cuDev = Cuda::ref_cuda_context(did);
-          cuDev.setContext(); // JB, maybe remove?
+          //cuDev.setContext(); // JB, maybe remove?
           checkCapacity(did); 
           PREC_G *d_maxVel = tmps[did].d_maxVel;
           PREC_G *d_kinetic_energy_grid = tmps[did].d_kinetic_energy_grid;
@@ -786,16 +789,16 @@ struct mgsp_benchmark {
                                           cuDev.stream_compute()));
           //if (curStep == 0) dt = dt/2; //< Init. grid vel. update shifted 1/2 dt. Leap-frog time-integration instead of symplectic Euler for extra stability
           // Grid Update
-          if (collisionObjs[did]) // If using SDF boundaries
-            cuDev.compute_launch(
-                {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
-                     g_num_grid_blocks_per_cuda_block,
-                 g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
-                update_grid_velocity_query_max, (uint32_t)nbcnt[did],
-                gridBlocks[0][did], partitions[rollid][did], dt,
-                (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime, grav[1]);
-                // TODO: Grav as full vector
-          else { // If using basic geometry boundaries
+          // if (collisionObjs[did]) // If using SDF boundaries
+          //   cuDev.compute_launch(
+          //       {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
+          //            g_num_grid_blocks_per_cuda_block,
+          //        g_num_warps_per_cuda_block * 32, g_num_warps_per_cuda_block * sizeof(PREC_G)},
+          //       update_grid_velocity_query_max, (uint32_t)nbcnt[did],
+          //       gridBlocks[0][did], partitions[rollid][did], dt,
+          //       (const SignedDistanceGrid)(*collisionObjs[did]), d_maxVel, curTime, grav[1]);
+          //       // TODO: Grav as full vector
+          if (true) { // If using basic geometry boundaries
             cuDev.compute_launch(
                 {(nbcnt[did] + g_num_grid_blocks_per_cuda_block - 1) /
                      g_num_grid_blocks_per_cuda_block,
@@ -849,8 +852,8 @@ struct mgsp_benchmark {
         if (false) nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
         else nextDt = dtDefault;
         
-        if (g_log_level >= 3 && step_cnt == 0) 
-          fmt::print(fmt::emphasis::bold, "curTime[{}] [s] --nextDt[{}]--> nextTime[{}] [s], defaultDt[{}] [s], maxVel[{}] [m/s], kinetic_energy[{}] [J]\n", curTime,  nextDt, nextTime, dtDefault, (maxVel*length), sum_kinetic_energy_grid);
+        if (g_log_level >= 2 && step_cnt % (int)std::max(host_pt_freq, host_gt_freq) == 0) 
+          fmt::print(fmt::emphasis::bold, "Frame[{}], curTime[{}] [s] --nextDt[{}]--> nextTime[{}] [s], defaultDt[{}] [s], maxVel[{}] [m/s], kinetic_energy[{}] [J]\n", curFrame, curTime,  nextDt, nextTime, dtDefault, (maxVel*length), sum_kinetic_energy_grid);
 
         // * Run g2p2g, g2p-p2g, or g2p2v-v2fem2v-v2p2g pipeline on each GPU
         issue([this](int did) {
@@ -861,6 +864,7 @@ struct mgsp_benchmark {
           if (g_buckets_on_particle_buffer) {
             for (int mid=0; mid<getModelCnt(did); mid++) {
               if (checkedBinCnts[did][mid] > 0) {
+                if (g_log_level >= 1) fmt::print(fg(fmt::color::orange), "GPU[{}] MODEL[{}] Resizing particleBins[{}][{}][{}] Bin Count: [{}] -> [{}] \n", did, mid, rollid^1, did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
                 match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
                   pb.resize(device_allocator{}, curNumActiveBins[did][mid]);
                 });
@@ -903,13 +907,14 @@ struct mgsp_benchmark {
               // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
               //if (curFrame == 1) {
               // Grid-to-Particle-to-Grid - g2p2g
-              checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-              
-              // Grid-to-Particle - F-Bar Update
-              checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-              // Particle-to-Grid - F-Bar Update
-              checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
-              //}
+              if (curStep == 0) {
+                checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                
+                // Grid-to-Particle - F-Bar Update
+                checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                // Particle-to-Grid - F-Bar Update
+                checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(particleBins[rollid][did][mid])>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+              }
               
               // Grid-to-Particle-to-Grid - g2p2g 
               if (!pb.use_ASFLIP && !pb.use_FEM && !pb.use_FBAR) {
@@ -1416,6 +1421,7 @@ struct mgsp_benchmark {
 
           /// * Check grid-block capacity, resize if needed
           if (checkedCnts[did][0] > 0) {
+            if (g_log_level >= 1) fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow), "GPU[{}] Resize gridBlocks[{}][{}] and tmps[{}] to: [{}] blocks. \n", did, 0, did, did, curNumActiveBlocks[did]);
             gridBlocks[0][did].resize(device_allocator{}, curNumActiveBlocks[did]);
           }
           /// * Rearrange grid blocks
@@ -1434,6 +1440,7 @@ struct mgsp_benchmark {
           /// * Check gridBlocks and temp. array capacity, resize if needed
           /// * Flag set by checkCapacity() start of step, before MPM grid_update
           if (checkedCnts[did][0] > 0) {
+            if (g_log_level >= 1) fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow), "GPU[{}] Resize gridBlocks[{}][{}] and tmps[{}] to: [{}] blocks. \n", did, 1, did, did, curNumActiveBlocks[did]);
             gridBlocks[1][did].resize(device_allocator{}, curNumActiveBlocks[did]);
             tmps[did].resize(curNumActiveBlocks[did]);
           }
@@ -1487,6 +1494,8 @@ struct mgsp_benchmark {
         // {
         if (check_flag_and_frequency(flag_pe, host_pe_freq, dt, curTime, nextTime)) {
           issue([this](int did) {
+            // auto &cuDev = Cuda::ref_cuda_context(did);
+            // cuDev.setContext();
             get_particle_energy(did);
           });
           sync();
@@ -1629,6 +1638,7 @@ struct mgsp_benchmark {
 
   void get_particle_energy(int did) {
     //IO::flush();
+    // Maybe not needed?
     auto &cuDev = Cuda::ref_cuda_context(did);
     cuDev.setContext();
 
@@ -2372,6 +2382,8 @@ struct mgsp_benchmark {
 
     if (flag_pe) {
       issue([this](int did) {
+        // auto &cuDev = Cuda::ref_cuda_context(did);
+        // cuDev.setContext();
         get_particle_energy(did);
       });
       sync();
@@ -2604,7 +2616,7 @@ struct mgsp_benchmark {
   std::vector<element_buffer_t> elementBins; //< Organizes FEM element data in bins
   std::vector<HaloGridBlocks> inputHaloGridBlocks, outputHaloGridBlocks;
   // std::vector<HaloParticleBlocks> inputHaloParticleBlocks, outputHaloParticleBlocks;
-  std::vector<optional<SignedDistanceGrid>> collisionObjs; // Needs to be reimplemented
+  // std::vector<optional<SignedDistanceGrid>> collisionObjs; // Needs to be reimplemented
 
   std::array<uint32_t, g_device_cnt> h_model_cnt = {0}; ///< Particle models per GPU device
   std::vector<GridTarget> d_gridTarget; ///< Grid-target device arrays 
@@ -2624,7 +2636,10 @@ struct mgsp_benchmark {
   std::vector<std::string> particle_target_attribs[g_device_cnt][g_models_per_gpu];
   std::vector<std::string> grid_target_attribs[g_device_cnt];
 
-  vec<ParticleArray, g_models_per_gpu> particles[g_device_cnt]; //< Basic GPU arrays for Particle positions
+  //vec<ParticleArray, g_models_per_gpu> particles[g_device_cnt]; //< Basic GPU arrays for Particle positions
+
+  std::vector<ParticleArray> particles[g_device_cnt] = {};
+
   std::vector<particle_attrib_t> pattribs[g_device_cnt];  //< Basic GPU arrays for Particle attributes
   std::vector<particle_attrib_t> pattribs_init[g_device_cnt];  //< Basic GPU arrays for Particle init. attributes
 

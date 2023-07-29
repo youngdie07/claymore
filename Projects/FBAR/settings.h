@@ -88,13 +88,13 @@ constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. partic
 
 // * Output set-up
 constexpr bool g_particles_output_exterior_only = true; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
-constexpr int g_exterior_particles_cutoff = 192; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
+constexpr int g_exterior_particles_cutoff = 128; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
 enum class log_level_e : int { None, Errors, Warnings, Info, Tips };
 constexpr int g_log_level = (int)log_level_e::Warnings; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
 
 
 // * Grid set-up
-#define DOMAIN_BITS 10 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 12 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -128,8 +128,8 @@ constexpr int32_t constCeil(float num) {
 constexpr double g_length   = 1.0; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 30.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 20.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
@@ -150,14 +150,14 @@ constexpr int g_grid_size_z = (int)constCeil(static_cast<float>(g_grid_size * g_
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 15000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 1800000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Halo Blocks for Multi-GPU Communication
 constexpr std::size_t g_max_halo_block = 1024 * 6; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
 
 // * Particles
-#define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
-constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+#define MAX_PPC 16 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
+constexpr int g_max_particle_num = 50000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Max particles per cell
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
@@ -185,7 +185,7 @@ constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
 
 
 // * Grid-Targets
-constexpr int g_max_grid_target_nodes = 1024 * 6 * 1; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 1024 * 8 * 1; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
 

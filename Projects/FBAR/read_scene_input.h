@@ -1528,7 +1528,7 @@ void parse_scene(std::string fn,
     {
       auto it = doc.FindMember("models");
       int rank = 0; 
-      int num_ranks = 1;
+      // int num_ranks = 1;
 #if CLUSTER_COMM_STYLE == 1
         // Obtain our rank (Node ID) and the total number of ranks (Num Nodes)
         // Assume we launch MPI with one rank per GPU Node
@@ -1819,7 +1819,7 @@ void parse_scene(std::string fn,
 
                   mn::vec<PREC, 3> geometry_offset, geometry_span, geometry_spacing;
                   mn::vec<int, 3> geometry_array;
-                  mn::vec<PREC, 3> geometry_rotate, geometry_fulcrum, geometry_shear;
+                  mn::vec<PREC, 3> geometry_rotate, geometry_fulcrum;
                   geometry_span = CheckDoubleArray(geometry, "span", mn::pvec3{1.,1.,1.});
                   geometry_offset = CheckDoubleArray(geometry, "offset", mn::pvec3{0.,0.,0.});
                   geometry_array = CheckIntArray(geometry, "array", mn::ivec3{1,1,1});
@@ -1961,6 +1961,7 @@ void parse_scene(std::string fn,
                         mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
 
                         if (keep_track_of_array == 0) {
+                          attributes.resize(attributes.size() * geometry_array[0] * geometry_array[1] * geometry_array[2], std::vector<PREC>(input_attribs.size()));
                           keep_track_of_particles = models[total_id].size();
                           fmt::print("Size of attributes after reading in initial data: Particles[{}], Attributes[{}]\n", attributes.size(), attributes[0].size());
                           for (int i = 0; i < attributes[0].size(); i++) {
@@ -2347,9 +2348,9 @@ void parse_scene(std::string fn,
             }
 
             h_gridBoundary._ID = boundary_ID;
-            h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0,0,0});
-            h_gridBoundary._domain_end = CheckFloatArray(model, "domain_end", mn::vec<float, 3>{1,1,1});
-            h_gridBoundary._velocity = CheckFloatArray(model, "velocity", mn::vec<float, 3>{0,0,0});
+            h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0.f,0.f,0.f});
+            h_gridBoundary._domain_end = CheckFloatArray(model, "domain_end", mn::vec<float, 3>{1.f,1.f,1.f});
+            h_gridBoundary._velocity = CheckFloatArray(model, "velocity", mn::vec<float, 3>{0.f,0.f,0.f});
             h_gridBoundary._array = CheckIntArray(model, "array", mn::vec<int, 3>{1,1,1});
             h_gridBoundary._spacing = CheckFloatArray(model, "spacing", mn::vec<float, 3>{0.f,0.f,0.f});
             for (int d = 0; d < 3; ++d) {
@@ -2365,8 +2366,8 @@ void parse_scene(std::string fn,
             
             // Time range the boundary is active
             mn::vec<float, 2> float_time;
-            float_time[0] = time[0];
-            float_time[1] = time[1];
+            float_time[0] = (float)time[0];
+            float_time[1] = (float)time[1];
             h_gridBoundary._time = CheckFloatArray<2>(model, "time", float_time);
             // Adjust for froude scaling if not using default
             if (h_gridBoundary._time[0] != float_time[0] && h_gridBoundary._time[1] != float_time[1]) {

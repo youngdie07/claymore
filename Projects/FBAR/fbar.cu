@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
 
   //std::ios::sync_with_stdio(false); //< Disable synchronization between C and C++ standard streams
 
-  IO;
+  // IO;
 
   Cuda::startup(); //< Start CUDA GPUs if available.
   // ---------------- Read JSON input file for simulation ---------------- 
