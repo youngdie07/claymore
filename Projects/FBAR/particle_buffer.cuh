@@ -2188,11 +2188,18 @@ struct ParticleAttrib: Instance<particle_attrib_<N>> {
   static constexpr unsigned numAttributes = static_cast<unsigned>(N);
   using base_t = Instance<particle_attrib_<N>>;
   
+	// ParticleAttrib() = default;
+	// explicit ParticleAttrib(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
+	// 	: base_t(instance) {}
+
   // Default constructor
   template <typename Allocator>
   ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
       std::cout << "ParticleAttrib constructor with an allocator." << "\n";
   }
+
+
+
   // Move assignment operator
   ParticleAttrib &operator=(base_t &&instance) {
     std::cout << "ParticleAttrib move assignment operator called." << "\n";

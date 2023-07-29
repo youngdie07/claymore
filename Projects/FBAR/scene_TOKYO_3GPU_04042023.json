@@ -1,15 +1,15 @@
 {
 	"simulation": {
-		"fps": 10,
-		"frames": 60,
+		"fps": 20,
+		"frames": 120,
 		"default_dt": 1e-5,
-		"default_dx": 0.0125,
-		"domain": [9.0, 1.0, 0.0125],
+		"default_dx": 0.01,
+		"domain": [9.0, 1.0, 0.01],
 		"gravity": [0, -9.81, 0],
 		"save_path": "./",
 		"save_suffix": ".bgeo"
 	},
-	"models": [
+	"models": [		
 		{
 			"gpu": 0,
 			"model": 0,
@@ -41,7 +41,7 @@
 				}
 			],
 			"partition_start": [0, 0, 0],
-			"partition_end": [0.5, 0.9, 0.0125]
+			"partition_end": [0.5, 0.9, 0.01]
 		},
 		{
 			"gpu": 1,
@@ -75,12 +75,12 @@
 				{
 					"object": "Box",
 					"operation": "subtract",
-					"span": [0.05, 1.0, 4.0],
+					"span": [0.04, 1.0, 4.0],
 					"offset": [0.5, 0.1, 0.0]
 				}
 			],
 			"partition_start": [0.5, 0, 0],
-			"partition_end": [2.5, 0.23, 0.0125]
+			"partition_end": [2.5, 0.23, 0.01]
 		},
 		{
 			"gpu": 2,
@@ -113,15 +113,15 @@
 				}
 			],
 			"partition_start": [2.5, 0, 0],
-			"partition_end": [4.45, 0.23, 0.0125]
+			"partition_end": [4.45, 0.23, 0.01]
 		},
 		{
 			"gpu": 2,
 			"model": 2,
 			"type": "particles",
 			"constitutive": "FixedCorotated",
-			"output_attribs": ["ID", "Velocity_X", "Velocity_Z", "Pressure"],
-			"track_particle_id": [1200, 3600, 5000],
+			"output_attribs": ["ID", "Velocity_X", "Velocity_Y", "Velocity_Z", "Pressure"],
+			"track_particle_id": [2520, 6840, 11160],
 			"track_attribs": ["Velocity_X"],
 			"target_attribs": ["Position_Y"],
 			"ppc": 8.0,
@@ -141,10 +141,10 @@
 				{
 					"object": "Box",
 					"operation": "add",
-					"span": [0.0625, 0.0625, 0.15],
-					"offset": [4.68, 0.25, 1.725],
+					"span": [0.06, 0.06, 0.15],
+					"offset": [4.65, 0.25, 1.725],
 					"array": [1, 1, 3],
-					"spacing": [0.0, 0.0625, 0.2]
+					"spacing": [0.0, 0.09, 0.18]
 				}
 			],
 			"partition_start": [4.45, 0.0, 0.0],
@@ -156,7 +156,7 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
-			"domain_end": [9.0, 1.0, 0.0125],
+			"domain_end": [9.0, 1.0, 0.01],
 			"friction_static": 0.0,
 			"friction_dynamic": 0.0
 		},
@@ -164,7 +164,7 @@
 			"object": "TOKYO_HARBOR",
 			"contact": "Separable",
 			"domain_start": [4.45, -0.1, -0.1],
-			"domain_end": [9.1, 0.255, 4.1],
+			"domain_end": [9.1, 0.25, 4.1],
 			"friction_static": 0.0,
 			"friction_dynamic": 0.0
 		},
@@ -172,7 +172,7 @@
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [0.5, 0.1, -0.1],
-			"domain_end": [0.55, 1.0, 4.1],
+			"domain_end": [0.54, 1.0, 4.1],
 			"friction_static": 0.0,
 			"friction_dynamic": 0.0
 		},
@@ -195,6 +195,46 @@
 			"output_frequency": 100,
 			"domain_start": [9.16, 0.0125, 1.3125],
 			"domain_end": [9.18, 0.4425, 1.3875]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.16, 0.0125, 1.6375],
+			"domain_end": [9.18, 0.4425, 1.7125]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.16, 0.0125, 1.9625],
+			"domain_end": [9.18, 0.4425, 2.0375]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.61, 0.0125, 1.3125],
+			"domain_end": [9.63, 0.4425, 1.3875]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.61, 0.0125, 1.6375],
+			"domain_end": [9.63, 0.4425, 1.7125]
+		},
+		{
+			"attribute": "Force",
+			"operation": "Sum",
+			"direction": "X+",
+			"output_frequency": 100,
+			"domain_start": [9.61, 0.0125, 1.9625],
+			"domain_end": [9.63, 0.4425, 2.0375]
 		}
 	],
 	"particle-targets": [

@@ -1961,7 +1961,7 @@ void parse_scene(std::string fn,
                         mn::read_partio_general<PREC>(geometry_fn, models[total_id], attributes, input_attribs.size(), input_attribs); 
 
                         if (keep_track_of_array == 0) {
-                          attributes.resize(attributes.size() * geometry_array[0] * geometry_array[1] * geometry_array[2], std::vector<PREC>(input_attribs.size()));
+                          attributes.reserve(attributes.size() * geometry_array[0] * geometry_array[1] * geometry_array[2]);
                           keep_track_of_particles = models[total_id].size();
                           fmt::print("Size of attributes after reading in initial data: Particles[{}], Attributes[{}]\n", attributes.size(), attributes[0].size());
                           for (int i = 0; i < attributes[0].size(); i++) {

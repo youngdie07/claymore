@@ -82,7 +82,7 @@ namespace config /// * Simulation config setup and name-space
 // * g_device_cnt = 4, g_models_per_gpu = 2 ---> g_model_cnt = 8
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
-constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
+constexpr int g_device_cnt = 3; //< IMPORTANT. Num. GPUs to compile for. Default 1.
 constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
@@ -150,7 +150,7 @@ constexpr int g_grid_size_z = (int)constCeil(static_cast<float>(g_grid_size * g_
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 1800000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 180000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Halo Blocks for Multi-GPU Communication
 constexpr std::size_t g_max_halo_block = 1024 * 6; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
