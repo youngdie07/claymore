@@ -14,8 +14,8 @@ namespace mn {
 using ParticleBinDomain = aligned_domain<char, config::g_bin_capacity>;
 using ParticleBufferDomain = compact_domain<int, config::g_max_particle_bin>;
 using ParticleArrayDomain = compact_domain<int, config::g_max_particle_num>;
-using ParticleArrayLahfDomain = compact_domain<int, config::g_max_particle_num / 2>;
-using ParticleArrayEighthDomain = compact_domain<int, config::g_max_particle_num / 8>;
+using ParticleArrayHalfDomain = compact_domain<int, config::g_max_particle_num / 2>;
+using ParticleArrayEigthDomain = compact_domain<int, config::g_max_particle_num / 8>;
 using ParticleTargetDomain = compact_domain<int, config::g_max_particle_target_nodes>;
 
 // * All  particle attributes available for ouput.
@@ -2147,17 +2147,13 @@ using particle_array_32_ =
 
 struct ParticleArray : Instance<particle_array_> {
   using base_t = Instance<particle_array_>;
+	ParticleArray() = default;
+	explicit ParticleArray(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
+		: base_t(instance) {}
   // ParticleArray &operator=(base_t &&instance) {
   //   static_cast<base_t &>(*this) = instance;
   //   return *this;
   // }
-	// ParticleArray() = default;
-	// explicit ParticleArray(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
-	// 	: base_t(instance) {}
-	ParticleArray() = default;
-	explicit ParticleArray(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
-		: base_t(instance) {}
-
   //ParticleArray(base_t &&instance) { static_cast<base_t &>(*this) = instance; }
 };
 
@@ -2192,25 +2188,30 @@ struct ParticleAttrib: Instance<particle_attrib_<N>> {
 	// explicit ParticleAttrib(base_t&& instance)//NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) Clang say, that std::move has no effect here
 	// 	: base_t(instance) {}
 
+  // // Default constructor
+  // template <typename Allocator>
+  // ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
+  //     std::cout << "ParticleAttrib constructor with an allocator." << "\n";
+  // }
+
   // Default constructor
   template <typename Allocator>
-  ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
+  ParticleAttrib(Allocator allocator, std::size_t count) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator, count)} { 
       std::cout << "ParticleAttrib constructor with an allocator." << "\n";
   }
 
 
-
-  // Move assignment operator
-  ParticleAttrib &operator=(base_t &&instance) {
-    std::cout << "ParticleAttrib move assignment operator called." << "\n";
-    static_cast<base_t &>(*this) = instance;
-    return *this;
-  }
-  // Move constructor
-  ParticleAttrib(base_t &&instance) { 
-    std::cout << "ParticleAttrib move constructor called." << "\n";
-    static_cast<base_t &>(*this) = instance; 
-  }
+  // // Move assignment operator
+  // ParticleAttrib &operator=(base_t &&instance) {
+  //   std::cout << "ParticleAttrib move assignment operator called." << "\n";
+  //   static_cast<base_t &>(*this) = instance;
+  //   return *this;
+  // }
+  // // Move constructor
+  // ParticleAttrib(base_t &&instance) { 
+  //   std::cout << "ParticleAttrib move constructor called." << "\n";
+  //   static_cast<base_t &>(*this) = instance; 
+  // }
 
   // // Move assignment operator
   // ParticleAttrib &operator=(ParticleAttrib &&instance) {

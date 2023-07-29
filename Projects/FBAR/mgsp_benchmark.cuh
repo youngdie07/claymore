@@ -243,7 +243,7 @@ struct mgsp_benchmark {
 
       if (g_buckets_on_particle_buffer) {
         // Reserve memory for cell / block ID buckets, particles per cell / block counts
-        fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleBins[{}][{}][{}].reserveBuckets() with g_max_active_block[{}].\n", rank, GPU_ID, MODEL_ID, copyid, GPU_ID, MODEL_ID, g_max_active_block);
+        fmt::print("NODE[{}] GPU[{}] MODEL[{}] COPY[{}] Allocating ParticleBins[{}][{}][{}].reserveBuckets() with g_max_active_block[{}].\n", rank, GPU_ID, MODEL_ID, copyid, copyid, GPU_ID, MODEL_ID, g_max_active_block);
         match(particleBins[copyid][GPU_ID][MODEL_ID])([&](auto &pb) {
           pb.reserveBuckets(device_allocator{}, config::g_max_active_block);
         });
@@ -255,8 +255,9 @@ struct mgsp_benchmark {
 
     fmt::print("NODE[{}] GPU[{}] MODEL[{}] Allocating ParticleArray.\n", rank, GPU_ID, MODEL_ID);
     // particles[GPU_ID][MODEL_ID] = spawn<particle_array_, orphan_signature>(device_allocator{}); // Move assignment operator, should avoid copying memory. Double-check.
-    particles[GPU_ID].emplace_back(spawn<particle_array_, orphan_signature>(device_allocator {}, sizeof(PREC_P) * 3 * model.size()));
-
+    // const int num_dimensions = 3; // Number of spatial dimensions
+    // particles[GPU_ID].emplace_back(spawn<particle_array_, orphan_signature>(device_allocator {}, sizeof(PREC_P) * num_dimensions * model.size()));
+    particles[GPU_ID].emplace_back(spawn<particle_array_, orphan_signature>(device_allocator {}, model.size()));
     // particles[GPU_ID][MODEL_ID] = static_cast<ParticleArray>(spawn<particle_array_, orphan_signature>(device_allocator {}));
     bincnt[GPU_ID][MODEL_ID] = 0;
     checkedBinCnts[GPU_ID][MODEL_ID] = 0;
@@ -307,7 +308,10 @@ struct mgsp_benchmark {
     constexpr int n = static_cast<int>(N);
     flag_pi[GPU_ID][MODEL_ID] = has_init_attribs;
     fmt::print("GPU[{}] MODEL[{}] Allocating ParticleAttribs.\n", GPU_ID, MODEL_ID);
-    pattribs_init[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator{})); // push or emplace_back??
+    // pattribs_init[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator{})); // Default allocation size (big) 
+    // pattribs_init[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator {}, sizeof(PREC) * n * model_attribs.size())); // Manual allocation
+    pattribs_init[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator {}, model_attribs.size())); // Manual allocation
+    
     cuDev.syncStream<streamIdx::Compute>();
     printDiv();
 
@@ -343,7 +347,9 @@ struct mgsp_benchmark {
     cuDev.setContext();
     constexpr int n = static_cast<int>(N);
     fmt::print("GPU[{}] MODEL[{}] Allocating ParticleAttribs.\n", GPU_ID, MODEL_ID);
-    pattribs[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator{}));
+    // pattribs[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator{}));
+    // pattribs[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator {}, sizeof(PREC) * n * model_attribs.size())); // Manual allocation
+    pattribs[GPU_ID].emplace_back(ParticleAttrib<N>(device_allocator {}, model_attribs.size())); // Manual allocation
     //pattribs[GPU_ID] = spawn<particle_attrib_<N>, orphan_signature>(device_allocator{});
     cuDev.syncStream<streamIdx::Compute>();
     printDiv();
@@ -1714,7 +1720,7 @@ struct mgsp_benchmark {
     cuDev.syncStream<streamIdx::Compute>();
 
     for (int mid=0; mid<getModelCnt(did); mid++) {
-      if (g_log_level >= 3)timer.tick();
+      if (g_log_level >= 2) timer.tick();
       int i = 0;
       parcnt = 0;
       for (int j=0;j<g_max_particle_trackers; j++) 
@@ -1792,7 +1798,7 @@ struct mgsp_benchmark {
         });
       }
       cuDev.syncStream<streamIdx::Compute>();
-      timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles\n", rank, did, mid, curFrame, curStep));
+      if (g_log_level >= 2) timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles\n", rank, did, mid, curFrame, curStep));
     }
   }
 
