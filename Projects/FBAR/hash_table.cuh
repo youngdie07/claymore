@@ -29,7 +29,7 @@ template <> struct HaloPartition<1> {
   template <typename Allocator>
   HaloPartition(Allocator allocator, int maxBlockCnt) {
     std::cout << "Constructing HaloPartition<1>.\n";
-    _count = (int *)allocator.allocate(sizeof(char) * maxBlockCnt); // int or char??
+    _count = (int *)allocator.allocate(sizeof(int) * maxBlockCnt); // int or char??
     _haloMarks = (char *)allocator.allocate(sizeof(char) * maxBlockCnt);
     _overlapMarks = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
     _haloBlocks = (ivec3 *)allocator.allocate(sizeof(ivec3) * maxBlockCnt);
@@ -41,7 +41,7 @@ template <> struct HaloPartition<1> {
   
   template <typename Allocator>
   void deallocate_partition(Allocator allocator, std::size_t prevCapacity) {
-    allocator.deallocate(_count, sizeof(char) * prevCapacity ); // int or char??
+    allocator.deallocate(_count, sizeof(int) * prevCapacity ); // int or char??
     allocator.deallocate(_haloMarks, sizeof(char) * prevCapacity);
     allocator.deallocate(_overlapMarks, sizeof(int) * prevCapacity);
     allocator.deallocate(_haloBlocks, sizeof(ivec3) * prevCapacity);

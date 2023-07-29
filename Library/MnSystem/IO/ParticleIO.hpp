@@ -70,15 +70,15 @@ void read_partio_general(std::string filename,
                   std::vector<std::array<T, 3>>  &positions, 
                   std::vector<std::vector<T>> &attributes,
                   const int dim_in,
-                  const std::vector<std::string> &labels) {
+                  const std::vector<std::string> &labels, bool verbose = false) {
   Partio::ParticlesData *parts = Partio::read(filename.c_str());
-  if(!parts) printf("ERROR: Failed to open file with PartIO.");
+  if(!parts) std::cout << "ERROR: Failed to open file with PartIO." << std::endl;
 
-  std::cout<<"PartIO reading number of particles: "<<parts->numParticles()<<std::endl;
+  if (verbose) std::cout<<"PartIO reading number of particles: "<<parts->numParticles()<<std::endl;
   for(int i=0;i<parts->numAttributes();i++){
       Partio::ParticleAttribute attr;
       parts->attributeInfo(i,attr);
-      std::cout<<"Attribute["<<i<<"] is ["<<attr.name<<"]"<<std::endl;
+      if (verbose) std::cout<<"Attribute["<<i<<"] is ["<<attr.name<<"]"<<std::endl;
   }
 
   // Position processing
@@ -93,7 +93,7 @@ void read_partio_general(std::string filename,
     if(!parts->attributeInfo(label.c_str(), genericAttr[d]) || genericAttr[d].type !=  Partio::FLOAT || genericAttr[d].count != 1)
         printf("ERROR: PartIO failed to read value as FLOAT of size 1");
 
-    std::cout << "PartIO: Input label[" << label << "] found in index[" << d << "] of file." << std::endl;
+    if (verbose) std::cout << "PartIO: Input label[" << label << "] found in index[" << d << "] of file." << std::endl;
     d++;
   }
 
@@ -131,7 +131,6 @@ void write_partio_particles(std::string filename,
                   //const int dim_out,
                   const std::vector<std::string> &labels, 
                   const std::array<int,3> color = {{0, 191, 255}}) {
-  printf("partio");
   // Create a mutable Partio structure pointer
   Partio::ParticlesDataMutable*       parts = Partio::create();
   const int dim_out = attributes[0].size();
@@ -144,8 +143,9 @@ void write_partio_particles(std::string filename,
   for (int d = 0; d < dim_out; d++){
     attrib[d] = parts->addAttribute(labels[d].c_str(), Partio::FLOAT, (int)1);
   }
-  printf("partio addAttribute");
 
+  // Loop through particles to add positions and attributes values
+  // TODO: I think this can be done as SIMD more efficiently
   for(int i=0; i < (int)positions.size(); ++i) {
     // Create new particle with two write-input vectors/arrays
     int idx  = parts->addParticle();
@@ -162,16 +162,8 @@ void write_partio_particles(std::string filename,
     }
 
   }
-  printf("partio read from attributes");
-
-  // Write
   Partio::write(filename.c_str(), *parts);
-  printf("partio writes");
-
-  // Release (scope-dependent)
   parts->release();
-  printf("partio release");
-
 }
 
 
@@ -314,7 +306,6 @@ void write_partio_gridTarget(std::string filename,
       f[1]  = data[i][8];
       f[2]  = data[i][9];
     }
-  /// Output as *.bgeo
   Partio::write(filename.c_str(), *parts);
   parts->release();
 }
@@ -324,30 +315,25 @@ void write_partio_gridTarget(std::string filename,
 /// Write grid data (m, mvx, mvy, mvz) on host to disk as *.bgeo (JB) 
 template <typename T, std::size_t dim>
 void write_partio_particleTarget(std::string filename,
-		       const std::vector<std::array<T, dim>> &data) {
+		       const std::vector<std::array<T, dim>> &data, std::size_t num_aggregate_values = 1) {
   /// Set mutable particle structure, add attributes
   Partio::ParticlesDataMutable* parts = Partio::create();
   Partio::ParticleAttribute position  = parts->addAttribute("position", Partio::VECTOR, 3); /// Block ID
-  Partio::ParticleAttribute mass      = parts->addAttribute("aggregate",     Partio::FLOAT, 1);  /// Mass
-  // Partio::ParticleAttribute momentum  = parts->addAttribute("momentum", Partio::VECTOR, 3); /// Momentum
-  // Partio::ParticleAttribute force     = parts->addAttribute("force",    Partio::VECTOR, 3); /// Force
-
-  /// Loop over grid-blocks, set values in Partio structure
-  for(int i=0; i < (int)data.size(); ++i)
-    {
+  Partio::ParticleAttribute agg      = parts->addAttribute("aggregate", Partio::FLOAT, num_aggregate_values);  /// Aggregate value of particle target (e.g. max elevation)
+  /// Loop over particles, set values in Partio structure
+  for(int i=0; i < (int)data.size(); ++i) {
       int idx   = parts->addParticle();
       float* p  = parts->dataWrite<float>(position,idx);
-      float* m  = parts->dataWrite<float>(mass,idx);
-      // float* mv = parts->dataWrite<float>(momentum,idx);
-      // float* f  = parts->dataWrite<float>(force,idx);
+      float* a  = parts->dataWrite<float>(agg,idx);
 
-      p[0]  = data[i][0];
-      p[1]  = data[i][1];
-      p[2]  = data[i][2];
-      m[0]  = data[i][3];
+      for (int d=0; d<3; d++) {
+        p[d] = data[i][d];
+      }
+      for (int j=0; j<num_aggregate_values; j++) {
+          a[j] = data[i][3+j];
+      }
 
     }
-  /// Output as *.bgeo
   Partio::write(filename.c_str(), *parts);
   parts->release();
 }

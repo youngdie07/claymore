@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
   fmt::print(fg(fmt::color::cyan),"MPI Rank {} of {}.\n", rank, num_ranks);
 #endif
 
-  std::ios::sync_with_stdio(false); //< Disable synchronization between C and C++ standard streams
+  //std::ios::sync_with_stdio(false); //< Disable synchronization between C and C++ standard streams
 
   IO;
 

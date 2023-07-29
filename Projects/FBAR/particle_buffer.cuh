@@ -418,7 +418,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   void resetPpcs() {
     checkCudaErrors(cudaMemset( _ppcs, 0, sizeof(int) * _numActiveBlocks 
                                                       * config::g_blockvolume));
-    printf("Reset particleBins._ppcs to zero.\n");
+    std::cout << "Reset particleBins._ppcs to zero.\n";
   }
   // Stream copy bin starts and particle per block to other buffer for next step
   void copy_to(ParticleBufferImpl &other, std::size_t blockCnt,
@@ -428,8 +428,8 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
                                     cudaMemcpyDefault, stream));
     checkCudaErrors(cudaMemcpyAsync(other._ppbs, _ppbs, sizeof(int) * blockCnt,
                                     cudaMemcpyDefault, stream));
-    printf("Copied particleBins._binsts to other._binsts.\n");
-    printf("Copied particleBins._ppbs to other._ppbs.\n");
+    std::cout << "Copied particleBins._binsts to other._binsts.\n";
+    std::cout << "Copied particleBins._ppbs to other._ppbs.\n";
   }
   // 
   template<typename Partition> // May want to put this in mpmpm_kernels.cuh
@@ -2170,19 +2170,30 @@ struct ParticleAttrib: Instance<particle_attrib_<N>> {
   static constexpr unsigned numAttributes = static_cast<unsigned>(N);
   using base_t = Instance<particle_attrib_<N>>;
   
+  // Default constructor
   template <typename Allocator>
   ParticleAttrib(Allocator allocator) : base_t{spawn<particle_attrib_<N>, orphan_signature>(allocator)} { 
       std::cout << "ParticleAttrib constructor with an allocator." << "\n";
-    }
+  }
+  // Move assignment operator
   ParticleAttrib &operator=(base_t &&instance) {
     std::cout << "ParticleAttrib move assignment operator called." << "\n";
     static_cast<base_t &>(*this) = instance;
     return *this;
   }
+  // Move constructor
   ParticleAttrib(base_t &&instance) { 
     std::cout << "ParticleAttrib move constructor called." << "\n";
     static_cast<base_t &>(*this) = instance; 
-    }
+  }
+
+  // // Move assignment operator
+  // ParticleAttrib &operator=(ParticleAttrib &&instance) {
+  //   std::cout << "ParticleAttrib move assignment operator called." << "\n";
+  //   static_cast<base_t &>(*this) = instance;
+  //   return *this;
+  // }
+
 
   template <num_attribs_e ATTRIBUTE, typename T>
    __device__ PREC

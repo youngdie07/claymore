@@ -1502,16 +1502,16 @@ void parse_scene(std::string fn,
             std::string elements_fn = std::string(AssetDirPath) + model["file_elements"].GetString();
             std::string vertices_fn = std::string(AssetDirPath) + model["file_vertices"].GetString();
 
-            fmt::print(fg(blue),"GPU[{}] Load FEM elements file[{}]...", model["gpu"].GetInt(),  elements_fn);
+            fmt::print(fg(cyan),"GPU[{}] Load FEM elements file[{}]...", model["gpu"].GetInt(),  elements_fn);
             load_FEM_Elements(elements_fn, ',', h_FEM_Elements);
             
             std::vector<std::array<PREC, 6>> h_FEM_Element_Attribs(mn::config::g_max_fem_element_num, 
                                                             std::array<PREC, 6>{0., 0., 0., 0., 0., 0.});
             
-            fmt::print(fg(blue),"GPU[{}] Load FEM vertices file[{}]...", model["gpu"].GetInt(),  vertices_fn);
+            fmt::print(fg(cyan),"GPU[{}] Load FEM vertices file[{}]...", model["gpu"].GetInt(),  vertices_fn);
             load_FEM_Vertices(vertices_fn, ',', h_FEM_Vertices,
                               offset);
-            fmt::print(fg(blue),"GPU[{}] Load FEM-MPM particle file[{}]...", model["gpu"].GetInt(),  vertices_fn);
+            fmt::print(fg(cyan),"GPU[{}] Load FEM-MPM particle file[{}]...", model["gpu"].GetInt(),  vertices_fn);
             load_csv_particles(model["file_vertices"].GetString(), ',', 
                                 models[model["gpu"].GetInt()], 
                                 offset);
@@ -1811,7 +1811,7 @@ void parse_scene(std::string fn,
             auto geo = model.FindMember("geometry");
             if (geo != model.MemberEnd()) {
               if (geo->value.IsArray()) {
-                fmt::print(fg(blue),"GPU[{}] MODEL[{}] has [{}] particle geometry operations to perform. \n", gpu_id, model_id, geo->value.Size());
+                fmt::print(fg(cyan),"GPU[{}] MODEL[{}] has [{}] particle geometry operations to perform. \n", gpu_id, model_id, geo->value.Size());
                 for (auto &geometry : geo->value.GetArray()) {
                   std::string operation = CheckString(geometry, "operation", std::string{"add"});
                   std::string type = CheckString(geometry, "object", std::string{"box"});
@@ -1950,9 +1950,9 @@ void parse_scene(std::string fn,
                         if (keep_track_of_array == 0) {
                           has_attributes = CheckBool(geometry, "has_attributes", false);
                           input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
-                          if (has_attributes) fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? [{}].\n", gpu_id, has_attributes);
+                          fmt::print(fg(white),"GPU[{}] Try to read pre-existing particle attributes into model? has_attributes[{}].\n", gpu_id, has_attributes);
                           if (input_attribs.size() > mn::config::g_max_particle_attribs) {
-                            fmt::print(fg(red), "ERROR: GPU[{}] Model suppports max of [{}] input_attribs, but [{}] are specified.\n", gpu_id, mn::config::g_max_particle_attribs, input_attribs.size()); 
+                            fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] suppports max of [{}] input_attribs, but [{}] are specified. Press ENTER to continue...\n", gpu_id, model_id, mn::config::g_max_particle_attribs, input_attribs.size()); 
                             if (mn::config::g_log_level >= 3) getchar();
                           }
                           attributes.resize(0, std::vector<PREC>(input_attribs.size()));
@@ -1962,7 +1962,7 @@ void parse_scene(std::string fn,
 
                         if (keep_track_of_array == 0) {
                           keep_track_of_particles = models[total_id].size();
-                          fmt::print("Size of attributes after reading in initial data: Particles {}, Attributes {}\n", attributes.size(), attributes[0].size());
+                          fmt::print("Size of attributes after reading in initial data: Particles[{}], Attributes[{}]\n", attributes.size(), attributes[0].size());
                           for (int i = 0; i < attributes[0].size(); i++) {
                               fmt::print("Input Attribute[{}][{}]:  Label[{}] Value[{}]\n", 0, i, input_attribs[i], attributes[0][i]);
                           }
@@ -2331,17 +2331,21 @@ void parse_scene(std::string fn,
         if (it->value.IsArray()) {
           fmt::print(fg(cyan), "Scene has [{}] grid-boundaries.\n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
- 
+            
+            if (boundary_ID >= mn::config::g_max_grid_boundaries) {
+              fmt::print(fg(red), "ERROR: Exceeded maximum number of grid-boundaries [{}]. Increase g_max_grid_boundaries in settings.h and recompile.\n", mn::config::g_max_grid_boundaries);
+              if (mn::config::g_log_level >= 3) getchar();
+              continue;
+            }
 
             mn::vec<float, 7> h_boundary;
             mn::GridBoundaryConfigs h_gridBoundary;
             // Load and scale target domain to 1 x 1 x 1 domain + off-by-2 offset
             for (int d = 0; d < 3; ++d) {
               h_boundary[d] = (model["domain_start"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
-            }
-            for (int d = 0; d < 3; ++d) {
               h_boundary[d+3] = (model["domain_end"].GetArray()[d].GetFloat() * froude_scaling) / l + o;
             }
+
             h_gridBoundary._ID = boundary_ID;
             h_gridBoundary._domain_start = CheckFloatArray(model, "domain_start", mn::vec<float, 3>{0,0,0});
             h_gridBoundary._domain_end = CheckFloatArray(model, "domain_end", mn::vec<float, 3>{1,1,1});
@@ -2386,7 +2390,7 @@ void parse_scene(std::string fn,
             if (object == "Wall" || object == "wall" || object == "Walls" || object == "walls")
             {
               h_gridBoundary._object = mn::config::boundary_object_t::Walls;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 2;
+              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 0;
               else if (contact == "Slip") h_boundary[6] = 1;
               else if (contact == "Separable") h_boundary[6] = 2;
               else h_boundary[6] = -1;
@@ -2495,7 +2499,7 @@ void parse_scene(std::string fn,
             auto motion_velocity = model.FindMember("velocity"); // Check for velocity
             if (motion_file != model.MemberEnd()) 
             {
-              fmt::print(fg(blue),"Found motion file for grid-boundary[{}]. Loading... \n", boundary_ID);
+              fmt::print(fg(cyan),"Found motion file for grid-boundary[{}]. Loading... \n", boundary_ID);
               MotionHolder motionPath;
               std::string motion_fn = std::string(AssetDirPath) + model["file"].GetString();
               fs::path motion_file_path{motion_fn};
@@ -2511,6 +2515,7 @@ void parse_scene(std::string fn,
 
 
               PREC_G mp_freq = CheckFloat(model, "output_frequency", 1.0);
+
               mp_freq *= 1 / sqrt(froude_scaling);
               // auto motion_freq = model.FindMember("output_frequency");
               // if (motion_freq != model.MemberEnd()) mp_freq = model["output_frequency"].GetFloat();
@@ -2520,11 +2525,12 @@ void parse_scene(std::string fn,
                 fmt::print(fg(green),"GPU[{}] gridBoundary[{}] motion file[{}] initialized with frequency[{}].\n", did, boundary_ID, model["file"].GetString(), mp_freq);
               }
             }
-            else if (motion_velocity != model.MemberEnd() && motion_file == model.MemberEnd())
-            {
-              fmt::print(fg(blue),"Found velocity for grid-boundary[{}]. Loading...\n", boundary_ID);
+            // TODO : Fully implement constant velocity grid boundaries
+            else if (motion_velocity != model.MemberEnd() && motion_file == model.MemberEnd()) {
               mn::vec<PREC_G, 3> velocity;
+              fmt::print(fg(cyan),"Found initial velocity for grid-boundary[{}]. Loading...\n", boundary_ID);
               for (int d=0; d<3; d++) velocity[d] = (model["velocity"].GetArray()[d].GetDouble() * sqrt(froude_scaling)) / l;
+              // for (int d=0; d<3; d++) h_gridBoundary._velocity[d] = velocity[d];
             }
             else 
               fmt::print(fg(orange),"No motion file or velocity specified for grid-boundary. Assuming static. \n");
@@ -2532,10 +2538,10 @@ void parse_scene(std::string fn,
             // ----------------  Initialize grid-boundaries ---------------- 
             benchmark->initGridBoundaries(0, h_boundary, h_gridBoundary, boundary_ID);
             fmt::print(fg(green), "Initialized gridBoundary[{}]: object[{}], contact[{}].\n", boundary_ID, object, contact);
-            boundary_ID += 1;
             fmt::print(fmt::emphasis::bold,
                       "-----------------------------------------------------------"
                       "-----\n");
+            boundary_ID += 1;
           }
         }
       }

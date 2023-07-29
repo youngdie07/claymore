@@ -12205,7 +12205,7 @@ retrieve_particle_buffer_attributes_general(Partition partition,
           auto ext_pcnt = g_buckets_on_particle_buffer 
                     ? next_pbuffer._ppbs[ext_blockno] 
                     : partition._ppbs[ext_blockno];
-          constexpr int too_few_particles = 128; // Avoid false positives when block is practically empty visually (e.g. 2 particles may as well be 0)
+          constexpr int too_few_particles = g_exterior_particles_cutoff;
           if (ext_pcnt <= too_few_particles) {
             exterior_particles = true;
             break;
