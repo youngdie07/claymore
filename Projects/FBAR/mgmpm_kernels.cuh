@@ -1369,30 +1369,53 @@ __global__ void array_to_buffer(ParticleArray parray,
 
 
 template <typename T = PREC_G>
-__device__ void apply_friction_to_grid_velocity(T inv_mass, T dt, T length, T grav[3], T ns[3], T& vel, T friction_static, T friction_dynamic) {
+__device__ void apply_friction_to_grid_velocity(T* vel, T* normal, T friction_static, T friction_dynamic, T inv_mass, double dt, T length, double* grav, T decay_coef = 1.f) {
   // TODO: Currently just does static friction, update for dynamic friction
   // Assume velocity is GPU scale, assume gravity Real Scale (m/s^2)
-  T force[3]; // Force on grid node
-  for (int d=0; d<3; ++d) force[d] = (vel[d] / dt + grav[d] / length) / inv_mass;
+  T force[3]; // Force on grid node. Assumes external force (e.g. gravity) not yet included.
+  for (int d=0; d<3; ++d) force[d] = (vel[d] / dt + grav[d] / length) / inv_mass; 
   
-  // Check for contact
-  T normal_force = force[0]*ns[0] + force[1]*ns[1] + force[2]*ns[2]; 
-  if (normal_force < 0.f) {
-    T tangent_force[3];
-    for (int d=0; d<3; d++) tangent_force[d] = force[d] - normal_force * ns[d];
-    T friction_force = sqrt(tangent_force[0]*tangent_force[0] + 
-                            tangent_force[1]*tangent_force[1] + 
-                            tangent_force[2]*tangent_force[2]);
+  // Check for contact with friction surface (normal force magnitude is negative)
+  T normal_force_magnitude = force[0]*normal[0] + force[1]*normal[1] + force[2]*normal[2]; 
+  if (normal_force_magnitude >= 0.f) return;
 
-    // Check if exceeding static friction
-    T max_friction_force = -normal_force * friction_static;
-    if (friction_force > max_friction_force) {
-      T friction_force_scale = min(max_friction_force / friction_force, (T) 1.f);
-      vel[0] -= tangent_force[0] * friction_force_scale * inv_mass * dt;
-      vel[1] -= tangent_force[1] * friction_force_scale * inv_mass * dt;
-      vel[2] -= tangent_force[2] * friction_force_scale * inv_mass * dt;
-    }
-  }
+  T tangent_force[3];
+  for (int d=0; d<3; d++) tangent_force[d] = force[d] - normal_force_magnitude * normal[d]; 
+  T tangent_force_magnitude = sqrt( tangent_force[0]*tangent_force[0] + 
+                                    tangent_force[1]*tangent_force[1] + 
+                                    tangent_force[2]*tangent_force[2]);
+
+  // Check if exceeding static friction: set to dynamic friction if so, else use static friction
+  T ratio_lost_to_friction = (tangent_force_magnitude > -normal_force_magnitude * friction_static) 
+                           ? min((-normal_force_magnitude * friction_dynamic) / tangent_force_magnitude, (T) 1.f) : (T) 1.f;
+  decay_coef = max(min(decay_coef, 1.f), 0.f); //< Clamp decay coef to [0, 1]
+  for (int d=0; d<3; d++) 
+    vel[d] -= decay_coef * tangent_force[d] * ratio_lost_to_friction * inv_mass * dt;
+}
+
+template <typename T = PREC_G>
+__device__ void apply_friction_to_grid_momentum(T* momentum, T* normal, T friction_static, T friction_dynamic, T inv_mass, double dt, T length, double* grav, T decay_coef = 1.f) {
+  // TODO: Currently just does static friction, update for dynamic friction
+  // Assume velocity is GPU scale, assume gravity Real Scale (m/s^2)
+  T force[3]; // Force on grid node. Assumes external force (e.g. gravity) not yet included.
+  for (int d=0; d<3; ++d) force[d] = (momentum[d] / dt) + (grav[d] / length) / inv_mass; 
+  
+  // Check for contact with friction surface (normal force magnitude is negative)
+  T normal_force_magnitude = force[0]*normal[0] + force[1]*normal[1] + force[2]*normal[2]; 
+  if (normal_force_magnitude >= 0.f) return;
+
+  T tangent_force[3];
+  for (int d=0; d<3; d++) tangent_force[d] = force[d] - normal_force_magnitude * normal[d]; 
+  T tangent_force_magnitude = sqrt( tangent_force[0]*tangent_force[0] + 
+                                    tangent_force[1]*tangent_force[1] + 
+                                    tangent_force[2]*tangent_force[2]);
+
+  // Check if exceeding static friction: set to dynamic friction if so, else use static friction
+  T ratio_lost_to_friction = (tangent_force_magnitude > -normal_force_magnitude * friction_static) 
+                           ? min((-normal_force_magnitude * friction_dynamic) / tangent_force_magnitude, (T) 1.f) : (T) 1.f;
+  decay_coef = max(min(decay_coef, 1.f), 0.f); //< Clamp decay coef to [0, 1]
+  for (int d=0; d<3; d++) 
+    momentum[d] -= decay_coef * tangent_force[d] * ratio_lost_to_friction * dt;
 }
 
 template <typename Grid, typename Partition, int boundary_cnt = g_max_grid_boundaries>
@@ -1743,6 +1766,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           // Check if boundary is active
           if (curTime < gb._time[0] && curTime > gb._time[1]) continue;
           PREC_G friction_static = gb._friction_static;
+          PREC_G friction_dynamic = gb._friction_dynamic;
 
           // Set boundaries of scene/flume
           gvec3 boundary_dim, boundary_pos;
@@ -1994,10 +2018,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           }
           if (gb._object == boundary_object_t::TOKYO_HARBOR) {
             if (gb._contact == boundary_contact_t::Separable) {
-              PREC_G wave_maker_neutral = 0.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU TWB       
-              PREC_G ys=0.f, xo=0.f, yo=0.f;
-              vec3 ns; //< Ramp boundary surface normal
-              ns.set(0.f); ns[1] = 1.f; // Default flat panel, points up (y+)
+              PREC_G ns[3]; //< Ramp boundary surface normal
+              ns[0] = 0.f; ns[1] = 1.f; ns[2] = 0.f; // Default flat panel, points up (y+)
               PREC_G START_HARBOR_X = 4.45f * fr_scale; // Start harbor at X position [m]
               PREC_G START_HARBOR_Y = 0.255f * fr_scale; // Start harbor at Y position [m]
 
@@ -2005,30 +2027,11 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
               // Friction
               PREC_G START_FRICTION_X = START_HARBOR_X + 0.20f * fr_scale; // Start friction at debris X position [m]
-              if (xc >= START_FRICTION_X/l+o)
-              if (yc <= START_HARBOR_Y/l+o) {
+              if (xc >= START_FRICTION_X/l+o && yc <= START_HARBOR_Y/l+o) {
+                // Only apply friction if an FLIP/ASFLIP particle is in grid-node's domain
+                // Useful for localizing friction to debris, etc. (e.g. not apply friction to water)
                 if ( vel_FLIP[0] + vel_FLIP[1] + vel_FLIP[2] != 0.f && friction_static != 0.f) {
-                  PREC_G force[3];
-                  force[0] = ((vel[0] ) / dt + grav[0] / l) / mass;
-                  force[1] = ((vel[1] ) / dt + grav[1] / l) / mass;
-                  force[2] = ((vel[2] ) / dt + grav[2] / l) / mass;
-                  vdotns = force[0]*ns[0] + force[1]*ns[1] + force[2]*ns[2]; // Norm force
-                  if (vdotns < 0.f) {
-                    PREC_G tangent_force[3];
-                    tangent_force[0] = force[0] - vdotns * ns[0];
-                    tangent_force[1] = force[1] - vdotns * ns[1];
-                    tangent_force[2] = force[2] - vdotns * ns[2];
-                    PREC_G max_friction_force = - vdotns * friction_static;
-                    PREC_G friction_force = sqrt(tangent_force[0]*tangent_force[0] + tangent_force[1]*tangent_force[1] + tangent_force[2]*tangent_force[2]);
-
-                    // Check if exceeding static friction
-                    if (friction_force > max_friction_force) {
-                      PREC_G friction_force_scale = min(max_friction_force / friction_force, 1.f);
-                      vel[0] -= tangent_force[0] * friction_force_scale * mass * dt;
-                      vel[1] -= tangent_force[1] * friction_force_scale * mass * dt;
-                      vel[2] -= tangent_force[2] * friction_force_scale * mass * dt;
-                    }
-                  }
+                  apply_friction_to_grid_velocity(vel, ns, friction_static, friction_dynamic, mass, dt, l, grav.data());
                 }
               }
 
@@ -11974,9 +11977,9 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
       case output_e_::Velocity_Z:
         val = pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; return; // Velocity_Z [m/s]
       case output_e_::Velocity_Magnitude:
-        val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; 
-        val += pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l;
-        val += pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; 
+        val = pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l * pbuffer.getAttribute<attribs_e_::Velocity_X>(_source_bin, _source_pidib) * l; 
+        val += pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l * pbuffer.getAttribute<attribs_e_::Velocity_Y>(_source_bin, _source_pidib) * l;
+        val += pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l * pbuffer.getAttribute<attribs_e_::Velocity_Z>(_source_bin, _source_pidib) * l; 
         val = sqrt(val);
         return; // Velocity_Magnitude [m/s]
       case output_e_::DefGrad_XX:
@@ -12020,7 +12023,7 @@ __device__ void caseSwitch_ParticleAttrib(ParticleBuffer<mt>& pbuffer, T _source
       case output_e_::EMPTY:
         val = 0.0; return; // val = zero if EMPTY requested, used to buffer output columns
       case output_e_::INVALID_CT:
-        val = -2; return; // Invalid compile-time request, e.g. Specifically disallowed output
+        val = static_cast<PREC>(NAN); return; // Invalid compile-time request, e.g. Specifically disallowed output
     }
 
     pvec9 C; 
@@ -12260,23 +12263,22 @@ retrieve_particle_buffer_attributes_general(Partition partition,
         }
       }
 
+      unsigned NUM_RUNTIME_TRACKERS = pbuffer.num_runtime_trackers;
+      unsigned NUM_RUNTIME_TRACKER_ATTRIBS = pbuffer.num_runtime_tracker_attribs; 
       /// Get value of tracked particles for desired attribute
+      vec<int, g_max_particle_tracker_attribs> track_attribs = pbuffer.track_attribs;
       for (int t=0; t<g_max_particle_trackers; t++) {
-        if (global_particle_ID == pbuffer.track_IDs[t]) {
-          // Assume just one output attribute for now
-          vec<int, 1> track_attribs = pbuffer.track_attribs;
-          for (int i=0; i < 1; i++ ) 
-          {
-            output_e_ idx = static_cast<output_e_>(track_attribs[i]); 
-            PREC val;
-            caseSwitch_ParticleAttrib(pbuffer, _source_bin, _source_pidib, idx, val);
-            atomicAdd(&trackVal[t], val);
-          }
+        if (t >= NUM_RUNTIME_TRACKERS) continue;
+        if (global_particle_ID != pbuffer.track_IDs[t]) continue;
+        for (int i=0; i < g_max_particle_tracker_attribs; i++) {
+          if (i >= NUM_RUNTIME_TRACKER_ATTRIBS) continue;
+          output_e_ idx = static_cast<output_e_>(track_attribs[i]); 
+          PREC val;
+          caseSwitch_ParticleAttrib(pbuffer, _source_bin, _source_pidib, idx, val);
+          atomicAdd(&trackVal[t*g_max_particle_tracker_attribs + i], val);
         }
       }
-    }
-
-    else {
+    } else {
       int target_type = (int)target[0];
       pvec3 point_a {target[1], target[2], target[3]};
       pvec3 point_b {target[4], target[5], target[6]};

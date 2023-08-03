@@ -339,8 +339,10 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   }
 
   int track_ID = 0;
+  unsigned num_runtime_trackers = 0;
+  unsigned num_runtime_tracker_attribs = 0;
   vec<int, 32> track_IDs;
-  vec<int, 1> track_attribs;
+  vec<int, mn::config::g_max_particle_tracker_attribs> track_attribs;
   std::vector<std::string> track_labels;   
   void updateTrack(std::vector<std::string> names, std::vector<int> runtime_trackIDs) {
     int i = 0;
@@ -349,14 +351,16 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
       track_IDs[i] = ID;
       i++;
     }
+    num_runtime_trackers = i;
 
-    i = 0;
+    int j = 0;
     for (auto n : names) {
-      if (i>=1) continue; // TODO: Expand to >1 track attributes
+      if (j >= mn::config::g_max_particle_tracker_attribs) continue;
       track_labels.emplace_back(n);
-      track_attribs[i] = static_cast<int>(mapAttributeStringToIndex(n));
-      i = i+1;
+      track_attribs[j] = static_cast<int>(mapAttributeStringToIndex(n));
+      j++;
     }
+    num_runtime_tracker_attribs = j;
   }
 
   vec<int, 3> output_attribs;
@@ -528,7 +532,8 @@ struct ParticleBuffer<material_e::JFluid>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    // else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -536,7 +541,7 @@ struct ParticleBuffer<material_e::JFluid>
    __device__ PREC
   getAttribute(attribs_e ATTRIBUTE, const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, static_cast<unsigned>(std::min(abs(ATTRIBUTE), static_cast<unsigned>(attribs_e::END-1)))>{}, particle_id_in_bin);
   }
 
@@ -643,7 +648,7 @@ struct ParticleBuffer<material_e::JFluid_ASFLIP>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -751,7 +756,7 @@ struct ParticleBuffer<material_e::JFluid_FBAR>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -859,7 +864,7 @@ struct ParticleBuffer<material_e::JBarFluid>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
   
@@ -1001,7 +1006,7 @@ struct ParticleBuffer<material_e::FixedCorotated>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
   
@@ -1121,7 +1126,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
   
@@ -1246,7 +1251,7 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -1371,7 +1376,7 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -1513,7 +1518,7 @@ struct ParticleBuffer<material_e::Sand> : ParticleBufferImpl<material_e::Sand> {
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -1665,7 +1670,7 @@ struct ParticleBuffer<material_e::NACC> : ParticleBufferImpl<material_e::NACC> {
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -1835,7 +1840,7 @@ struct ParticleBuffer<material_e::CoupledUP> : ParticleBufferImpl<material_e::Co
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 
@@ -1969,7 +1974,7 @@ struct ParticleBuffer<material_e::Meshed>
    __device__ PREC
   getAttribute(const T bin, const T particle_id_in_bin){
     if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return (PREC)attribs_e::INVALID_CT;
+    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
 

@@ -156,7 +156,7 @@ constexpr int g_max_active_block = 15000; //< Max active blocks in gridBlocks. P
 constexpr std::size_t g_max_halo_block = 1024 * 6; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
 
 // * Particles
-#define MAX_PPC 32 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
+#define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
 constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_max_ppc = MAX_PPC; //< Max particles per cell
 constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
@@ -177,6 +177,7 @@ constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cel
 constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
 constexpr int g_max_particle_trackers = 32; //< Max no. particle trackers. Preallocated, can resize.
 std::array<int, g_max_particle_trackers> g_track_IDs = {g_track_ID}; //< IDs of particles to track for high-freq outputs
+constexpr int g_max_particle_tracker_attribs = 6;
 
 // * Particle-Targets
 constexpr int g_max_particle_target_nodes = 1024 * 4 * 1; //< Max particles per particleTarget

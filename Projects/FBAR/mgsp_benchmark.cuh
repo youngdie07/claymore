@@ -218,7 +218,7 @@ struct mgsp_benchmark {
   // Initialize particle models. Allow for varied materials on GPUs.
   template <material_e m>
   void initModel(int GPU_ID, int MODEL_ID, const std::vector<std::array<PREC, 3>> &model,
-                  const vec<PREC, 3> &v0, const std::vector<int> &trackIDs) {
+                  const vec<PREC, 3> &v0, const std::vector<int> &trackIDs, const std::vector<std::string> &trackAttribs) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
 
@@ -278,12 +278,17 @@ struct mgsp_benchmark {
     printDiv();
 
     // Set-up particle ID tracker file
-    num_particle_trackers[GPU_ID][MODEL_ID] = trackIDs.size();    
+    num_particle_trackers[GPU_ID][MODEL_ID] = trackIDs.size();
+    num_particle_tracker_attribs[GPU_ID][MODEL_ID] = trackAttribs.size();    
     std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(MODEL_ID) + "]" + "_dev[" + std::to_string(GPU_ID + rank * mn::config::g_device_cnt) + "].csv";
     particleTrackFile[GPU_ID][MODEL_ID].open (fn_track, std::ios::out | std::ios::trunc); 
     particleTrackFile[GPU_ID][MODEL_ID] << "Time"; // Time column header
-    for (int i = 0; i < trackIDs.size(); ++i) { // Add column for each tracked ID
-      particleTrackFile[GPU_ID][MODEL_ID] << "," << "ParticleID" << trackIDs[i]; 
+    for (int i = 0; i < trackAttribs.size(); ++i) {
+      if (i >= g_max_particle_tracker_attribs) continue;
+      for (int j = 0; j < trackIDs.size(); ++j) { // Add column for each tracked ID
+        if (j >= g_max_particle_trackers) continue;
+        particleTrackFile[GPU_ID][MODEL_ID] << "," << trackAttribs[i] << "[" << trackIDs[j] << "]"; 
+      }
     }
     particleTrackFile[GPU_ID][MODEL_ID] << "\n";
     particleTrackFile[GPU_ID][MODEL_ID].close();
@@ -858,7 +863,7 @@ struct mgsp_benchmark {
         if (false) nextDt = compute_dt(maxVel, curTime, nextTime, dtDefault);
         else nextDt = dtDefault;
         
-        if (g_log_level >= 2 && step_cnt % (int)std::max(host_pt_freq, host_gt_freq) == 0) 
+        if (g_log_level >= 2 && step_cnt % (int)std::max(host_pt_freq * 10, host_gt_freq * 10) == 0) 
           fmt::print(fmt::emphasis::bold, "Frame[{}], curTime[{}] [s] --nextDt[{}]--> nextTime[{}] [s], defaultDt[{}] [s], maxVel[{}] [m/s], kinetic_energy[{}] [J]\n", curFrame, curTime,  nextDt, nextTime, dtDefault, (maxVel*length), sum_kinetic_energy_grid);
 
         // * Run g2p2g, g2p-p2g, or g2p2v-v2fem2v-v2p2g pipeline on each GPU
@@ -869,23 +874,21 @@ struct mgsp_benchmark {
           // Check capacity of particle bins, resize if needed
           if (g_buckets_on_particle_buffer) {
             for (int mid=0; mid<getModelCnt(did); mid++) {
-              if (checkedBinCnts[did][mid] > 0) {
-                if (g_log_level >= 1) fmt::print(fg(fmt::color::orange), "GPU[{}] MODEL[{}] Resizing particleBins[{}][{}][{}] Bin Count: [{}] -> [{}] \n", did, mid, rollid^1, did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
-                match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
-                  pb.resize(device_allocator{}, curNumActiveBins[did][mid]);
-                });
-                checkedBinCnts[did][mid]--;
-                cuDev.syncStream<streamIdx::Compute>(); // JB
-              }
-            }
-          } else {
-            if (checkedCnts[did][1] > 0) {
-              int mid = 0; // ! Double check, may be deprecated branch
+              if (checkedBinCnts[did][mid] <= 0) continue;
+              if (g_log_level >= 1) fmt::print(fg(fmt::color::orange), "GPU[{}] MODEL[{}] Resizing particleBins[{}][{}][{}] Bin Count: [{}] -> [{}] \n", did, mid, rollid^1, did, mid, bincnt[did][mid], curNumActiveBins[did][mid]);
               match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
                 pb.resize(device_allocator{}, curNumActiveBins[did][mid]);
               });
-              checkedCnts[did][1]--;
+              checkedBinCnts[did][mid]--;
+              cuDev.syncStream<streamIdx::Compute>(); // JB
             }
+          } else {
+            if (checkedCnts[did][1] <= 0) continue; // [1] ? 
+            int mid = 0; // ! Double check, may be deprecated branch
+            match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
+              pb.resize(device_allocator{}, curNumActiveBins[did][mid]);
+            });
+            checkedCnts[did][1]--;
           }
 
           //timer.tick();
@@ -1712,25 +1715,30 @@ struct mgsp_benchmark {
     auto &cuDev = Cuda::ref_cuda_context(did);
     cuDev.setContext();
     CudaTimer timer{cuDev.stream_compute()};
+    if (g_log_level >= 2) timer.tick();
 
     int parcnt, *d_parcnt = (int *)cuDev.borrow(sizeof(int));
-    PREC trackVal[g_max_particle_trackers], *d_trackVal = (PREC *)cuDev.borrow(g_max_particle_trackers * sizeof(PREC));
+    PREC trackVal[g_max_particle_trackers * g_max_particle_tracker_attribs], *d_trackVal = (PREC *)cuDev.borrow(g_max_particle_trackers * g_max_particle_tracker_attribs * sizeof(PREC));
     int particle_target_cnt, *d_particle_target_cnt = (int *)cuDev.borrow(sizeof(int));
     PREC valAgg, *d_valAgg = (PREC *)cuDev.borrow(sizeof(PREC));
     cuDev.syncStream<streamIdx::Compute>();
 
     for (int mid=0; mid<getModelCnt(did); mid++) {
-      if (g_log_level >= 2) timer.tick();
       int i = 0;
       parcnt = 0;
-      for (int j=0;j<g_max_particle_trackers; j++) 
-        trackVal[j] = 0.0;
+      for (int k=0; k<num_particle_tracker_attribs[did][mid]; k++) {
+        if (k >= g_max_particle_tracker_attribs) continue;
+        for (int j=0; j<num_particle_trackers[did][mid]; j++) {
+          if (j >= g_max_particle_trackers) continue;
+          trackVal[j*g_max_particle_tracker_attribs + k] = 0.0;
+        }
+      }
       particle_target_cnt = 0;
       valAgg = 0;
       checkCudaErrors(
           cudaMemsetAsync(d_parcnt, 0, sizeof(int), cuDev.stream_compute()));
       checkCudaErrors(
-          cudaMemsetAsync(d_trackVal, 0.0, sizeof(PREC) * g_max_particle_trackers, cuDev.stream_compute()));
+          cudaMemsetAsync(d_trackVal, 0.0, sizeof(PREC) * g_max_particle_trackers * g_max_particle_tracker_attribs, cuDev.stream_compute()));
       checkCudaErrors(
           cudaMemsetAsync(d_particle_target_cnt, 0, sizeof(int), cuDev.stream_compute()));
       checkCudaErrors(
@@ -1748,7 +1756,7 @@ struct mgsp_benchmark {
       // Copy device to host
       checkCudaErrors(cudaMemcpyAsync(&parcnt, d_parcnt, sizeof(int),
                                       cudaMemcpyDefault, cuDev.stream_compute()));
-      checkCudaErrors(cudaMemcpyAsync(&trackVal, d_trackVal, sizeof(PREC) * g_max_particle_trackers,
+      checkCudaErrors(cudaMemcpyAsync(&trackVal, d_trackVal, sizeof(PREC) * g_max_particle_trackers * g_max_particle_tracker_attribs,
                                       cudaMemcpyDefault,
                                       cuDev.stream_compute()));
       checkCudaErrors(cudaMemcpyAsync(&particle_target_cnt, d_particle_target_cnt, sizeof(int),
@@ -1758,7 +1766,7 @@ struct mgsp_benchmark {
       cuDev.syncStream<streamIdx::Compute>();
 
       fmt::print(fg(fmt::color::red), "GPU[{}] Total number of particles: {}\n", did, parcnt);
-      fmt::print(fg(fmt::color::red), "GPU[{}] Tracked value of particle ID {} in model: {} \n", did, g_track_ID, trackVal[0]); // TODO: Fix to track multiple particles / not be required
+      fmt::print(fg(fmt::color::red), "GPU[{}] Tracked value of particle ID[{}] in this model: {} \n", did, g_track_ID, trackVal[0]); // TODO: Fix to track multiple particles / not be required
       fmt::print(fg(fmt::color::red), "GPU[{}] Total number of target particles: {}\n", did, particle_tarcnt[i][did]);
       fmt::print(fg(fmt::color::red), "GPU[{}] Aggregate value in particleTarget: {} \n", did, valAgg);
 
@@ -1766,13 +1774,16 @@ struct mgsp_benchmark {
         std::string fn_track = std::string{"particleTrack"} + "_model[" + std::to_string(mid) +  "]" + "_dev[" + std::to_string(did + rank * g_device_cnt) + "].csv";
         particleTrackFile[did][mid].open(fn_track, std::ios::out | std::ios::app);
         particleTrackFile[did][mid] << curTime;
-        for (int j=0; j<g_max_particle_trackers; j++) {
-          if (j >= num_particle_trackers[did][mid]) continue;
-          particleTrackFile[did][mid] << "," << trackVal[j];
+        for (int k=0; k<g_max_particle_tracker_attribs; k++) {
+          if (k >= num_particle_tracker_attribs[did][mid]) continue;
+          for (int j=0; j<g_max_particle_trackers; j++) {
+            if (j >= num_particle_trackers[did][mid]) continue;
+            particleTrackFile[did][mid] << "," << trackVal[j*g_max_particle_tracker_attribs + k];
+          }
         }
         particleTrackFile[did][mid] << '\n';
         particleTrackFile[did][mid].close();
-      }      
+      }
       
       //host_particleTarget[did][mid].resize(particle_tarcnt[i][did][mid]);
       models[did][mid].resize(parcnt);
@@ -1798,8 +1809,9 @@ struct mgsp_benchmark {
         });
       }
       cuDev.syncStream<streamIdx::Compute>();
-      if (g_log_level >= 2) timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles\n", rank, did, mid, curFrame, curStep));
+      // if (g_log_level >= 3) timer.tock(fmt::format("NODE[{}] GPU[{}] MODEL[{}] frame {} step {} retrieve_particles\n", rank, did, mid, curFrame, curStep));
     }
+    if (g_log_level >= 2) timer.tock(fmt::format("NODE[{}] GPU[{}] curTime[{}] curFrame[{}] curStep[{}] retrieve_particles\n", rank, did, curTime, curFrame, curStep));
   }
 
 
@@ -2732,6 +2744,8 @@ struct mgsp_benchmark {
   std::vector<std::array<PREC, g_particle_target_attribs>> host_particleTarget[g_device_cnt][g_models_per_gpu]; ///< Particle target data on host (JB)
 
   int num_particle_trackers[g_device_cnt][g_models_per_gpu] = {0}; //< Number of particle trackers
+  int num_particle_tracker_attribs[g_device_cnt][g_models_per_gpu] = {0}; //< Number of particle tracker attributes
+
   std::vector<std::array<PREC, 13>> host_vertices[g_device_cnt];
   std::vector<std::array<int, 4>> host_element_IDs[g_device_cnt];
   std::vector<std::array<PREC, 6>> host_element_attribs[g_device_cnt];

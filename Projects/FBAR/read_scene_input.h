@@ -1417,8 +1417,11 @@ void parse_scene(std::string fn,
             std::cout <<"Output Attributes: [ " << output_attribs[0] << ", " << output_attribs[1] << ", " << output_attribs[2] << " ]"<<'\n';
             
             // TODO: Fix particle tracker for FEM
+            std::vector<std::string> track_attribs;
+            track_attribs = CheckStringArray(model, "track_attribs", std::vector<std::string>{{"Position_Y"}});
             std::vector<int> track_particle_ids;
             track_particle_ids = CheckIntArray(model, "track_particle_id", std::vector<int>{0});
+
 
             mn::config::AlgoConfigs algoConfigs;
             algoConfigs.use_FEM = CheckBool(model,std::string{"use_FEM"}, false);
@@ -1446,7 +1449,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM FBAR Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron_FBar>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids, track_attribs); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedFBARParameters(
@@ -1459,7 +1462,7 @@ void parse_scene(std::string fn,
                 {
                   std::cout << "Initialize FEM Model." << '\n';
                   benchmark->initFEM<mn::fem_e::Tetrahedron>(model["gpu"].GetInt(), vertices, elements, attribs);
-                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids); //< Initalize particle model
+                  benchmark->initModel<mn::material_e::Meshed>(model["gpu"].GetInt(), 0, positions, velocity, track_particle_ids, track_attribs); //< Initalize particle model
 
                   std::cout << "Initialize Mesh Parameters." << '\n';
                   benchmark->updateMeshedParameters(
@@ -1552,14 +1555,14 @@ void parse_scene(std::string fn,
               continue;
             } else if (gpu_id < 0) {
               fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] GPU ID cannot be negative. \n", gpu_id, model_id);
-              if (mn::config::g_log_level >= 3) getchar(); continue;
+              if (mn::config::g_log_level >= 3) { fmt::print(fg(red), "Press ENTER to continue..."); getchar(); } continue;
             } 
             if (model_id >= mn::config::g_models_per_gpu) {
               fmt::print(fg(red), "ERROR! Particle model[{}] on gpu[{}] exceeds models reserved by g_models_per_gpu[{}] (settings.h)! Skipping model. Increase g_models_per_gpu and recompile. \n", model_id, gpu_id, mn::config::g_models_per_gpu);
               continue;
             } else if (model_id < 0) {
               fmt::print(fg(red), "ERROR! GPU[{}] MODEL[{}] Model ID cannot be negative. \n", gpu_id, model_id);
-              if (mn::config::g_log_level >= 3) getchar(); continue;
+              if (mn::config::g_log_level >= 3) { fmt::print(fg(red), "Press ENTER to continue..."); getchar(); } continue;
             }
 
             //std::string constitutive{model["constitutive"].GetString()};
@@ -1567,12 +1570,11 @@ void parse_scene(std::string fn,
             fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
-            std::vector<std::string> target_attribs;
-            std::vector<std::string> track_attribs;
-            //mn::vec<int, 1> track_particle_id;
-            std::vector<int> track_particle_ids;
             bool has_attributes = false;
             std::vector<std::vector<PREC>> attributes; //< Initial attributes (not incl. position)
+            std::vector<std::string> target_attribs;
+            std::vector<std::string> track_attribs;
+            std::vector<int> track_particle_ids;
 
             mn::config::AlgoConfigs algoConfigs;
             algoConfigs.use_FEM = CheckBool(model, "use_FEM", false);
@@ -1603,28 +1605,28 @@ void parse_scene(std::string fn,
 
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity, track_particle_ids);                    
+                  benchmark->initModel<mn::material_e::JFluid>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);                    
                   benchmark->updateParameters<mn::material_e::JFluid>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids);                    
+                  benchmark->initModel<mn::material_e::JFluid_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);                    
                   benchmark->updateParameters<mn::material_e::JFluid_ASFLIP>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::JBarFluid>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::JBarFluid>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
                 } 
                 else if (!algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::JFluid_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::JFluid_FBAR>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1643,21 +1645,21 @@ void parse_scene(std::string fn,
 
                 if(!algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::FixedCorotated>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::FixedCorotated>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && !algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
                 }
                 else if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::FixedCorotated_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::FixedCorotated_ASFLIP_FBAR>(
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1677,7 +1679,7 @@ void parse_scene(std::string fn,
 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::NeoHookean_ASFLIP_FBAR>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::NeoHookean_ASFLIP_FBAR>( 
                       gpu_id, model_id, materialConfigs, algoConfigs,
                       output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1701,7 +1703,7 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity, track_particle_ids); 
+                  benchmark->initModel<mn::material_e::Sand>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs); 
                   benchmark->updateParameters<mn::material_e::Sand>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1734,7 +1736,7 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity, track_particle_ids); 
+                  benchmark->initModel<mn::material_e::CoupledUP>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs); 
                   benchmark->updateParameters<mn::material_e::CoupledUP>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1758,7 +1760,7 @@ void parse_scene(std::string fn,
                 
                 if (algoConfigs.use_ASFLIP && algoConfigs.use_FBAR && !algoConfigs.use_FEM)
                 {
-                  benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity, track_particle_ids);
+                  benchmark->initModel<mn::material_e::NACC>(gpu_id, model_id, positions, velocity, track_particle_ids, track_attribs);
                   benchmark->updateParameters<mn::material_e::NACC>( 
                         gpu_id, model_id, materialConfigs, algoConfigs,
                         output_attribs, track_particle_ids, track_attribs, target_attribs);
@@ -1797,14 +1799,15 @@ void parse_scene(std::string fn,
             track_particle_ids = CheckIntArray(model, "track_particle_id", std::vector<int>{0});
             target_attribs = CheckStringArray(model, "target_attribs", std::vector<std::string> {{"Position_Y"}});
             if (output_attribs.size() > mn::config::g_max_particle_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] output_attribs value supported.\n", gpu_id, mn::config::g_max_particle_attribs); }
-            if (track_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] track_attribs value supported currently.\n", gpu_id); }
+            if (track_attribs.size() > mn::config::g_max_particle_tracker_attribs) { fmt::print(fg(red), "ERROR: GPU[{}] Only [{}] track_attribs value supported currently.\n", gpu_id, mn::config::g_max_particle_tracker_attribs); }
             if (track_particle_ids.size() > mn::config::g_max_particle_trackers) { fmt::print(fg(red), "ERROR: Only [{}] track_particle_id value supported currently.\n", mn::config::g_max_particle_trackers); }
             
             if (track_particle_ids.size() != 0 && track_attribs.size() == 0) 
               fmt::print(fg(red),"ERROR: GPU[{}] MODEL[{}] track_particle_ids provided but no track_attribs provided. \n", gpu_id, model_id);
             if (track_particle_ids.size() == 0 && track_attribs.size() != 0) 
               fmt::print(fg(red),"ERROR: GPU[{}] MODEL[{}] track_particle_ids is not provided but track_attribs is provided. \n", gpu_id, model_id);
-            if (track_particle_ids.size() != 0 && track_attribs.size() != 0) fmt::print("GPU[{}] Track attributes [{}] on particle IDs [{}].\n", gpu_id, track_attribs[0], track_particle_ids[0]);
+            if (track_particle_ids.size() != 0 && track_attribs.size() != 0) 
+              fmt::print("GPU[{}] Track attribute count[{}] on particle count[{}].\n", gpu_id, track_attribs.size(), track_particle_ids.size());
             if (target_attribs.size() > 1) { fmt::print(fg(red), "ERROR: GPU[{}] Only [1] target_attribs value supported currently.\n", gpu_id); }
 
             // * Begin particle geometry construction 
@@ -1833,14 +1836,14 @@ void parse_scene(std::string fn,
                     geometry_offset[d]  = geometry_offset[d]  / l + o;
                     geometry_spacing[d] *= froude_scaling;
                     geometry_spacing[d] = geometry_spacing[d] / l;
-                    geometry_fulcrum[d]  *= froude_scaling;                    
+                    geometry_fulcrum[d] *= froude_scaling;                    
                     geometry_fulcrum[d] = geometry_fulcrum[d] / l + o;
                   }
                   mn::pvec3x3 rotation_matrix; rotation_matrix.set(0.0);
                   rotation_matrix(0,0) = rotation_matrix(1,1) = rotation_matrix(2,2) = 1;
                   elementaryToRotationMatrix(geometry_rotate, rotation_matrix);
                   fmt::print("Rotation Matrix: \n");
-                  for (int i=0;i<3;i++) {for (int j=0;j<3;j++) fmt::print("{} ",rotation_matrix(i,j)); fmt::print("\n");}
+                  for (int i=0;i<3;i++) {for (int j=0;j<3;j++) fmt::print("{} ", rotation_matrix(i,j)); fmt::print("\n");}
 
 
                   int keep_track_of_array = 0; // Current index in array operation
@@ -1856,7 +1859,7 @@ void parse_scene(std::string fn,
                   for (int k = 0; k < geometry_array[2]; k++)
                   {
                   std::vector<int> geo_track_particle_ids; //< Particle IDs to track for this geometry instance
-                  geo_track_particle_ids = CheckIntArray(geometry, "track_particle_id", std::vector<int>{0});
+                  geo_track_particle_ids = CheckIntArray(geometry, "track_particle_id", std::vector<int>{});
                   // * Shift geometry local particle IDs to track global IDs
                   for (int geo_idx = 0; geo_idx < geo_track_particle_ids.size(); ++geo_idx) {
                     geo_track_particle_ids[geo_idx] += keep_track_of_particles * keep_track_of_array; // ! May need to adjust for previous geometry particles, e.g. + model.size()
