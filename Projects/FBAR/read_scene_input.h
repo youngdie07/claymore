@@ -1373,6 +1373,7 @@ void parse_scene(std::string fn,
           time[1] = time[0] + (double) sim_frames / (double) sim_fps; //< End time [sec]
           std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
+          bool particles_output_exterior_only = CheckBool(sim, "particles_output_exterior_only", false);
 
           l = sim_default_dx * mn::config::g_dx_inv_d; 
           if (domain[0] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[1] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[2] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx)) {
@@ -1385,12 +1386,12 @@ void parse_scene(std::string fn,
           domainBlockCnt = (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z); // Force full domain, fix later
           fmt::print(fg(yellow),"Partitions _indexTable data-structure: Saved [{}] percent memory of preallocated partition _indexTable by reudcing domainBlockCnt from [{}] to run-time of [{}] using domain input relative to DOMAIN_BITS and default_dx.\n", reduction, mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z, domainBlockCnt);
           fmt::print(fg(cyan),
-              "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], init_time[{}], fps[{}], frames[{}], gravity[{}, {}, {}], save_suffix[{}], froude_scaling[{}]\n", 
+              "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], init_time[{}], fps[{}], frames[{}], gravity[{}, {}, {}], save_suffix[{}], froude_scaling[{}], particles_output_exterior_only[{}]\n", 
               l, domainBlockCnt, sim_default_dx, sim_default_dt, time[0],
-              sim_fps, sim_frames, sim_gravity[0], sim_gravity[1], sim_gravity[2], save_suffix, froude_scaling);
+              sim_fps, sim_frames, sim_gravity[0], sim_gravity[1], sim_gravity[2], save_suffix, froude_scaling, particles_output_exterior_only);
           benchmark = std::make_unique<mn::mgsp_benchmark>(
               l, domainBlockCnt, sim_default_dt, time[0],
-              sim_fps, sim_frames, sim_gravity, froude_scaling, save_suffix);
+              sim_fps, sim_frames, sim_gravity, froude_scaling, save_suffix, particles_output_exterior_only); //< Initialize simulation object
           fmt::print(fmt::emphasis::bold,
               "-----------------------------------------------------------"
               "-----\n");

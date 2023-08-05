@@ -139,8 +139,8 @@ struct mgsp_benchmark {
   }
 
   // Constructor of the simulator object. Does some basic initialization for memory.
-  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), double dt = 1e-4, double t0 = 0.0, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, double fr_scale = 1.0, std::string suffix = ".bgeo")
-      : length(l), domainCellCnt(dCC), dtDefault(dt), initTime(t0), curTime(0.0), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), froude_scaling{fr_scale}, bRunning(true) {
+  mgsp_benchmark(PREC l = g_length, uint64_t dCC = (g_grid_size_x*g_grid_size_y*g_grid_size_z), double dt = 1e-4, double t0 = 0.0, uint64_t fp = 24, uint64_t frames = 60, mn::pvec3 g = mn::pvec3{0., -9.81, 0.}, double fr_scale = 1.0, std::string suffix = ".bgeo", bool output_exterior_only = false)
+      : length(l), domainCellCnt(dCC), dtDefault(dt), initTime(t0), curTime(0.0), rollid(0), curFrame(0), curStep{0}, fps(fp), nframes(frames), grav(g), save_suffix(suffix), froude_scaling{fr_scale}, particles_output_exterior_only{output_exterior_only}, bRunning(true) {
     printDiv();
     fmt::print(fg(fmt::color::white),"Entered simulator. Start GPU set-up...\n");
     curTime = initTime; // Set current simulation time to given initial time, seconds
@@ -1752,7 +1752,7 @@ struct mgsp_benchmark {
                             partitions[rollid][did], partitions[rollid ^ 1][did],
                             pb, get<typename std::decay_t<decltype(pb)>>(particleBins[rollid ^ 1][did][mid]), particles[did][mid],  get<typename std::decay_t<decltype(pa)>>(
                           pattribs[did][mid]), d_trackVal, d_parcnt,
-                            d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, false);
+                            d_particleTarget[did], d_valAgg, d_particle_target[i],d_particle_target_cnt, false, particles_output_exterior_only);
       });
       // Copy device to host
       checkCudaErrors(cudaMemcpyAsync(&parcnt, d_parcnt, sizeof(int),
@@ -2627,7 +2627,7 @@ struct mgsp_benchmark {
   pvec3 vel0[g_device_cnt][g_models_per_gpu]; ///< Set init. velocity on all particles per gpu model
   double initTime = 0.0; ///< Start time of sim, [sec]
   double froude_scaling = 1.0; ///< Length scaling factor for Froude similarity
-
+  bool particles_output_exterior_only = false; ///< Output to disk particles only on exterior blocks
   // * Data-structures on GPUs or cast by kernels
   std::vector<Partition<1>> partitions[2]; ///< Organizes partition + halo info, halo_buffer.cuh
   std::vector<GridBuffer> gridBlocks[2]; //< Organizes grid data in blocks

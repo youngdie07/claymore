@@ -9,6 +9,7 @@
 		"gravity": [0,-9.81,0],
 		"save_path": "./",
 		"save_suffix": ".bgeo",
+		"particles_output_exterior_only": false,
 		"froude_scaling": 1.0
 	},
 	"models": [

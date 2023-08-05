@@ -12185,7 +12185,7 @@ retrieve_particle_buffer_attributes_general(Partition partition,
                                         ParticleTarget particleTarget,
                                         PREC *valAgg, 
                                         const vec7 target, 
-                                        int *_targetcnt, bool output_pt=false) {
+                                        int *_targetcnt, bool output_pt=false, bool particles_output_exterior_only=false) {
   int pcnt = g_buckets_on_particle_buffer ? next_pbuffer._ppbs[blockIdx.x] : partition._ppbs[blockIdx.x];
   ivec3 blockid = partition._activeKeys[blockIdx.x];
 
@@ -12196,8 +12196,8 @@ retrieve_particle_buffer_attributes_general(Partition partition,
 
   // Check if any of the 27 blocks around the current block has no particles
   // If no particles, this is a particle block near exterior of model
-  // Saves memory if g_particles_output_exterior_only is true
-  if ( g_particles_output_exterior_only ) {
+  // Saves memory if particles_output_exterior_only is true
+  if ( particles_output_exterior_only ) {
     bool exterior_particles = false;
 #pragma unroll 3
     for (char i = -1; i < 2; ++i)
