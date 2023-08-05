@@ -1786,44 +1786,44 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             if (xc < ((fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // Flat, 0' elev., 0' - 46'10
               xo = (0.0 - wave_maker_neutral) / l + o;
-              yo = 0.f / l + o;
+              yo = (fr_scale*0.225f) / l + o;
               ys = 0.f * (xc-xo) + yo;
-            } else if (xc >= ((fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o){
+            } else if (xc >= ((fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o){
               // Flat (adjustable), 0' elev., 46'10 - 58'10
               xo = (fr_scale*14.275  + 0.0 - wave_maker_neutral) / l + o;
               yo = (fr_scale*0.225) / l + o; // 0.226 rounded down 
               //yo = (0.2)/l + o; // TODO: Reavaluate treatment of flat bathymetry panels, i.e. no decay?
               ys = yo;
-            } else if (xc >= ((fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+            } else if (xc >= ((fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:12, 0' elev., 58'10 - 94'10
-              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
-              xo = (fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
-              yo = (fr_scale*0.226) / l + o;
-              ys = 1.f/12.f * (xc - xo) + yo;
+              ns[0] = -1.f/11.8648961f; ns[1] = 0.996441901109f; ns[2] = 0.f;
+              xo = (fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*0.225) / l + o;
+              ys = 1.f/11.864861f * (xc - xo) + yo;
 
-            } else if (xc >= ((fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+            } else if (xc >= ((fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:24, 3' elev., 94'10 - 142'10
-              ns[0] = -1.f/24.f; ns[1] = 1.f; ns[2] = 0.f;
-              xo = (fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
-              yo = (fr_scale*1.14) / l + o;
-              ys = 1.f/24.f * (xc - xo) + yo;
+              ns[0] = -1.f/24.375f; ns[1] = 0.999158093986f; ns[2] = 0.f;
+              xo = (fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              yo = (fr_scale*1.15) / l + o; // 1.15 for grid adherence, physically it should be ~1.14ish at a 1:24 slope, modified for cell size of 0.025 m 
+              ys = 1.f/24.375f * (xc - xo) + yo;
 
-            } else if (xc >= ((fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+            } else if (xc >= ((fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*36.575 + fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // Flat, 5' elev., 142'10 - 262'10
-              xo = (fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              xo = (fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
               yo = (fr_scale*1.75) / l + o;
               ys = yo;
 
-            } else if (xc >= ((fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*7.354 + fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
+            } else if (xc >= ((fr_scale*36.575 + fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o && xc < ((fr_scale*7.35 + fr_scale*36.575 + fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral)/l)+o) {
               // 1:12, 5' elev., 262'10 - 286'10
-              ns[0] = -1.f/12.f; ns[1] = 1.f; ns[2] = 0.f;
-              xo = (fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
+              ns[0] = -1.f/12.25f; ns[1] = 0.996662485475f; ns[2] = 0.f;
+              xo = (fr_scale*36.575 + fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o;
               yo = (fr_scale*1.75) / l + o;
-              ys = 1.f/12.f * (xc - xo) + yo;
+              ys = 1.f/12.25f * (xc - xo) + yo;
             } else {
               // Flat, 7' elev., 286'10 onward
-              xo = (fr_scale*36.57 + fr_scale*14.63 + fr_scale*10.973 + fr_scale*3.658 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o; // Maybe change, recheck OSU LWF bathymetry far downstream
-              yo = (fr_scale*2.362833) / l + o;
+              xo = (fr_scale*36.575 + fr_scale*14.625 + fr_scale*10.975 + fr_scale*3.65 + fr_scale*14.275 + 0.0 - wave_maker_neutral) / l + o; // Maybe change, recheck OSU LWF bathymetry far downstream
+              yo = (fr_scale*2.35) / l + o;
               ys = yo;        
             }
 
@@ -1849,13 +1849,15 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               PREC_G ySF=0.f; // Boundary decay coef. 
               // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
               if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
-              else if (yc <= ys && yc > (ys - 1.5f*g_dx)) {
+              else if (yc <= ys && yc > (ys - 2.5f*g_dx)) {
                 ySF = (gb._contact == boundary_contact_t::Separable) ? 1.0f 
                       : ((gb._contact == boundary_contact_t::Slip) ? 1.5f 
                       : 2.f);
                 } // Below boundary surface
-              else if (yc <= (ys - 1.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
-              else { ySF = (g_dx - (yc - ys)) / g_dx ; ySF *= ySF; } // Decay layer, quadratic
+              else if (yc <= (ys - 2.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
+              else {
+	      	   ySF = (g_dx - (yc - ys)) / g_dx ; // ySF *= ySF;
+	      } // Decay layer, quadratic
 
 #pragma unroll 3
               for (int d=0; d<3; ++d) {
@@ -1886,8 +1888,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             // OSU Wave-Maker - CSV Controlled
             //PREC_G wave_maker_neutral = (1.915f); // Streamwise offset from origin (m)
             // TODO: Run-time wave_maker_neutral X position
-            PREC_G wave_maker_neutral = (1.925f)*fr_scale; // Streamwise offset from origin (m)
-            if (xc <= (boundary_motion[1] + wave_maker_neutral) / l + o) {
+            PREC_G wave_maker_neutral = gb._domain_end[0] - o; // Streamwise offset from origin (m), already froude scaled
+            if (xc <= ((boundary_motion[1]) / l + (wave_maker_neutral)) + o) {
               // TODO: Add reflection and/or decay layer?
               if (gb._contact == boundary_contact_t::Separable) {
                   if (vel[0] < boundary_motion[2] / l) vel[0] = boundary_motion[2] / l; 

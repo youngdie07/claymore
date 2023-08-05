@@ -618,21 +618,21 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   PREC bath_slope[7];
 
   bathx[0] = 0.0; //- wave_maker_neutral; // Start of bathymetry X direction
-  bathx[0] += 0.085; // Turns out wave-maker starts -2.085m relative to neutral, adjust 8.5cm
+  bathx[0] += 0.1; // Turns out wave-maker starts -2.085m relative to neutral, adjust 8.5cm
   bathx[1] = 14.275 + bathx[0];
-  bathx[2] = 3.658 + bathx[1];
-  bathx[3] = 10.973 + bathx[2];
-  bathx[4] = 14.63 + bathx[3];
-  bathx[5] = 36.57 + bathx[4];
-  bathx[6] = 7.354 + bathx[5];
+  bathx[2] = 3.65 + bathx[1];
+  bathx[3] = 10.975 + bathx[2];
+  bathx[4] = 14.625 + bathx[3];
+  bathx[5] = 36.575 + bathx[4];
+  bathx[6] = 7.35 + bathx[5];
 
   bathy[0] = 0.0;
-  bathy[1] = (0.15 + (0.076 - 0.001)) + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
+  bathy[1] = 0.225 + bathy[0]; // Bathymetry slab raised ~0.15m, 0.076m thick
   bathy[2] = 0.0 + bathy[1];
-  bathy[3] = (10.973 / 12.0) + bathy[2];
+  bathy[3] = 1.15;
   bathy[4] = 1.75; //(14.63f / 24.f) + bathy[3];
   bathy[5] = 0.0 + bathy[4];
-  bathy[6] = (7.354 / 12.0) + bathy[5]; 
+  bathy[6] = (7.35 / 12.25) + bathy[5]; 
   // Adjust OSU LWF bathymetry for Froude similarity scaling
   for (int d=0; d<7; ++d) {
     bathx[d] *= fr_scale;
@@ -642,11 +642,13 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
   bath_slope[0] = 0;
   bath_slope[1] = 0;
   bath_slope[2] = 0;
-  bath_slope[3] = 1.0 / 12.0;
-  bath_slope[4] = 1.0 / 24.0;
+  bath_slope[3] = 1.0 / 11.864861; // 1/12
+  bath_slope[4] = 1.0 / 24.375;  // 1/24
   bath_slope[5] = 0;
-  bath_slope[6] = 1.0 / 12.0;
+  bath_slope[6] = 1.0 / 12.25;
 
+  PREC buffer_y = 0.025 * fr_scale;
+  
   for (int i = 0; i < i_lim ; i++) {
     for (int j = 0; j < j_lim ; j++) {
       for (int k = 0; k < k_lim ; k++) {
@@ -664,7 +666,7 @@ void make_OSU_LWF(std::vector<std::array<PREC, 3>>& fields,
           {
             if (x < bathx[d])
             {
-              if (y >= ( bath_slope[d] * (x - bathx[d-1]) + bathy[d-1]) )
+              if (y >= ( bath_slope[d] * (x - bathx[d-1]) + bathy[d-1] - buffer_y) )
               {
                 if (inside_partition(arr, partition_start, partition_end)){
                   translate_rotate_translate_point(fulcrum, rotation, arr);
@@ -916,12 +918,13 @@ void load_motionPath(const std::string& filename, char sep, MotionHolder& fields
           std::array<float, 3> arr;
           while (getline(sep, field, ',')) {
               if (col >= 3) break;
-              if ((iter % rate) == 0) arr[col] = stof(field);
-
-              if (col == 0) arr[col] *= sqrt(fr_scale); // Adjust time for froude scaling
-              else if (col == 1) arr[col] *= fr_scale; // Adjust X position for froude scaling
-              else if (col == 2) arr[col] *= sqrt(fr_scale); // Adjust X velocity for froude scaling
-              col++;
+              if ((iter % rate) == 0) {
+		arr[col] = stof(field);
+		if (col == 0) arr[col] *= sqrt(fr_scale); // Adjust time for froude scaling
+		else if (col == 1) arr[col] *= fr_scale; // Adjust X position for froude scaling
+		else if (col == 2) arr[col] *= sqrt(fr_scale); // Adjust X velocity for froude scaling
+	      }
+	      col++;
           }
           if ((iter % rate) == 0) fields.push_back(arr);
           iter++;
@@ -2495,7 +2498,7 @@ void parse_scene(std::string fn,
 
             // Set up grid-boundary friction
             h_gridBoundary._friction_static = CheckFloat(model,"friction_static", 0.0f);
-            h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", 0.0f);
+            h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", h_gridBoundary._friction_dynamic);
 
 
             // Set up moving grid-boundary if applicable
@@ -2514,7 +2517,7 @@ void parse_scene(std::string fn,
                 istrm.close();
               }
 
-              load_motionPath(motion_fn, ',', motionPath, froude_scaling);
+              load_motionPath(motion_fn, ',', motionPath,  1, froude_scaling);
 
 
 

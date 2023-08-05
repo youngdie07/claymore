@@ -883,13 +883,14 @@ struct mgsp_benchmark {
               cuDev.syncStream<streamIdx::Compute>(); // JB
             }
           } else {
-            if (checkedCnts[did][1] <= 0) continue; // [1] ? 
+            if (checkedCnts[did][1] > 0) { 
             int mid = 0; // ! Double check, may be deprecated branch
             match(particleBins[rollid ^ 1][did][mid])([&](auto &pb) {
               pb.resize(device_allocator{}, curNumActiveBins[did][mid]);
             });
             checkedCnts[did][1]--;
-          }
+}
+}
 
           //timer.tick();
           gridBlocks[1][did].reset(nbcnt[did], cuDev);
