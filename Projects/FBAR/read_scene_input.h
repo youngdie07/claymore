@@ -1953,6 +1953,9 @@ void parse_scene(std::string fn,
                           geometry_file_path.extension() == ".pdb" ||
                           geometry_file_path.extension() == ".ptc") 
                       {
+                        // Can enable / disable Froude scaling when loading in bgeo, etc. files.
+                        bool use_froude_scaling = CheckBool(geometry, "use_froude_scaling", true);
+
                         if (keep_track_of_array == 0) {
                           has_attributes = CheckBool(geometry, "has_attributes", false);
                           input_attribs = CheckStringArray(geometry, "input_attribs", std::vector<std::string> {{"ID"}});
@@ -1979,24 +1982,29 @@ void parse_scene(std::string fn,
                         // Scale particle positions to 1x1x1 simulation
                         for (int part=0; part < keep_track_of_particles; part++) {
                           for (int d = 0; d<3; d++) {
-                            models[total_id][part + shift_idx][d] = (models[total_id][part + shift_idx][d] * froude_scaling) / l + geometry_offset_updated[d];
+                            if (use_froude_scaling) models[total_id][part + shift_idx][d] = models[total_id][part + shift_idx][d] * froude_scaling;
+                            models[total_id][part + shift_idx][d] = models[total_id][part + shift_idx][d] / l + geometry_offset_updated[d];
                           }
                           // Scale velocity based attributes to 1x1x1 simulation 
                           for (int d = 0; d < input_attribs.size(); d++) {
-                            if (input_attribs[d] == "Velocity_X" || input_attribs[d] == "Velocity_Y" || input_attribs[d] == "Velocity_Z" )
-                              attributes[part + shift_idx][d] = (attributes[part + shift_idx][d] * sqrt(froude_scaling)) / l; 
+                            if (input_attribs[d] == "Velocity_X" || input_attribs[d] == "Velocity_Y" || input_attribs[d] == "Velocity_Z" ) {
+                              if (use_froude_scaling) attributes[part + shift_idx][d] = attributes[part + shift_idx][d] * sqrt(froude_scaling);
+                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] / l; 
+                            }
                           }
                           // Scale force based attributes to 1x1x1 simulation 
                           for (int d = 0; d < input_attribs.size(); d++) {
-                            if (input_attribs[d] == "Force_X" || input_attribs[d] == "Force_Y" || input_attribs[d] == "Force_Z" )
-                              attributes[part + shift_idx][d] = (attributes[part + shift_idx][d] * froude_scaling*froude_scaling*froude_scaling) / l; 
+                            if (input_attribs[d] == "Force_X" || input_attribs[d] == "Force_Y" || input_attribs[d] == "Force_Z" ) {
+                              if (use_froude_scaling) attributes[part + shift_idx][d] = attributes[part + shift_idx][d] * froude_scaling*froude_scaling*froude_scaling;
+                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] / l; 
+                            }
                           }
                           // Scale deformation based attributes by froude_scaling
                           // ! Assumes J = sJ and JBar = sJBar currrently.
                           // TODO: Fix J to not be sJ (1-J), 
                           for (int d = 0; d < input_attribs.size(); d++) {
                             if (input_attribs[d] == "J" || input_attribs[d] == "JBar" || input_attribs[d] == "sJ"|| input_attribs[d] == "sJBar" )
-                              attributes[part + shift_idx][d] = attributes[part + shift_idx][d] * froude_scaling;  //< Need to recheck validity, probs not accurate scaling for det | deformation gradient |
+                              if (use_froude_scaling) attributes[part + shift_idx][d] = attributes[part + shift_idx][d] * froude_scaling;  //< Need to recheck validity, probs not accurate scaling for det | deformation gradient |
                           }
 
                         }
