@@ -36,11 +36,12 @@ using grid_block_ =
 #endif
 /// Halo Grid-Block structure
 struct HaloGridBlocks {
+  // Nest a structure holding HaloGridBlocksDomain and a pointer to device mem for blockids 3D coordinates
   struct HaloBuffer {
     Instance<halo_grid_blocks_> _grid;
     ivec3 *_blockids;
   };
-
+  // TODO : Double check use of {} and (,) to intialize - JB 
   HaloGridBlocks(int numNeighbors)
       : numTargets{numNeighbors}, h_counts(numNeighbors, 0) {
     fmt::print("HaloGridBlocks constructor.\n");
@@ -65,8 +66,8 @@ struct HaloGridBlocks {
     //   else fmt::print("Could deallocate _buffers[{}]._blockids\n", did);
     // }
     if (_counts) {
-      checkCudaErrors(cudaFree(_counts));
-      if (_counts) { _counts = nullptr; }
+      checkCudaErrors(cudaFree(_counts)); // Free device memory
+      if (_counts) { _counts = nullptr; } // Clean-up host pointer
       if (g_log_level > 2) fmt::print("Deallocated _counts\n");
     }
   }
@@ -144,10 +145,10 @@ struct HaloGridBlocks {
     //       (unsigned long long)&other._buffers[src]._grid.ch(_0, 0).val_1d(_0,
     //       0));
   }
-  const int numTargets;
-  uint32_t *_counts;
-  std::vector<uint32_t> h_counts;
-  std::vector<HaloBuffer> _buffers;
+  const int numTargets; // Number of neighboring GPU partitions. Defaults to total number of GPUs for sim.
+  uint32_t *_counts; // Number of overlapping blocks (IIRC) with each neighbor GPU for current GPU
+  std::vector<uint32_t> h_counts; // Host copy of _counts, vectorized for convenience
+  std::vector<HaloBuffer> _buffers; // 
 };
 
 } // namespace mn

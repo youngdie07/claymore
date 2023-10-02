@@ -130,7 +130,7 @@ using particle_bin17_f_ =
                ParticleBinDomain, attrib_layout::soa, f_, f_, f_, 
                f_, f_, f_, f_, f_, f_, f_, f_, f_, 
                f_, f_, f_,
-               f_, f_>; ///< pos, F, vel, vol_Bar, J_Bar
+               f_, f_>; ///< pos, F, vel, J_Bar, ID
 using particle_bin18_f_ =
     structural<structural_type::dense,
                decorator<structural_allocation_policy::full_allocation,
@@ -158,8 +158,8 @@ template <> struct particle_bin_<material_e::JFluid_FBAR> : particle_bin6_f_ {};
 template <> struct particle_bin_<material_e::JBarFluid> : particle_bin9_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated> : particle_bin13_f_ {};
 template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP> : particle_bin16_f_ {};
-template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin18_f_ {};
-template <> struct particle_bin_<material_e::NeoHookean_ASFLIP_FBAR> : particle_bin18_f_ {};
+template <> struct particle_bin_<material_e::FixedCorotated_ASFLIP_FBAR> : particle_bin17_f_ {};
+template <> struct particle_bin_<material_e::NeoHookean_ASFLIP_FBAR> : particle_bin17_f_ {};
 template <> struct particle_bin_<material_e::Sand> : particle_bin18_f_ {};
 template <> struct particle_bin_<material_e::NACC> : particle_bin18_f_ {};
 template <> struct particle_bin_<material_e::CoupledUP> : particle_bin20_f_ {}; //< Changed to bin20 (JB)
@@ -219,9 +219,9 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
     ppc = p; // Particles per cell
     length = l; // Domain
     area = l * l; // Domain
-    volume = l * l * l * ( 1.f / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
+    volume = l * l * l * ( static_cast<PREC>(1) / (1 << DOMAIN_BITS) / (1 << DOMAIN_BITS) /
                   (1 << DOMAIN_BITS) / ppc); // Volume of Particle [m3]
-    Dp_inv = (PREC)mn::config::g_D_inv / (l * l); 
+    Dp_inv = static_cast<PREC>(mn::config::g_D_inv) / (l * l); 
   }
 
 
@@ -236,7 +236,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   // Used to improve stress/strains whereas MPM often gives poor results. Can damp things.
   bool use_FBAR = false; //< Use Simple F-Bar anti-locking? Default off.
   PREC FBAR_ratio = 0.0; //< F-Bar Anti-locking mixing ratio (0 = None, 1 = Full)
-  
+  bool FBAR_fused_kernel = true; //< Use fused kernel (Grid-to-Particle-to-Grid, g2p2g) for FBAR? Default true. False uses separate kernels (g2p, p2g) which are slower but may have different energy behavior.
   // Finite Element Method (FEM) for MPM, basic
   bool use_FEM = false; //< Use Finite Elements? Default off. Must set mesh
 
@@ -249,6 +249,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
     use_FBAR = algo.use_FBAR;
     FBAR_ratio = algo.FBAR_ratio; 
     use_FEM = algo.use_FEM;
+    FBAR_fused_kernel = algo.FBAR_fused_kernel;
   }
 
   /// @brief Maps run-time string labels for any MPM particle attributes to int indices for GPU kernel output use
@@ -341,8 +342,8 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
   int track_ID = 0;
   unsigned num_runtime_trackers = 0;
   unsigned num_runtime_tracker_attribs = 0;
-  vec<int, 32> track_IDs;
-  vec<int, mn::config::g_max_particle_tracker_attribs> track_attribs;
+  vec<int, mn::config::g_max_particle_trackers> track_IDs; // Holds IDs of particles to track
+  vec<int, mn::config::g_max_particle_tracker_attribs> track_attribs; // Holds particle attributes to track (as numbers)
   std::vector<std::string> track_labels;   
   void updateTrack(std::vector<std::string> names, std::vector<int> runtime_trackIDs) {
     int i = 0;
@@ -459,7 +460,7 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
     if (blockno == -1) {
       ivec3 offset{};
       dir_components(dirtag, offset);
-      printf("loc(%d, %d, %d) dir(%d, %d, %d) pidib(%d)\n", cellid[0],
+      printf("cellid location(%d, %d, %d), advection dir offset(%d, %d, %d), particle_id_in_block(%d)\n", cellid[0],
              cellid[1], cellid[2], offset[0], offset[1], offset[2], pidib);
       return;
     }
@@ -469,8 +470,11 @@ struct ParticleBufferImpl : Instance<particle_buffer_<particle_bin_<mt>>> {
                  (cellid[2] & g_blockmask);
     // +1 particle to particles per cell. pidic = old value particle ID in cell    
     int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); 
-    _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-                 pidic] = (dirtag * g_particle_num_per_block) | pidib; 
+    // TODO : Check if original bitwise OR is correct, seems like it should be addition for any g_particle_num_per_block not power of 2 (i.e. if MAX_PPC is not a power of 2)
+    if (g_ppc_pow2) _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+                 pidic] = (dirtag * g_particle_num_per_block) | pidib;
+    else _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+                 pidic] = (dirtag * g_particle_num_per_block) + pidib;
   }
 
   std::size_t _numActiveBlocks;
@@ -536,14 +540,14 @@ struct ParticleBuffer<material_e::JFluid>
     else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
     else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, std::min(abs(ATTRIBUTE), attribs_e::END-1)>{}, particle_id_in_bin);
   }
-
-  template <typename T>
-   __device__ PREC
-  getAttribute(attribs_e ATTRIBUTE, const T bin, const T particle_id_in_bin){
-    if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
-    else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
-    else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, static_cast<unsigned>(std::min(abs(ATTRIBUTE), static_cast<unsigned>(attribs_e::END-1)))>{}, particle_id_in_bin);
-  }
+  // ? Maybe needed, maybe not. Should check - JB Sept. 28th 2023
+  // template <typename T>
+  //  __device__ PREC
+  // getAttribute(attribs_e ATTRIBUTE, const T bin, const T particle_id_in_bin){
+  //   if (ATTRIBUTE < attribs_e::START) return (PREC)ATTRIBUTE;
+  //   else if (ATTRIBUTE >= attribs_e::END) return static_cast<PREC>(NAN);
+  //   else return this->ch(std::integral_constant<unsigned, 0>{}, bin).val_1d(std::integral_constant<unsigned, static_cast<unsigned>(std::min(static_cast<unsigned>(abs(ATTRIBUTE)), static_cast<unsigned>(attribs_e::END-1)))>{}, particle_id_in_bin);
+  // }
 
   template <typename T>
    __device__ constexpr void
@@ -1237,9 +1241,11 @@ struct ParticleBuffer<material_e::FixedCorotated_ASFLIP_FBAR>
           DefGrad_YX, DefGrad_YY, DefGrad_YZ,
           DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
           Velocity_X, Velocity_Y, Velocity_Z,
-          Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, ID,
+          JBar, DefGrad_Determinant_FBAR=JBar, 
+          ID,
           END, // Values greater than or equal to END not held on particle
           // REQUIRED: Put N/A variables for specific material below END
+          Volume_FBAR,
           J, DefGrad_Determinant=J, 
           PorePressure,
           logJp
@@ -1362,9 +1368,10 @@ struct ParticleBuffer<material_e::NeoHookean_ASFLIP_FBAR>
           DefGrad_YX, DefGrad_YY, DefGrad_YZ,
           DefGrad_ZX, DefGrad_ZY, DefGrad_ZZ,
           Velocity_X, Velocity_Y, Velocity_Z,
-          Volume_FBAR, JBar, DefGrad_Determinant_FBAR=JBar, ID,
+          JBar, DefGrad_Determinant_FBAR=JBar, ID,
           END, // Values greater than or equal to END not held on particle
           // REQUIRED: Put N/A variables for specific material below END
+          Volume_FBAR,
           J, DefGrad_Determinant=J,
           PorePressure,
            logJp

@@ -19,11 +19,12 @@ include(${CPM_DOWNLOAD_LOCATION})
 # rapidjson new version
 CPMAddPackage(
   NAME rapidjson
-  GIT_TAG 949c771b03de448bdedea80c44a4a5f65284bfeb
+#   GIT_TAG f56928de85d56add3ca6ae7cf7f119a42ee1585b # Old version of RapidJSON
+  GIT_TAG 949c771b03de448bdedea80c44a4a5f65284bfeb # Newer version of RapidJSON, may have conflicts for older systems
   GITHUB_REPOSITORY Tencent/rapidjson
   OPTIONS
-    "RAPIDJSON_BUILD_CXX11 Off"
-    "RAPIDJSON_BUILD_CXX17 On"
+    "RAPIDJSON_BUILD_CXX11 Off" 
+    "RAPIDJSON_BUILD_CXX17 On" # You may want to swap back to C++11 if this isnt working
     "RAPIDJSON_BUILD_EXAMPLES Off"
     "RAPIDJSON_BUILD_TESTS Off"
 )
@@ -83,6 +84,8 @@ CPMAddPackage(
 )
 
 # filesystem
+# This may not be neccesary if you have a compiler with full C++17 capabilities, maybe
+# e.g. GCC / G++ versions 8+ on Linux. GCC 7.5 only partially supports C++17
 CPMAddPackage(
   NAME filesystem 
   GITHUB_REPOSITORY gulrak/filesystem

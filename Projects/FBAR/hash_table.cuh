@@ -29,11 +29,11 @@ template <> struct HaloPartition<1> {
   template <typename Allocator>
   HaloPartition(Allocator allocator, int maxBlockCnt) {
     std::cout << "Constructing HaloPartition<1>.\n";
-    _count = (int *)allocator.allocate(sizeof(int) * maxBlockCnt); // int or char??
+    _count = (int *)allocator.allocate(sizeof(int) ); // int or char?? with maxBlockCnt?? JB
     _haloMarks = (char *)allocator.allocate(sizeof(char) * maxBlockCnt);
     _overlapMarks = (int *)allocator.allocate(sizeof(int) * maxBlockCnt);
     _haloBlocks = (ivec3 *)allocator.allocate(sizeof(ivec3) * maxBlockCnt);
-    fmt::print("Allocated _count bytes [{}].\n", sizeof(int) );
+    fmt::print("Allocated _count bytes [{}].\n", sizeof(int) ); // with maxBlockCnt? JB
     fmt::print("Allocated _haloMarks bytes[{}].\n", sizeof(char) * maxBlockCnt);
     fmt::print("Allocated _overlapMarks bytes[{}].\n", sizeof(int) * maxBlockCnt);
     fmt::print("Allocated _haloBlocks bytes[{}].\n", sizeof(ivec3) * maxBlockCnt);
@@ -41,11 +41,11 @@ template <> struct HaloPartition<1> {
   
   template <typename Allocator>
   void deallocate_partition(Allocator allocator, std::size_t prevCapacity) {
-    allocator.deallocate(_count, sizeof(int) * prevCapacity ); // int or char??
+    allocator.deallocate(_count, sizeof(int)  ); // int or char?? with prevCapacity?
     allocator.deallocate(_haloMarks, sizeof(char) * prevCapacity);
     allocator.deallocate(_overlapMarks, sizeof(int) * prevCapacity);
     allocator.deallocate(_haloBlocks, sizeof(ivec3) * prevCapacity);
-    fmt::print("Deallocated _count bytes[{}].\n", sizeof(int) * prevCapacity);
+    fmt::print("Deallocated _count bytes[{}].\n", sizeof(int) ); // with prevCapacity? JB
     fmt::print("Deallocated _haloMarks bytes[{}].\n", sizeof(char) * prevCapacity);
     fmt::print("Deallocated _overlapMarks bytes[{}].\n", sizeof(int) * prevCapacity);
     fmt::print("Deallocated _haloBlocks bytes[{}].\n", sizeof(ivec3) * prevCapacity);
@@ -77,7 +77,7 @@ template <> struct HaloPartition<1> {
     fmt::print("Resized _haloMarks, _overlapMarks, _haloBlocks. Blocks\n", sizeof(char) * capacity);
   }
   void resetHaloCount(cudaStream_t stream) {
-    checkCudaErrors(cudaMemsetAsync(_count, 0, sizeof(int), stream)); // int or char??
+    checkCudaErrors(cudaMemsetAsync(_count, 0, sizeof(int) , stream)); // int or char??
   }
   void resetOverlapMarks(uint32_t neighborBlockCount, cudaStream_t stream) {
     checkCudaErrors(cudaMemsetAsync(_overlapMarks, 0,
@@ -91,8 +91,8 @@ template <> struct HaloPartition<1> {
     checkCudaErrors(cudaMemcpyAsync(&h_count, _count, sizeof(int),
                                     cudaMemcpyDefault, stream));
   }
-  int *_count; //< Count pointer
-  int h_count; //< int or char??
+  int *_count; //< Pointer to overlpa block count in GPU memory (used for atomicAdd in halo_kerels.cuh)
+  int h_count; //< Host block count, used to read _count from GPU
   char *_haloMarks; ///< Halo particle block marks
   int *_overlapMarks; //< Overlapping marks
   ivec3 *_haloBlocks; //< 3D IDs of Halo Blocks
@@ -222,6 +222,7 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
   // Reset Partition's Block count and particles-per-each-cell
   void reset() {
     checkCudaErrors(cudaMemset(this->_cnt, 0, sizeof(value_t)));
+    // TODO: Double-check use of 0xff - JB
     checkCudaErrors(cudaMemset(this->_indexTable, 0xff, sizeof(value_t) * 
                                                         _runtimeExtent));
     fmt::print("Reset partitions _cnt values to [{}].\n", 0);
@@ -345,8 +346,11 @@ struct Partition : Instance<block_partition_>, HaloPartition<Opt> {
                      ((cellid[1] & g_blockmask) << g_blockbits) |
                      (cellid[2] & g_blockmask);
     int pidic = atomicAdd(_ppcs + blockno * g_blockvolume + cellno, 1); // ++particles-in-cell count
+    // TODO : Check if original bitwise OR is correct, seems like it should be addition for any g_particle_num_per_block not power of 2 (i.e. if MAX_PPC is not a power of 2)
+    // _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
+    //              pidic] = (dirtag * g_particle_num_per_block) | pidib; // Update cell-bucket
     _cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-                 pidic] = (dirtag * g_particle_num_per_block) | pidib; // Update cell-bucket
+                 pidic] = (dirtag * g_particle_num_per_block) + pidib; // Update cell-bucket
   }
 
   int *_ppcs, *_ppbs;

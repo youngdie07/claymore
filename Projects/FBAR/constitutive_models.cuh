@@ -340,10 +340,11 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
   T epsilon[3], New_S[3]; ///< helper
   T New_F[9];
 
+  constexpr T small = 1e-9;
 #pragma unroll 3
   for (int i = 0; i < 3; i++) {
     T abs_S = S[i] > 0 ? S[i] : -S[i];
-    abs_S = abs_S > 1e-4 ? abs_S : 1e-4;
+    abs_S = abs_S > small ? abs_S : small;
     epsilon[i] = log(abs_S) - cohesion;
   }
   T sum_epsilon = epsilon[0] + epsilon[1] + epsilon[2];
@@ -370,7 +371,7 @@ compute_stress_sand(T volume, T mu, T lambda, T cohesion, T beta,
       logJp = beta * sum_epsilon + logJp;
     }
   } else if (mu != 0) {
-    logJp = 0;
+    logJp = 0; // TODO: Should this be an else if statement for volCorrection == false above
     T delta_gamma = epsilon_hat_norm + ((T)3 * lambda + scaled_mu) / scaled_mu *
                                            trace_epsilon * yieldSurface;
     T H[3];

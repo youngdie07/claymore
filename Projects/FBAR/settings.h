@@ -72,8 +72,11 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
                                 //  Fourteen = 14, Fifteen = 15, Sixteen = 16, 
                                 //  Eighteen = 18, Twentyfour = 24, Thirtytwo = 32 
                                  };
+// Coupled-UP Soil Configs (Work-in-progress, model by Javier). Set to false if not a developer.
 #define DEBUG_COUPLED_UP false //< Debugging flag for CoupleUP model. False = Don't reserve grid memory for debugging. True = Reserve grid memory for debugging.
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging flag for CoupleUP
+
+constexpr bool g_g2p2g_favor_shmem_over_cache = true; //< ADVANCED. Tell CUDA to assign more of the "carveout" on new GPUs as shared-memory. Reduces the L1 Cache (i.e. greater risk of storing register temp values in global mem, can be very slow though large L2 cache on newer GPUs offsets this). Larger shmem pool allows more CUDA blocks to run concurrently, in some cases can ~2x simulation speed. Especially helpful if using ASFLIP+FBAR for G2P2G kernels (requires a lot of shmem), likewise if eventually using double precision vals in shmem (2x the shmem requirement).  
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
 {
@@ -83,18 +86,18 @@ namespace config /// * Simulation config setup and name-space
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
 constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
-constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
-constexpr int g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
+constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per GPU. Default 1.
+constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
 // * Output set-up
-constexpr bool g_particles_output_exterior_only = true; // Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
+constexpr bool g_particles_output_exterior_only = false; // Default if not set in input script. Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 constexpr int g_exterior_particles_cutoff = 128; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
-enum class log_level_e : int { None, Errors, Warnings, Info, Tips };
-constexpr int g_log_level = (int)log_level_e::Warnings; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
-
+enum class log_e : int { None, Errors, Warn, Info, Tips };
+constexpr int g_log_level = (int)log_e::Info; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
+constexpr int g_info_rate = 10; //< How often to print to stdout extra info messages of grid/particle memory use, etc. 1 = every frame, 2 = every other frame, etc.
 
 // * Grid set-up
-#define DOMAIN_BITS 10 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
+#define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
 #define BLOCK_BITS 2 //< Block resolution. 2 -> (2^2)^3 grid-nodes. Set for Quadratic B-Spline.
 #define ARENA_BITS 1 //< Arena resolution. 1 -> (2^1)^3 grid-blocks. Set for Quadratic B-Spline Shared Mem with Off-by-2.
 #define DXINV (1.f * (1 << DOMAIN_BITS)) // Max grid-nodes in a direction, inverse of grid-spacing.
@@ -116,7 +119,7 @@ constexpr int g_arena_bits = 1; //< Resolution of grid-block arena in shared mem
 constexpr int g_arenavolume = (g_blockvolume << (g_arena_bits*3)); //< No. grid-nodes in arena. Default 8.
 constexpr float g_offset = g_dx * 8; //< Offset in grid-cells of sim origin from domain origin. Unstable below 2 (Off-by-2 G2P2G, Wang 2020). 4-6 saves memory. 8 creates extra space for boundary conditions at sim. edges.
 
-// Convenient compile time ceiling function. May not work C++ 11? Should be good for 14 and 17
+// Convenient compiled ceiling function. May not work in C++ 11? Should be good for 14 and 17
 constexpr int32_t constCeil(float num) {
     return (static_cast<float>(static_cast<int32_t>(num)) == num)
         ? static_cast<int32_t>(num)
@@ -128,8 +131,8 @@ constexpr int32_t constCeil(float num) {
 constexpr double g_length   = 1.0; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 8.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 32.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
@@ -145,22 +148,27 @@ constexpr int g_grid_size_z = (int)constCeil(static_cast<float>(g_grid_size * g_
 /// ------------------
 /// * Preallocate GPU memory for particles, grids, finite elements, grid-targets, etc
 /// ------------------
+// * Halo Blocks for Multi-GPU Communication. Set zero if only on Single-GPU
+constexpr std::size_t g_max_halo_block = 1024 * 0; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
+
 // * Grids
 #define GBPCB 8 //< Grid blocks per cuda block. 8 or 16 is usually good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
-constexpr int g_num_warps_per_cuda_block = GBPCB;
-constexpr int g_max_active_block = 15000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
-
-// * Halo Blocks for Multi-GPU Communication
-constexpr std::size_t g_max_halo_block = 1024 * 6; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
+constexpr int g_num_warps_per_cuda_block = g_num_warps_per_grid_block * g_num_grid_blocks_per_cuda_block;
+constexpr int g_max_active_block = 16000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Particles
-#define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
-constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+#define MAX_PPC 48 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
 constexpr int g_max_ppc = MAX_PPC; //< Max particles per cell
-constexpr int g_bin_capacity = 1 * 32; //< Particles per particle bin. Multiple of 32
-constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator onlin
+constexpr bool is_powerof2(int val) {
+    return val && ((val & (val - 1)) == 0);
+}
+constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
+constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
+constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
+constexpr int g_particle_batch_capacity = 8 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
 constexpr int g_particle_batch = g_particle_batch_capacity;
 constexpr int g_particle_num_per_block = 
     (MAX_PPC * (1 << (BLOCK_BITS * 3))); //< Max no. particles in a block
@@ -170,23 +178,21 @@ constexpr std::size_t calc_particle_bin_count(std::size_t numActiveBlocks) noexc
     return numActiveBlocks * (g_max_ppc * g_blockvolume / g_bin_capacity); } //< Return max particle bins that fit in the active blocks 
 constexpr int g_particle_attribs = 3; //< No. attribute values to output per particle 
 constexpr int g_max_particle_attribs = 9; //< No. attribute values to output per particle 
-constexpr bool g_buckets_on_particle_buffer = true; //< Controls if particle cell/block buckets, etc. are on partition (false) or particle-buffer (true). Used for compatability with original Multi-GPU and Single-GPU data-structure setup. Having them on particle buffer required if multiiple models per GPU 
-
+constexpr bool g_buckets_on_particle_buffer = true; //< ADVANCED. Default true. Controls if particle cell/block buckets, etc. are on partition (false) or particle-buffer (true). Used for compatability with original Multi-GPU and Single-GPU data-structure setup. Having them on particle buffer required if multiiple models per GPU. - JB
 
 // * Particle-Trackers
 constexpr int g_track_ID = 0; //< ID of particle to track, [0, g_max_fem_vertice_num)
-constexpr int g_max_particle_trackers = 32; //< Max no. particle trackers. Preallocated, can resize.
+constexpr int g_max_particle_trackers = 64; //< Max no. particle trackers. Preallocated, can resize.
 std::array<int, g_max_particle_trackers> g_track_IDs = {g_track_ID}; //< IDs of particles to track for high-freq outputs
 constexpr int g_max_particle_tracker_attribs = 6;
 
 // * Particle-Targets
-constexpr int g_max_particle_target_nodes = 1024 * 4 * 1; //< Max particles per particleTarget
+constexpr int g_max_particle_target_nodes = 1024 * 10; //< Max particles per particleTarget
 constexpr int g_particle_target_cells = g_max_particle_target_nodes;
 constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
 
-
 // * Grid-Targets
-constexpr int g_max_grid_target_nodes = 1024 * 4 * 1; //< Max grid-nodes per gridTarget
+constexpr int g_max_grid_target_nodes = 1024 * 8; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_cells = g_max_grid_target_nodes; //< Max grid-nodes per gridTarget
 constexpr int g_grid_target_attribs = 10; //< No. values per gridTarget node
 
@@ -195,18 +201,18 @@ constexpr int g_max_grid_boundaries = 6; //< Max grid-boundaries in scene
 constexpr int g_grid_boundary_attribs = 7; //< No. of values per grid-boundary node
 
 // * Finite Elements
-constexpr int g_max_fem_vertice_num = 64;  // Max no. vertice on FEM mesh
-constexpr int g_max_fem_element_num = 64; // Max no. element in FEM mesh
+constexpr int g_max_fem_vertice_num = 32;  // Max no. vertice on FEM mesh
+constexpr int g_max_fem_element_num = 32; // Max no. element in FEM mesh
 constexpr int g_fem_element_bin_capacity = 1; //< Finite elements per bin in elementBins
 constexpr int g_max_fem_element_bin = 
     g_max_fem_element_num / g_fem_element_bin_capacity; // Max no. of finite element bins
 
 
 // Resize ratios
-constexpr std::size_t g_block_check_ratio = 90;
-constexpr std::size_t g_block_resize_ratio = 110;
-constexpr std::size_t g_bin_check_ratio = 90;
-constexpr std::size_t g_bin_resize_ratio = 110;
+// constexpr std::size_t g_block_check_ratio = 90;
+// constexpr std::size_t g_block_resize_ratio = 110;
+// constexpr std::size_t g_bin_check_ratio = 90;
+// constexpr std::size_t g_bin_resize_ratio = 110;
 
 // * Run-time/animation default settings
 constexpr int g_total_frame_cnt = 30; //< Default simulation frames to output
@@ -217,7 +223,7 @@ constexpr int g_fps = 60; //< Default frames-per-second
 #define YOUNGS_MODULUS 1e6 //< Default Young's Modulus [Pa]
 #define POISSON_RATIO 0.3 // Default Poisson Ratio
 #define CFL_CONDITION 0.5
-#define MODEL_PPC 1.0 //< Default particles-per-cell
+#define MODEL_PPC 8.0 //< Default particles-per-cell
 constexpr float g_cfl = CFL_CONDITION; //< Default CFL Condition Coefficient
 constexpr float g_model_ppc = MODEL_PPC; //< Default particles-per-cell
 
@@ -262,7 +268,8 @@ struct AlgoConfigs {
   bool use_FBAR;
   PREC ASFLIP_alpha, ASFLIP_beta_min, ASFLIP_beta_max;
   PREC FBAR_ratio;
-  AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0.), ASFLIP_beta_min(0.), ASFLIP_beta_max(0.), FBAR_ratio(0.) {}
+  bool FBAR_fused_kernel;
+  AlgoConfigs() : use_ASFLIP(true), use_FEM{false}, use_FBAR(false), ASFLIP_alpha(0.), ASFLIP_beta_min(0.), ASFLIP_beta_max(0.), FBAR_ratio(0.), FBAR_fused_kernel(true) {}
   ~AlgoConfigs() {}
 };
 
@@ -273,8 +280,14 @@ enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane,
                                 USGS_RAMP, USGS_GATE, 
                                 OSU_TWB_RAMP, OSU_TWB_PADDLE,
                                 WASIRF_PUMP,
-                                TOKYO_HARBOR };
-
+                                TOKYO_HARBOR,
+                                VELOCITY_BOUNDARY,
+                                ACCELERATION_BOUNDARY,
+                                MOMENTUM_BOUNDARY,
+                                FORCE_BOUNDARY,
+                                FLOOR,
+                                TOTAL };
+// Structure for holding grid-boundary configs. Sent to GPU as a SMALL kernel parameter (GPU constant mem. is like 4kb)
 struct GridBoundaryConfigs {
   int _ID; //< Specific grid-target ID, [0, number_of_targets)
   vec<PREC_G, 3> _domain_start; //< Start of boundary domain
@@ -282,7 +295,7 @@ struct GridBoundaryConfigs {
   boundary_object_t _object; //< Type of boundary object
   boundary_contact_t _contact; //< Type of contact
   PREC_G _friction_static, _friction_dynamic;
-  vec<PREC_G, 2> _time; //< Start and end time of boundary
+  vec<PREC_G, 3> _time; //< Start and end time of boundary. Last element deprecated. TODO: Only use 2 elements. Fix things in read_scene_input.h
   // vec3 _normal;
   // vec3 _trans, _transVel;
   vec<PREC_G, 3> _velocity; //< Velocity of boundary object
@@ -291,10 +304,10 @@ struct GridBoundaryConfigs {
   vec<int, 3> _array; //< Array of boundary objects
   vec<PREC_G, 3> _spacing; // Spacing between boundary objects
 };
-
-struct GridTargetConfigs 
-{
-  static int number_of_targets; //< Total no. of grid-targets
+// Deprecated structure for holding grid-target configs
+// TODO: Undeprecate
+struct GridTargetConfigs {
+  static int number_of_targets; //< Total no. of grid-targets. TODO: May not work on multiple GPUs
 
   int target_ID; //< Specific grid-target ID, [0, number_of_targets)
   int idx_attribute; //< 
@@ -323,9 +336,9 @@ struct GridTargetConfigs
 };
 int GridTargetConfigs::number_of_targets = 0; 
 
-
+// Structure for holding particle-target/sensor configs. Sent to GPU as a SMALL kernel parameter (GPU constant mem. is like 4kb)
 struct ParticleTargetConfigs  {
-  static int number_of_targets; //< Total no. of grid-targets
+  static int number_of_targets; //< Total no. of targets/sensors
 
   int target_ID; //< Specific particle-target ID, [0, number_of_targets)
   int idx_attribute; //< 
@@ -354,6 +367,9 @@ int ParticleTargetConfigs::number_of_targets = 0;
 
 } // namespace config
 
+// Set up max cartesian grid block domain dimensions for simulation. 
+// Used to create data-structure for GPU hash table for grid/particle-block IDs. 
+// May not want this defined here. TODO: Double-check.
 using GridDomain = compact_domain<int, config::g_grid_size_x, config::g_grid_size_y,
                                   config::g_grid_size_z>;
 

@@ -1,7 +1,7 @@
 {
 	"simulation": {
 		"fps": 30,
-		"frames": 60,
+		"frames": 10,
 		"time": 0,
 		"default_dt": 1e-3,
 		"default_dx": 0.05,
@@ -9,7 +9,7 @@
 		"gravity": [0,-9.81,0],
 		"save_path": "./",
 		"save_suffix": ".bgeo",
-		"particles_output_exterior_only": false,
+		"particles_output_exterior_only": true,
 		"froude_scaling": 1.0
 	},
 	"models": [
@@ -21,20 +21,53 @@
 			"output_attribs": ["Pressure", "ID"],
 			"track_particle_id": [0, 100000, 200000, 300000],
 			"track_attribs": ["Position_X", "Position_Y", "Position_Z", "Velocity_Magnitude", "Velocity_X",  "Velocity_Y", "Velocity_Z"],
+			"output": {
+				"attribs": ["Position_X", "Position_Y", "Position_Z", "Velocity_Magnitude", "Velocity_X",  "Velocity_Y", "Velocity_Z"],
+				"exterior_only": true,
+				"exterior_threshold": 128
+			},
+			"trackers": {
+				"ids": [0, 100000, 200000, 300000],
+				"attribs": ["Position_X", "Position_Y", "Position_Z", "Velocity_Magnitude", "Velocity_X",  "Velocity_Y", "Velocity_Z"]
+			},
 			"target_attribs": ["Position_Y"],
 			"ppc": 8.0,
 			"CFL": 0.5,
 			"rho": 1000,
+			"material": {
+				"constitutive": "JFluid",
+				"CFL": 0.5,
+				"rho": 1000,
+				"bulk_modulus": 1e7,
+				"gamma": 7.1,
+				"viscosity": 0.001
+			},
 			"bulk_modulus": 1e7,
 			"gamma": 7.1,
 			"viscosity": 0.001,
-			"use_ASFLIP": true,
 			"use_FEM": false,
-			"use_FBAR": true,
-			"alpha": 0,
+			"FEM": {
+				"use_FEM": false
+			},
+			"use_ASFLIP": true,
+			"alpha": 0.3,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.8,
+			"ASFLIP": {
+				"use_ASFLIP": true,
+				"alpha": 0.0,
+				"beta_min": 0.0,
+				"beta_max": 0.0
+			},
+			"use_FBAR": true,
+			"FBAR_ratio": 0.99,
+			"FBAR_fused_kernel": true,
+			"FBAR": {
+				"use_FBAR": true,
+				"fused_kernel": true,
+				"stress_ratio": 1.0,
+				"strain_ratio": 0.0
+			},
 			"velocity": [0, -1, 0],
 			"geometry": [
 				{
@@ -59,10 +92,10 @@
 			"ppc": 8.0,
 			"CFL": 0.5,
 			"rho": 2000,
-			"youngs_modulus": 1e6,
+			"youngs_modulus": 1e7,
 			"poisson_ratio": 0.2,
-			"cohesion": 0.001,
-			"friction_angle": 30,
+			"cohesion": 0.00005,
+			"friction_angle": 60,
 			"logJp0": 0.0,
 			"beta": 0.0,
 			"SandVolCorrection": true,
@@ -72,7 +105,8 @@
 			"alpha": 0,
 			"beta_min": 0,
 			"beta_max": 0,
-			"FBAR_ratio": 0.0,
+			"FBAR_fused_kernel": false,
+			"FBAR_ratio": 0.5,
 			"velocity": [0, 0, 0],
 			"geometry": [
 				{
@@ -91,15 +125,13 @@
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start":[0,0,0],
-			"domain_end": [8,8,8],
-			"time":[0,180]
+			"domain_end": [8,8,8]
 		},
 		{
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [-0.2, -0.2, -0.2],
-			"domain_end": [8.2, 1.6, 3.2],
-			"time": [0, 180]
+			"domain_end": [8.2, 1.6, 3.2]
 		}
 	],
 	"grid-targets": [
@@ -116,21 +148,21 @@
 		{
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 600,
+			"output_frequency": 120,
 			"domain_start": [4.0, 1.6, 0.0],
 			"domain_end":   [4.1, 8.0, 0.1]
 		},
 		{
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 600,
+			"output_frequency": 120,
 			"domain_start": [0.0, 1.6, 0.0],
 			"domain_end":   [0.1, 8.0, 0.1]
 		},
 		{
 			"attribute": "Elevation",
 			"operation": "Max",
-			"output_frequency": 600,
+			"output_frequency": 120,
 			"domain_start": [4.0, 0.0, 5.15],
 			"domain_end":   [4.1, 2.5, 5.25]
 		}

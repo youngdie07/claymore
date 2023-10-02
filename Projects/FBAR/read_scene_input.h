@@ -1362,9 +1362,10 @@ void parse_scene(std::string fn,
           froude_scaling = CheckDouble(sim, "froude_scaling", 1.0);
 
           PREC sim_default_dx = CheckDouble(sim, "default_dx", 0.1) * froude_scaling;
-          double sim_default_dt = ceil(CheckDouble(sim, "default_dt", sim_default_dx/100.) * sqrt(froude_scaling));
+          double sim_default_dt = CheckDouble(sim, "default_dt", sim_default_dx/100.) * sqrt(froude_scaling);
           uint64_t sim_fps = CheckUint64(sim, "fps", 60);
           uint64_t sim_frames = ceil(CheckUint64(sim, "frames", 60) * sqrt(froude_scaling));
+          uint64_t sim_info_rate = CheckInt(sim, "info_rate", mn::config::g_info_rate); // TODO : Implement
           mn::pvec3 sim_gravity = CheckDoubleArray(sim, "gravity", mn::pvec3{0.,-9.81,0.});
           domain = CheckDoubleArray(sim, "domain", mn::pvec3{1.,1.,1.});
           for (int d=0; d<3 ; ++d) domain[d] *= froude_scaling;
@@ -1373,18 +1374,23 @@ void parse_scene(std::string fn,
           time[1] = time[0] + (double) sim_frames / (double) sim_fps; //< End time [sec]
           std::string save_suffix = CheckString(sim, "save_suffix", std::string{".bgeo"});
           
-          bool particles_output_exterior_only = CheckBool(sim, "particles_output_exterior_only", false);
+          bool particles_output_exterior_only = CheckBool(sim, "particles_output_exterior_only", mn::config::g_particles_output_exterior_only);
 
           l = sim_default_dx * mn::config::g_dx_inv_d; 
-          if (domain[0] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[1] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[2] > (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx)) {
-            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}]\n", domain[0], domain[1], domain[2], (l-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx));
+          double lx = l * mn::config::g_grid_ratio_x;
+          double ly = l * mn::config::g_grid_ratio_y;
+          double lz = l * mn::config::g_grid_ratio_z;
+          if (domain[0] > (lx-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[1] > (ly-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx) || domain[2] > (lz-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx)) {
+            fmt::print(fg(red), "ERROR: Simulation domain[{},{},{}] exceeds max domain length[{}, {}, {}]\n", domain[0], domain[1], domain[2], (lx-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx),(ly-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx),(lz-mn::config::g_bc*mn::config::g_blocksize*sim_default_dx));
             fmt::print(fg(yellow), "TIP: Shrink domain, grow default_dx, and/or increase DOMAIN_BITS (settings.h) and recompile. Press Enter to continue...\n" ); 
             if (mn::config::g_log_level >= 3) getchar();
+            std::exit(EXIT_FAILURE);
           } 
-          uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil(domain[0] / l * (mn::config::g_grid_size_x))) * static_cast<uint64_t>(std::ceil(domain[1] / domain[1] * (mn::config::g_grid_size_y))) * static_cast<uint64_t>(std::ceil(domain[2] / domain[2] * (mn::config::g_grid_size_z)));
+          // Only saves memory when reducing X domain size currently, Y and Z only reduce if X is already smaller than they are. Fix later 
+          uint64_t domainBlockCnt = static_cast<uint64_t>(std::ceil((domain[0] + mn::config::g_bc * mn::config::g_blocksize * sim_default_dx)  / lx * (mn::config::g_grid_size_x))) * static_cast<uint64_t>(std::ceil( (mn::config::g_grid_size_y))) * static_cast<uint64_t>(std::ceil( (mn::config::g_grid_size_z)));
           double reduction = 100. * ( 1. - domainBlockCnt / (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z));
           domainBlockCnt = (mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z); // Force full domain, fix later
-          fmt::print(fg(yellow),"Partitions _indexTable data-structure: Saved [{}] percent memory of preallocated partition _indexTable by reudcing domainBlockCnt from [{}] to run-time of [{}] using domain input relative to DOMAIN_BITS and default_dx.\n", reduction, mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z, domainBlockCnt);
+          fmt::print(fg(yellow),"Partitions _indexTable data-structure: Saved [{}] percent memory of preallocated partition _indexTable by reducing domainBlockCnt from [{}] to run-time of [{}] using domain input relative to DOMAIN_BITS and default_dx.\n", reduction, mn::config::g_grid_size_x * mn::config::g_grid_size_y * mn::config::g_grid_size_z, domainBlockCnt);
           fmt::print(fg(cyan),
               "Scene simulation parameters: Domain Length [{}], domainBlockCnt [{}], default_dx[{}], default_dt[{}], init_time[{}], fps[{}], frames[{}], gravity[{}, {}, {}], save_suffix[{}], froude_scaling[{}], particles_output_exterior_only[{}]\n", 
               l, domainBlockCnt, sim_default_dx, sim_default_dt, time[0],
@@ -1434,7 +1440,8 @@ void parse_scene(std::string fn,
             algoConfigs.ASFLIP_beta_min = CheckDouble(model, std::string{"beta_min"}, 0.);
             algoConfigs.ASFLIP_beta_max = CheckDouble(model, std::string{"beta_max"}, 0.);
             algoConfigs.use_FBAR = CheckBool(model, std::string{"use_FBAR"}, true);
-            algoConfigs.FBAR_ratio = CheckDouble(model, std::string{"FBAR_ratio"}, 0.25);
+            algoConfigs.FBAR_ratio = CheckDouble(model, std::string{"FBAR_ratio"}, 0.);
+            algoConfigs.FBAR_fused_kernel = CheckBool(model, "FBAR_fused_kernel", false); 
 
 
             mn::config::MaterialConfigs materialConfigs;
@@ -1587,7 +1594,8 @@ void parse_scene(std::string fn,
             algoConfigs.ASFLIP_beta_min = CheckDouble(model, "beta_min", 0.);
             algoConfigs.ASFLIP_beta_max = CheckDouble(model, "beta_max", 0.);
             algoConfigs.use_FBAR = CheckBool(model, "use_FBAR", true);
-            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.25); 
+            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.); 
+            algoConfigs.FBAR_fused_kernel = CheckBool(model, "FBAR_fused_kernel", false); 
 
             mn::config::MaterialConfigs materialConfigs;
             materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); // particles per cell
@@ -1640,7 +1648,13 @@ void parse_scene(std::string fn,
               else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7);
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-
+                if (materialConfigs.nu >= 0.5) { 
+                  materialConfigs.nu = 0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                } else if (materialConfigs.nu <= -0.5) { 
+                  materialConfigs.nu = -0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                }
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
                 PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
@@ -1674,7 +1688,13 @@ void parse_scene(std::string fn,
                       constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-
+                if (materialConfigs.nu >= 0.5) { 
+                  materialConfigs.nu = 0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                } else if (materialConfigs.nu <= -0.5) { 
+                  materialConfigs.nu = -0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                }
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
                 PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
@@ -1693,6 +1713,13 @@ void parse_scene(std::string fn,
               else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                if (materialConfigs.nu >= 0.5) { 
+                  materialConfigs.nu = 0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                } else if (materialConfigs.nu <= -0.5) { 
+                  materialConfigs.nu = -0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                }
                 materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
                 materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
                 materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
@@ -1718,6 +1745,13 @@ void parse_scene(std::string fn,
               else if (constitutive == "CoupledUP" || constitutive == "coupled" || constitutive == "up" || constitutive == "UP" || constitutive == "coupledup") { 
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                if (materialConfigs.nu >= 0.5) { 
+                  materialConfigs.nu = 0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                } else if (materialConfigs.nu <= -0.5) { 
+                  materialConfigs.nu = -0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                }
                 materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
                 materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
                 materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
@@ -1750,6 +1784,13 @@ void parse_scene(std::string fn,
               else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
                 materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
                 materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                if (materialConfigs.nu >= 0.5) { 
+                  materialConfigs.nu = 0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                } else if (materialConfigs.nu <= -0.5) { 
+                  materialConfigs.nu = -0.4999; 
+                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                }
                 materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
                 materialConfigs.xi = CheckDouble(model, "xi", 0.8);
                 materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
@@ -1790,12 +1831,15 @@ void parse_scene(std::string fn,
               velocity[d] = velocity[d] / l;
               partition_start[d] *= froude_scaling;
               partition_start[d] = partition_start[d] / l + o;
+              // Messy check to avoid froude scaling a partition that was already set to a default value of the froude scaled domain
               if (partition_end[d] != domain[d]) partition_end[d] *= froude_scaling;
               partition_end[d]   = partition_end[d] / l + o;
               if (partition_start[d] > partition_end[d]) {
                 fmt::print(fg(red), "GPU[{}] ERROR: Inverted partition (Element of partition_start > partition_end). Fix and Retry.", gpu_id); if (mn::config::g_log_level >= 3) getchar();
+                std::exit(EXIT_FAILURE);
               } else if (partition_end[d] == partition_start[d]) {
                 fmt::print(fg(red), "GPU[{}] ERROR: Zero volume partition (Element of partition_end == partition_start). Fix and Retry.", gpu_id); if (mn::config::g_log_level >= 3) getchar();
+                std::exit(EXIT_FAILURE);
               }
             }
             output_attribs = CheckStringArray(model, "output_attribs", std::vector<std::string> {{"ID"}});
@@ -1865,6 +1909,10 @@ void parse_scene(std::string fn,
                   std::vector<int> geo_track_particle_ids; //< Particle IDs to track for this geometry instance
                   geo_track_particle_ids = CheckIntArray(geometry, "track_particle_id", std::vector<int>{});
                   // * Shift geometry local particle IDs to track global IDs
+                  if (keep_track_of_array == 1)
+                    keep_track_of_particles = models[total_id].size();
+                  // int shift_idx = keep_track_of_particles * keep_track_of_array;
+
                   for (int geo_idx = 0; geo_idx < geo_track_particle_ids.size(); ++geo_idx) {
                     geo_track_particle_ids[geo_idx] += keep_track_of_particles * keep_track_of_array; // ! May need to adjust for previous geometry particles, e.g. + model.size()
                   }
@@ -2084,40 +2132,7 @@ void parse_scene(std::string fn,
             } else if (input_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
               benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            } 
-            // else if (input_attribs.size() == 10){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() == 11){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() == 12){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() == 13){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } 
-            // else if (input_attribs.size() == 14){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() == 15){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() == 16){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() <= 18 && input_attribs.size() > 16){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() <= 24 && input_attribs.size() > 18){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } else if (input_attribs.size() <= 32 && input_attribs.size() > 24){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
-            //   benchmark->initInitialAttribs<N>(gpu_id, model_id, attributes, has_attributes); 
-            // } 
-            else if (input_attribs.size() > mn::config::g_max_particle_attribs){
+            } else if (input_attribs.size() > mn::config::g_max_particle_attribs){
               fmt::print("More than [{}] input_attribs not implemented. You requested [{}].", mn::config::g_max_particle_attribs, input_attribs.size());
               if (mn::config::g_log_level >= 3) getchar();
             } else {
@@ -2154,40 +2169,7 @@ void parse_scene(std::string fn,
             } else if (output_attribs.size() == 9){
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(9);
               benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            } 
-            // else if (output_attribs.size() == 10){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(10);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() == 11){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(11);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() == 12){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(12);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() == 13){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(13);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } 
-            // else if (output_attribs.size() == 14){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(14);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() == 15){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(15);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() == 16){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(16);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() <= 18 && output_attribs.size() > 16){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(18);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() <= 24 && output_attribs.size() > 18){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(24);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } else if (output_attribs.size() <= 32 && output_attribs.size() > 24){
-            //   constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(32);
-            //   benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
-            // } 
-            else if (output_attribs.size() > mn::config::g_max_particle_attribs){
+            } else if (output_attribs.size() > mn::config::g_max_particle_attribs){
               fmt::print(fg(red), "ERROR: GPU[{}] MODEL[{}] More than [{}] output_attribs not valid. Requested: [{}]. Truncating...", gpu_id, model_id, mn::config::g_max_particle_attribs, output_attribs.size()); 
               constexpr mn::num_attribs_e N = static_cast<mn::num_attribs_e>(mn::config::g_max_particle_attribs);
               benchmark->initOutputAttribs<N>(gpu_id, model_id, attributes); 
@@ -2349,8 +2331,10 @@ void parse_scene(std::string fn,
           for (auto &model : it->value.GetArray()) {
             
             if (boundary_ID >= mn::config::g_max_grid_boundaries) {
-              fmt::print(fg(red), "ERROR: Exceeded maximum number of grid-boundaries [{}]. Increase g_max_grid_boundaries in settings.h and recompile.\n", mn::config::g_max_grid_boundaries);
-              if (mn::config::g_log_level >= 3) getchar();
+              fmt::print(fg(red), "ERROR: Grid-boundary ID[{}] exceeds max[{}]. Increase g_max_grid_boundaries in settings.h and recompile.\n", boundary_ID, mn::config::g_max_grid_boundaries);
+              if (mn::config::g_log_level >= 3) { 
+                getchar();
+              }
               continue;
             }
 
@@ -2380,140 +2364,144 @@ void parse_scene(std::string fn,
             }
             
             // Time range the boundary is active
-            mn::vec<float, 2> float_time;
+            // ! WARNING: Last index of _time is deprecated but still required, should fix later.
+            // e.g. [0, 1, 0] is valid but [0, 1] is not
+            mn::vec<float, 3> float_time;
             float_time[0] = (float)time[0];
             float_time[1] = (float)time[1];
-            h_gridBoundary._time = CheckFloatArray<2>(model, "time", float_time);
+            float_time[2] = (float)(-1);
+            h_gridBoundary._time = CheckFloatArray(model, "time", float_time);
             // Adjust for froude scaling if not using default
-            if (h_gridBoundary._time[0] != float_time[0] && h_gridBoundary._time[1] != float_time[1]) {
+            // TODO: check if "time" is in scene file for grid-boundary instead of comparing against default value
+            if ((h_gridBoundary._time[0] != float_time[0]) || (h_gridBoundary._time[1] != float_time[1])) {
               for (int d=0; d<2; ++d) h_gridBoundary._time[d] *= sqrt(froude_scaling);
             }
             // Boundary object and contact type
             std::string object = CheckString(model, "object", std::string{"box"});
             std::string contact = CheckString(model, "contact", std::string{"Sticky"});
 
-            if (contact == "Rigid" || contact == "Sticky" || contact == "Stick" || contact == "rigid" || contact == "sticky" || contact == "stick") 
+            if ((contact == "Sticky") || (contact == "sticky") || (contact == "Stick") || (contact == "stick") || (contact == "Rigid") || (contact == "rigid") || (contact == "No-Slip") || (contact == "no-slip"))
               h_gridBoundary._contact = mn::config::boundary_contact_t::Sticky;
             else if (contact == "Slip" || contact == "slip") 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Slip;
-            else if (contact == "Separable" || contact == "separable" || contact == "Seperable" || contact == "seperable" || contact == "Separate" || contact == "separate" || contact == "Separatable" || contact == "separatable") 
+            else if ( (contact == "Separable" || contact == "separable") || (contact == "Seperable" || contact == "seperable") || (contact == "Separate" || contact == "separate") || (contact == "Separatable" || contact == "separatable") )
               h_gridBoundary._contact = mn::config::boundary_contact_t::Separate;
             else {
-              fmt::print(fg(red),"ERROR: Invalid contact type for grid-boundary {}.\n", boundary_ID); 
-              if (mn::config::g_log_level >= 3)  getchar();
+              fmt::print(fg(red),"ERROR: Invalid contact[{}] set for grid-boundary[{}]! Try sticky, slip, or separable... \n", contact, boundary_ID); 
+              if ((mn::config::g_log_level < 3) && (boundary_ID > 0)) {
+                // We check boundary_ID > 0 as it is absolutely required that the first boundary be correctly set-up, no skipping.
+                fmt::print(fg(orange),"WARNING: Skipping grid-boundary[{}]... \n", boundary_ID);
+                continue;
+              } 
+              fmt::print(fg(orange),"WARNING: Press ENTER to continue anyways... \n");
+              if (boundary_ID == 0) fmt::print(fg(red),"ERROR: First grid-boundary[ID = {}] must be correctly set-up in input scene file or simulation crashes! Important! \n", boundary_ID);
+              getchar();
             }
             
-            if (object == "Wall" || object == "wall" || object == "Walls" || object == "walls")
-            {
+            // Set boundary object type if valid
+            if ((object == "Wall") || (object == "wall") || (object == "Walls") || (object == "walls")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Walls;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 0;
-              else if (contact == "Slip") h_boundary[6] = 1;
-              else if (contact == "Separable") h_boundary[6] = 2;
-              else h_boundary[6] = -1;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 0;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 1;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 2;
+              else h_boundary[6] = -1; // TODO: Throw error here. -1 value signifies invalid contact type but is deprecated.
 
               // Write to OBJ file
               std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
               writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
             }
-            else if (object == "Box" || object == "box")
-            {
+            else if ((object == "Box") || (object == "box")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Box;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick" || contact ==  "rigid" || contact == "sticky" || contact == "stick" ) h_boundary[6] = 3;
-              else if (contact == "Slip") h_boundary[6] = 4;
-              else if (contact == "Separable" || contact == "separable") h_boundary[6] = 5;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 3;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 4;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 5;
               else h_boundary[6] = -1;
 
-              // Write to OBJ file
+              // Write to OBJ file. Easily visualized in Blender/Houdini/etc.
               std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
               writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
-
             }
-            else if (object == "Sphere" || object == "sphere")
-            {
+            else if ((object == "Sphere") || (object == "sphere")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Sphere;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 6;
-              else if (contact == "Slip") h_boundary[6] = 7;
-              else if (contact == "Separable") h_boundary[6] = 8;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 6;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 7;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 8;
               else h_boundary[6] = -1;
             }
-            else if (object == "OSU LWF" || object == "OSU Flume" || object == "OSU_LWF")
-            {
+            else if ((object == "OSU LWF") || (object == "OSU Flume") || (object == "OSU_LWF")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_RAMP;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 9;
-              else if (contact == "Slip") h_boundary[6] = 9;
-              else if (contact == "Separable") h_boundary[6] = 9;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 9;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 10;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 11;
               else h_boundary[6] = -1;
             }
-            else if (object == "OSU Paddle" || object == "OSU Wave Maker" || object == "OSU_LWF_PADDLE")
-            {
+            else if ((object == "OSU Paddle") || (object == "OSU Wave Maker") || (object == "OSU_LWF_PADDLE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_PADDLE;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 12;
-              else if (contact == "Slip") h_boundary[6] = 12;
-              else if (contact == "Separable") h_boundary[6] = 12;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 12;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 13;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 14;
               else h_boundary[6] = -1;
             }            
-            else if (object == "Cylinder" || object == "cylinder")
-            {
+            else if ((object == "Cylinder") || (object == "cylinder")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Cylinder;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 15;
-              else if (contact == "Slip") h_boundary[6] = 16;
-              else if (contact == "Separable") h_boundary[6] = 17;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 15;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 16;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 17;
               else h_boundary[6] = -1;
             }
-            else if (object == "Plane" || object == "plane" || object == "Surface" || object == "surface")
-            {
+            else if ((object == "Plane") || (object == "plane") || (object == "Surface") || (object == "surface")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Plane;
-              if (contact == "Rigid" || contact == "Sticky" || contact == "Stick") h_boundary[6] = 18;
-              else if (contact == "Slip") h_boundary[6] = 19;
-              else if (contact == "Separable") h_boundary[6] = 20;
+              if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 18;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 19;
+              else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 20;
               else h_boundary[6] = -1;
             }
-            else if (object == "USGS Ramp" || object == "USGS Flume" || object == "USGS_RAMP")
-            {
+            else if ((object == "USGS Ramp") || (object == "USGS Flume") || (object == "USGS_RAMP")) {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_RAMP;
-              h_boundary[6] = 100; 
+              h_boundary[6] = 95; 
             }
-            else if (object == "USGS Gate" || object == "USGS GATE" || object == "USGS_GATE")
-            {
+            else if ((object == "USGS Gate") || (object == "USGS GATE") || (object == "USGS_GATE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_GATE;
-              h_boundary[6] = 100; 
+              h_boundary[6] = 96; 
             }
-            else if (object == "OSU TWB Ramp" || object == "OSU_TWB_RAMP" || object == "OSU TWB")
-            {
+            else if ((object == "OSU TWB Ramp") || (object == "OSU_TWB_RAMP") || (object == "OSU TWB")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_RAMP;
-              h_boundary[6] = 100; 
+              h_boundary[6] = 97; 
             }
-            else if (object == "OSU TWB Paddle" || object == "OSU_TWB_PADDLE")
-            {
+            else if ((object == "OSU TWB Paddle") || (object == "OSU_TWB_PADDLE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
-              h_boundary[6] = 100; 
+              h_boundary[6] = 98; 
             }       
-            else if (object == "WASIRF Pump" || object == "WASIRF_PUMP")
-            {
+            else if ((object == "WASIRF Pump") || (object == "WASIRF_PUMP")) {
               h_gridBoundary._object = mn::config::boundary_object_t::WASIRF_PUMP;
-              h_boundary[6] = 100; 
+              h_boundary[6] = 99; 
             }
-            else if (object == "TOKYO Harbor" || object == "TOKYO_HARBOR")
-            {
+            else if ((object == "TOKYO Harbor") || (object == "TOKYO_HARBOR")) {
               h_gridBoundary._object = mn::config::boundary_object_t::TOKYO_HARBOR;
               h_boundary[6] = 100;
-            }       
-            else 
-            {
-              fmt::print(fg(red), "ERROR: gridBoundary[{}] object[{}] or contact[{}] is not valid! \n", boundary_ID, object, contact);
+            } else if ((object == "Velocity" ) || (object == "velocity")) {
+              // TODO : Implement both constant and moving velocity grid-boundaries
+              h_gridBoundary._object = mn::config::boundary_object_t::VELOCITY_BOUNDARY;
+              h_boundary[6] = 101;
+            } else if ((object == "Floor") || (object == "floor")) {
+              h_gridBoundary._object = mn::config::boundary_object_t::FLOOR;
+              h_boundary[6] = 102;
+            } else {
               h_boundary[6] = -1;
+              fmt::print(fg(red), "ERROR: gridBoundary[{}] object[{}][{}] or contact[{}][{}] is not valid! hb6[{}] \n", boundary_ID, object,  h_gridBoundary._object, contact, h_gridBoundary._contact, h_boundary[6]);
             }
 
-
             // Set up grid-boundary friction
-            h_gridBoundary._friction_static = CheckFloat(model,"friction_static", 0.0f);
-            h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", h_gridBoundary._friction_dynamic);
-
+            {
+              h_gridBoundary._friction_static = CheckFloat(model,"friction_static", static_cast<PREC_G>(0.0));
+              PREC_G temp_friction = std::max(h_gridBoundary._friction_static, static_cast<PREC_G>(0.0));
+              h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", temp_friction);
+            }
 
             // Set up moving grid-boundary if applicable
             auto motion_file = model.FindMember("file"); // Check for motion file
             auto motion_velocity = model.FindMember("velocity"); // Check for velocity
-            if (motion_file != model.MemberEnd()) 
+            if (motion_file != model.MemberEnd() && motion_velocity == model.MemberEnd()) 
             {
               fmt::print(fg(cyan),"Found motion file for grid-boundary[{}]. Loading... \n", boundary_ID);
               MotionHolder motionPath;
@@ -2526,15 +2514,11 @@ void parse_scene(std::string fn,
                 istrm.close();
               }
 
-              load_motionPath(motion_fn, ',', motionPath,  1, froude_scaling);
-
-
 
               PREC_G mp_freq = CheckFloat(model, "output_frequency", 1.0);
-
               mp_freq *= 1 / sqrt(froude_scaling);
-              // auto motion_freq = model.FindMember("output_frequency");
-              // if (motion_freq != model.MemberEnd()) mp_freq = model["output_frequency"].GetFloat();
+
+              load_motionPath(motion_fn, ',', motionPath,  1, froude_scaling);
 
               for (int did = 0; did < mn::config::g_device_cnt; ++did) {
                 benchmark->initMotionPath(did, motionPath, mp_freq);
@@ -2543,20 +2527,21 @@ void parse_scene(std::string fn,
             }
             // TODO : Fully implement constant velocity grid boundaries
             else if (motion_velocity != model.MemberEnd() && motion_file == model.MemberEnd()) {
-              mn::vec<PREC_G, 3> velocity;
+              // Currently loading in velocity and adjusting it for scaling near the top of the gridBoundary loop
               fmt::print(fg(cyan),"Found initial velocity for grid-boundary[{}]. Loading...\n", boundary_ID);
-              for (int d=0; d<3; d++) velocity[d] = (model["velocity"].GetArray()[d].GetDouble() * sqrt(froude_scaling)) / l;
+              // mn::vec<PREC_G, 3> velocity;
+              // h_gridBoundary._velocity = CheckFloatArray(model, "velocity", mn::vec<float, 3>{0.f,0.f,0.f});
+              // for (int d=0; d<3; d++) velocity[d] = (model["velocity"].GetArray()[d].GetDouble() * sqrt(froude_scaling)) / l; // Already did this earlier
               // for (int d=0; d<3; d++) h_gridBoundary._velocity[d] = velocity[d];
             }
             else 
-              fmt::print(fg(orange),"No motion file or velocity specified for grid-boundary. Assuming static. \n");
+              fmt::print(fg(yellow),"NOTE: No velocity or motion-file set for grid-boundary[{}]. Assuming static...\n", boundary_ID);
             
             // ----------------  Initialize grid-boundaries ---------------- 
             benchmark->initGridBoundaries(0, h_boundary, h_gridBoundary, boundary_ID);
             fmt::print(fg(green), "Initialized gridBoundary[{}]: object[{}], contact[{}].\n", boundary_ID, object, contact);
             fmt::print(fmt::emphasis::bold,
-                      "-----------------------------------------------------------"
-                      "-----\n");
+                      "----------------------------------------------------------------\n");
             boundary_ID += 1;
           }
         }
