@@ -2196,20 +2196,6 @@ void parse_scene(std::string fn,
             std::vector<std::array<PREC_G, mn::config::g_grid_target_attribs>> h_gridTarget(mn::config::g_grid_target_cells, std::array<PREC_G, mn::config::g_grid_target_attribs> {0.0});
             mn::vec<PREC_G, 7> target; // TODO : Make structure for grid-target data
 
-            std::string attribute = CheckString(model,"attribute", std::string{"force"});
-            if      (attribute == "Force"  || attribute == "force")  target[0] = 0;
-            else if (attribute == "Velocity" || attribute == "velocity") target[0] = 1;
-            else if (attribute == "Momentum" || attribute == "momentum") target[0] = 2;
-            else if (attribute == "Mass"  || attribute == "mass")  target[0] = 3;
-            else if (attribute == "JBar" || attribute == "J Bar") target[0] = 4;
-            else if (attribute == "Volume" || attribute == "volume") target[0] = 5;
-            else if (attribute == "X"  || attribute == "x")  target[0] = 6;
-            else if (attribute == "Z-" || attribute == "z-") target[0] = 7;
-            else if (attribute == "Z+" || attribute == "z+") target[0] = 8;
-            else {
-              target[0] = -1;
-              fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
-            }
             
             std::string direction = CheckString(model,"direction", std::string{"X"});
             if      (direction == "X"  || direction == "x")  target[0] = 0;
@@ -2218,7 +2204,7 @@ void parse_scene(std::string fn,
             else if (direction == "Y"  || direction == "y")  target[0] = 3;
             else if (direction == "Y-" || direction == "y-") target[0] = 4;
             else if (direction == "Y+" || direction == "y+") target[0] = 5;
-            else if (direction == "X"  || direction == "x")  target[0] = 6;
+            else if (direction == "Z"  || direction == "z")  target[0] = 6;
             else if (direction == "Z-" || direction == "z-") target[0] = 7;
             else if (direction == "Z+" || direction == "z+") target[0] = 8;
             else {
@@ -2226,6 +2212,21 @@ void parse_scene(std::string fn,
               fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid direction[{}].\n", target_ID, direction);
               if (mn::config::g_log_level >= 3) getchar();
             }
+
+            std::string attribute = CheckString(model,"attribute", std::string{"force"});
+            if      (attribute == "Force"  || attribute == "force") target[0] += 0*9;
+            else if (attribute == "Velocity" || attribute == "velocity") target[0] += 1*9;
+            else if (attribute == "Momentum" || attribute == "momentum") target[0] += 2*9;
+            else if (attribute == "Mass"  || attribute == "mass") target[0] += 3*9;
+            else if (attribute == "Volume" || attribute == "volume") target[0] += 4*9;
+            else if (attribute == "JBar" || attribute == "J Bar") target[0] += 5*9;
+            else if (attribute == "MassWater" || attribute == "masw") target[0] += 6*9;
+            else if (attribute == "PorePressure" || attribute == "pore_pressure") target[0] += 7*9;
+            else {
+              target[0] = -1;
+              fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
+            }
+
             // * Load and scale target domain
             mn::vec<PREC_G,3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
@@ -2247,7 +2248,6 @@ void parse_scene(std::string fn,
             std::string fn_gb = "gridTarget[" + std::to_string(target_ID) + "].obj";
             writeBoxOBJ(fn_gb, domain_start, domain_end - domain_start);
             
-
             // mn::config::GridTargetConfigs gridTargetConfigs((int)target[6], (int)target[6], (int)target[6], make_float3((float)target[1], (float)target[2], (float)target[3]), make_float3((float)target[4], (float)target[5], (float)target[6]), (float)freq);
 
             // * Loop through GPU devices to initialzie

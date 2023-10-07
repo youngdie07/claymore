@@ -59,8 +59,8 @@ set(TARGET_CUDA_ARCH -arch=sm_89)
 # The native keyword auto detects the GPU arch. XY value, won't work if compiling without active GPU (e.g. an HPC's non-GPU login node).
 # I recommend setting CMAKE_CUDA_ARCHITECTURES manually as XY, which is the compute capability number without the decimal point.
 # 1060 Max-Q = 61, RTX 2080 ti / Quadro 5000 = 75, A100 = 80, RTX 4060 ti = 89, H100 = 90
-set(CMAKE_CUDA_ARCHITECTURES native)
-# set(CMAKE_CUDA_ARCHITECTURES 89)
+set(CMAKE_CUDA_ARCHITECTURES 89)
+# set(CMAKE_CUDA_ARCHITECTURES native)
 message("-- NVIDIA CUDA GPU detected [" ${CMAKE_CUDA_ARCHITECTURES} ", ${TARGET_CUDA_ARCH}]\t compute-capability number and architecture label with CMake.")
 
 

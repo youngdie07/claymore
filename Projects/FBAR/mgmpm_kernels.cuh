@@ -13676,8 +13676,8 @@ __global__ void retrieve_selected_grid_cells(
 
           /// Set values in grid-array to specific cell from grid-buffer
           //PREC_G m1  = mass;
-          PREC_G small = 1e-7;
-          if (mass > small) 
+          // PREC_G small = 1e-7;
+          if (mass > 0.f) 
           {
             PREC_G m1 = 1.0 / mass; //< Invert mass, avoids division operator
             PREC_G vx1 = mvx1 * m1;
@@ -13692,7 +13692,7 @@ __global__ void retrieve_selected_grid_cells(
             force[2] = mass * (vz1) / dt;
 
 
-            if (volume > small) 
+            if (volume > 0.f) 
               JBar = JBar / volume; 
 
             auto node_id = atomicAdd(_targetcnt, 1);

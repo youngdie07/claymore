@@ -86,7 +86,7 @@ namespace config /// * Simulation config setup and name-space
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
 constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
-constexpr int g_models_per_gpu = 1; //< IMPORTANT. Max num. particle models per GPU. Default 1.
+constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
 // * Output set-up
@@ -131,8 +131,8 @@ constexpr int32_t constCeil(float num) {
 constexpr double g_length   = 1.0; //< Default domain full length (m)
 constexpr double g_volume   = g_length * g_length * g_length; //< Default domain max volume [m^3]
 constexpr double g_length_x = g_length / 1.0; //< Default domain x length (m)
-constexpr double g_length_y = g_length / 8.0; //< Default domain y length (m)
-constexpr double g_length_z = g_length / 32.0; //< Default domain z length (m)
+constexpr double g_length_y = g_length / 1.0; //< Default domain y length (m)
+constexpr double g_length_z = g_length / 1.0; //< Default domain z length (m)
 constexpr double g_domain_volume = g_length * g_length * g_length;
 constexpr double g_grid_ratio_x = g_length_x / g_length; //< Domain x ratio
 constexpr double g_grid_ratio_y = g_length_y / g_length; //< Domain y ratio
@@ -140,10 +140,6 @@ constexpr double g_grid_ratio_z = g_length_z / g_length; //< Domain z ratio
 constexpr int g_grid_size_x = (int)constCeil(static_cast<float>(g_grid_size * g_grid_ratio_x)); //< Domain x grid-blocks
 constexpr int g_grid_size_y = (int)constCeil(static_cast<float>(g_grid_size * g_grid_ratio_y)); //< Domain y grid-blocks
 constexpr int g_grid_size_z = (int)constCeil(static_cast<float>(g_grid_size * g_grid_ratio_z)); //< Domain z grid-blocks
-//constexpr int g_grid_size_x = g_grid_size ; //< Domain x grid-blocks
-//constexpr int g_grid_size_y = g_grid_size ; //< Domain y grid-blocks
-//constexpr int g_grid_size_z = g_grid_size ; //< Domain z grid-blocks
-
 
 /// ------------------
 /// * Preallocate GPU memory for particles, grids, finite elements, grid-targets, etc
@@ -168,7 +164,7 @@ constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
 constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
-constexpr int g_particle_batch_capacity = 8 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
+constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
 constexpr int g_particle_batch = g_particle_batch_capacity;
 constexpr int g_particle_num_per_block = 
     (MAX_PPC * (1 << (BLOCK_BITS * 3))); //< Max no. particles in a block
@@ -187,7 +183,7 @@ std::array<int, g_max_particle_trackers> g_track_IDs = {g_track_ID}; //< IDs of 
 constexpr int g_max_particle_tracker_attribs = 6;
 
 // * Particle-Targets
-constexpr int g_max_particle_target_nodes = 1024 * 10; //< Max particles per particleTarget
+constexpr int g_max_particle_target_nodes = 1024 * 8; //< Max particles per particleTarget
 constexpr int g_particle_target_cells = g_max_particle_target_nodes;
 constexpr int g_particle_target_attribs = 10; //< No. values per gridTarget node
 
