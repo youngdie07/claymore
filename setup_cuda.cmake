@@ -118,6 +118,8 @@ function(add_cuda_executable binary)
     #   # --maxrregcount=128
     # )
 
+    # -ccbin=icc
+
 		# Debug flags <- Slower to compile / run but more debugging info
 		target_compile_options(${binary} 
 			PRIVATE $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --resource-usage -Xptxas -v --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread --fmad=true -lineinfo --ptxas-options=-allow-expensive-optimizations=true>
@@ -172,6 +174,8 @@ function(add_cuda_library library)
     # target_compile_options(${library} 
     #   PUBLIC        $<$<COMPILE_LANGUAGE:CUDA>:${CMAKE_CUDA_FLAGS} ${TARGET_CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr --default-stream=per-thread -lineinfo --fmad=true --ptxas-options=-allow-expensive-optimizations=true --maxrregcount=96> #--maxrregcount=128
     # )
+
+    # -ccbin=icc
 
 		# Debug flags <- Slower to compile / run but more debugging info
     target_compile_options(${library} 
