@@ -97,8 +97,11 @@ __global__ void init_adv_bucket(const int *_ppbs, int *_buckets) {
   // Put particle ID in block bucket. No advecting particles so offset {0,0,0} blocks
   for (int pidib = threadIdx.x; pidib < pcnt; pidib += blockDim.x) 
     // TODO : Check if original bitwise OR is correct, seems like it should be addition for any g_particle_num_per_block not power of 2 (i.e. if MAX_PPC is not a power of 2)
-    // bucket[pidib] = (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) + pidib; 
-    bucket[pidib] = (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) | pidib; 
+    // if is_power_of_2(g_particle_num_per_block)
+    if (g_ppc_pow2)
+      bucket[pidib] = (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) | pidib; 
+    else
+      bucket[pidib] = (dir_offset(ivec3{0, 0, 0}) * g_particle_num_per_block) + pidib; 
 }
 template <typename Grid> __global__ void clear_grid(Grid grid) {
   auto gridblock = grid.ch(_0, blockIdx.x);
@@ -1452,6 +1455,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
     for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) 
     {
       PREC_G mass = grid_block.val_1d(_0, cidib), vel[3], vel_FLIP[3], voln, sJBar;
+#if DEBUG_COUPLED_UP
+      PREC_G mass_water, pressure_water;
+#endif
       if (mass > 0.f) {
         mass = (1.0 / mass); //< Now represents inverse mass, 1 / mass, for efficiency
 
@@ -1472,10 +1478,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         vel_FLIP[2] = grid_block.val_1d(_6, cidib); //< mvz
         voln = grid_block.val_1d(_7, cidib); //< Sum_p ( voln )
         sJBar = grid_block.val_1d(_8, cidib); //< Sum_p ( sJBar * voln )
+#if DEBUG_COUPLED_UP
+        mass_water = grid_block.val_1d(_9, cidib); //< Sum_p ( mass_water )
+        pressure_water = grid_block.val_1d(_10, cidib); //< Sum_p ( pressure_water )
+#endif
 
         //< sJBar = (1 - JBar) = Sum_p ( sJBar * voln ) / Sum_p ( voln ), zero-out if no volume
         sJBar = (voln > 0.f) ? sJBar / voln : 0.f; // No division by zero or negative volumes
-        constexpr PREC_G deformation_limit = 0.5f;
+        constexpr PREC_G deformation_limit = 0.9f; // Arbitrary limit for deformation
         sJBar = (abs(sJBar) > deformation_limit) ? copysign(deformation_limit , sJBar) : sJBar; //< Clamp sJBar to [-deformation_limit, deformation_limit], done for stability of compressible fluids, though may be unnecassary for some materials
   
         // ! TODO : move into scopes to save registers
@@ -1563,7 +1573,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                     if (isOutStruct != ((1 << 2) | (1 << 1) | 1)) isOutStruct = 0; // Check if 111, reset otherwise
                     isInBound |= isOutStruct; // Update with regular boundary for efficiency
                   } else if (gb._contact == boundary_contact_t::Slip) {
-                    constexpr PREC_G outer_tol = 1.5 * g_dx; // Slip layer thickness for box
+                    constexpr PREC_G outer_tol = 0.99f * g_dx; // Slip layer thickness for box
                     constexpr PREC_G t = outer_tol + tol; // Slip layer thickness for box
 
                     // Check if grid-cell is within sticky interior of box
@@ -1612,13 +1622,14 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                       isOnStructFace[iter] = (isOnStructFace[iter]==((1 << 2) | (1 << 1) | 1)) ? (1 << iter / 2) : 0;
                       isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collision flags into one variable
                     }
-                    if (isOnStruct == ((1 << 2) | (1 << 1) | 0) || isOnStruct == ((1 << 2) | 0 | 1) ) isOnStruct = (1 << 2); // Overlaps front (XY,XZ)->(X)
-                    else if (isOnStruct == (0 | (1 << 1) | 1) || isOnStruct == ((1 << 2) | (1 << 1) | 1)) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
+                    // X-Favoring currently, will make an option in scene for user later (e.g. X, bevel)
+                    if (isOnStruct == ((1 << 2) | (1 << 1) | 0) || isOnStruct == ((1 << 2) | 0 | 1) || isOnStruct == ((1 << 2) | 1 | 1) ) isOnStruct = (1 << 2); // Overlaps front (XY,XZ,XYZ)->(X)
+                    else if (isOnStruct == (0 | (1 << 1) | 1) ) isOnStruct = 0; // Overlaps (YZ)->(0)
                     isInBound |= isOnStruct; // OR reduce box sticky collision into isInBound
                   }
                   else if (gb._contact == boundary_contact_t::Separable) {
                     // TODO: Base tolerance for outer layer on user-input
-                    constexpr PREC_G outer_tol = 1.5 * g_dx; // Outer layer thickness for box
+                    constexpr PREC_G outer_tol = 0.99f * g_dx; // Outer layer thickness for box
                     constexpr PREC_G t = outer_tol + tol; // Outer layer thickness for box
 
                     // Check if grid-cell is within sticky interior of box
@@ -1664,8 +1675,9 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                       isOnStructFace[iter] = (isOnStructFace[iter]==((1 << 2) | (1 << 1) | 1)) ? (1 << iter / 2) : 0;
                       isOnStruct |= isOnStructFace[iter]; // OR (|=) combines face collisions into one int
                     }
-                    if (isOnStruct == ((1 << 2) | (1 << 1) | 0) || isOnStruct == ((1 << 2) | (0 << 1) | 1)) isOnStruct = ((1 << 2) | (0 << 1) | 0); // Overlaps front (XY,XZ)->(X)
-                    else if (isOnStruct == ((0 << 2) | (1 << 1) | 1) || isOnStruct == ((1 << 2) | (1 << 1) | 1)) isOnStruct = 0; // Overlaps (YZ,XYZ)->(0)
+                    // X-favored, TODO: Make option in scene file
+                    if (isOnStruct == ((1 << 2) | (1 << 1) | 0) || isOnStruct == ((1 << 2) | (0 << 1) | 1) || isOnStruct == ((1 << 2) | (1 << 1) | 1)) isOnStruct = ((1 << 2) | (0 << 1) | 0); // Overlaps front (XY,XZ, XYZ)->(X)
+                    else if (isOnStruct == ((0 << 2) | (1 << 1) | 1) ) isOnStruct = 0; // Overlaps (YZ)->(0)
                     isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
                   }
                 }
@@ -2274,8 +2286,8 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
         grid_block.val_1d(_7, cidib) = voln;
         grid_block.val_1d(_8, cidib) = sJBar;
 #if DEBUG_COUPLED_UP
-        grid_block.val_1d(_9, cidib) = masw;
-        grid_block.val_1d(_10, cidib) = pw;
+        grid_block.val_1d(_9, cidib) = mass_water;
+        grid_block.val_1d(_10, cidib) = pressure_water;
 #endif
 
       }
@@ -4293,11 +4305,13 @@ __global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
 
       matrixMatrixMultiplication3d(dws.data(), contrib.data(), F.data());
       PREC J  = matrixDeterminant3d(F.data());
-      PREC beta;
-      if (J >= 1.0) beta = pbuffer.beta_max; //< beta max
-      else beta = pbuffer.beta_min;          //< beta min
-      pos += dt * (vel + beta * pbuffer.alpha * (vel_p - vel_FLIP)); //< pos update
-      vel += pbuffer.alpha * (vel_p - vel_FLIP); //< vel update
+      {
+        // > or >= ?
+        PREC beta = (J > 1.0) ? pbuffer.beta_max : pbuffer.beta_min; //< ASFLIP pos. corr.
+        pos += dt * (vel + beta * pbuffer.alpha * (vel_p - vel_FLIP)); //< pos update
+        vel += pbuffer.alpha * (vel_p - vel_FLIP); //< vel update
+      }
+
       {
         auto particle_bin = g_buckets_on_particle_buffer 
             ? next_pbuffer.ch(_0, next_pbuffer._binsts[src_blockno] + pidib / g_bin_capacity) 
@@ -6736,9 +6750,9 @@ __global__ void g2p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ bl
     } else if (channelid == 3) {
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_3, c), val);
     } else if (channelid == 4) {
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_4, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_7, c), val);
     } else if (channelid == 5) {
-      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_5, c), val);
+      atomicAdd(&next_grid.ch(_0, blockno).val_1d(_8, c), val);
     }
   }
 }
@@ -13634,7 +13648,7 @@ __global__ void retrieve_selected_grid_cells(
         maxCoord[1] = (int)(((point_b[1] + tol) - (point_a[1] + tol)) * g_dx_inv + 1);
         maxCoord[2] = (int)(((point_b[2] + tol) - (point_a[2] + tol)) * g_dx_inv + 1);
         int maxNodes = maxCoord[0] * maxCoord[1] * maxCoord[2];
-        if (maxNodes >= g_grid_target_cells && threadIdx.x == 0) printf("Allocate more space for gridTarget! Max target nodes  of %d compared to preallocated %d nodes!\n", maxNodes, g_grid_target_cells);
+        if (maxNodes >= g_grid_target_cells && threadIdx.x == 0) printf("ERROR: Allocate more space for gridTarget! Max grid-target nodes of %d compared to preallocated %d nodes!\n", maxNodes, g_grid_target_cells);
       }
       // Loop through cells in grid-block, stride by 32 to avoid thread conflicts
       for (int cidib = threadIdx.x % 32; cidib < g_blockvolume; cidib += 32) {
@@ -13673,7 +13687,10 @@ __global__ void retrieve_selected_grid_cells(
           PREC_G mvz1 = sourceblock.val(_3, i, j, k) * l;
           PREC_G volume = sourceblock.val(_7, i, j, k) ;
           PREC_G JBar = sourceblock.val(_8, i, j, k) ;
-
+#if DEBUG_COUPLED_UP
+          PREC_G mass_water = sourceblock.val(_9, i, j, k) ;
+          PREC_G pore_pressure = sourceblock.val(_10, i, j, k) ;
+#endif
           /// Set values in grid-array to specific cell from grid-buffer
           //PREC_G m1  = mass;
           // PREC_G small = 1e-7;
@@ -13692,25 +13709,11 @@ __global__ void retrieve_selected_grid_cells(
             force[2] = mass * (vz1) / dt;
 
 
-            if (volume > 0.f) 
-              JBar = JBar / volume; 
+            JBar = (volume > 0.f) ? JBar / volume : static_cast<PREC_G>(0); 
 
             auto node_id = atomicAdd(_targetcnt, 1);
-            if (node_id >= g_grid_target_cells) printf("Allocate more space for gridTarget! node_id of %d compared to preallocated %d nodes!\n", node_id, g_grid_target_cells);
 
-            if (0)
-            {
-              garray.val(_0, node_id) = x;
-              garray.val(_1, node_id) = y;
-              garray.val(_2, node_id) = z;
-              garray.val(_3, node_id) = mass;
-              garray.val(_4, node_id) = vx1;
-              garray.val(_5, node_id) = vy1;
-              garray.val(_6, node_id) = vz1;
-              garray.val(_7, node_id) =  force[0];
-              garray.val(_8, node_id) =  force[1];
-              garray.val(_9, node_id) =  force[2]; 
-            }
+            if (node_id >= g_grid_target_cells) printf("Allocate more space for gridTarget! node_id of %d compared to preallocated %d nodes!\n", node_id, g_grid_target_cells);
 
             if (1)
             {
@@ -13765,6 +13768,8 @@ __global__ void retrieve_selected_grid_cells(
               val = (val >= 0) ? 0 : -val;
             else if ((target_type % 3) == 2) 
               val = (val <= 0) ? 0 : val;
+            else 
+              val = val;
             
             atomicAdd(forceSum, val);
           }
