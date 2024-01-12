@@ -1540,7 +1540,7 @@ void parse_scene(std::string fn,
       }
     } ///< end mesh parsing
     {
-      auto it = doc.FindMember("models");
+      auto it = doc.FindMember("bodies"); //< Used to be "models", updated for HydroUQ unified interface
       int rank = 0; 
       // int num_ranks = 1;
 #if CLUSTER_COMM_STYLE == 1
@@ -1552,7 +1552,7 @@ void parse_scene(std::string fn,
 #endif
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
-          fmt::print(fg(cyan), "Scene file has [{}] particle models. \n", it->value.Size());
+          fmt::print(fg(cyan), "Scene file has [{}] material bodies. \n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
             int gpu_id = CheckInt(model, "gpu", 0);
             if (gpu_id >= rank * mn::config::g_device_cnt && gpu_id < (rank + 1) * mn::config::g_device_cnt)
@@ -1576,9 +1576,8 @@ void parse_scene(std::string fn,
               if (mn::config::g_log_level >= 3) { fmt::print(fg(red), "Press ENTER to continue..."); getchar(); } continue;
             }
 
-            //std::string constitutive{model["constitutive"].GetString()};
-            std::string constitutive = CheckString(model, "constitutive", std::string{"JFluid"});
-            fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
+            const bool use_HydroUQ_interface = false; //< temporary flag to switch between new HydroUQ and ClaymoreUW legacy user-interface
+
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
             bool has_attributes = false;
@@ -1588,27 +1587,171 @@ void parse_scene(std::string fn,
             std::vector<int> track_particle_ids;
 
             mn::config::AlgoConfigs algoConfigs;
-            algoConfigs.use_FEM = CheckBool(model, "use_FEM", false);
-            algoConfigs.use_ASFLIP = CheckBool(model, "use_ASFLIP", true);
-            algoConfigs.ASFLIP_alpha = CheckDouble(model, "alpha", 0.);
-            algoConfigs.ASFLIP_beta_min = CheckDouble(model, "beta_min", 0.);
-            algoConfigs.ASFLIP_beta_max = CheckDouble(model, "beta_max", 0.);
-            algoConfigs.use_FBAR = CheckBool(model, "use_FBAR", true);
-            algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.); 
-            algoConfigs.FBAR_fused_kernel = CheckBool(model, "FBAR_fused_kernel", false); 
-
             mn::config::MaterialConfigs materialConfigs;
-            materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); // particles per cell
-            materialConfigs.rho = CheckDouble(model, "rho", 1e3); // density
-            materialConfigs.CFL = CheckDouble(model, "CFL", 0.5); // CFL number
+
+            if (use_HydroUQ_interface) { 
+              auto findAlgo = model.FindMember("algorithm");
+              if (findAlgo != model.MemberEnd()) {
+                auto &algo = findAlgo->value;
+                if (algo.IsObject()) {
+                  fmt::print(fmt::emphasis::bold,
+                      "-----------------------------------------------------------"
+                      "-----\n");
+                  // algoConfigs.type = CheckString(algo, "type", std::string{"particles"});
+                  // algoConfigs.ppc = CheckDouble(algo, "ppc", 8.0); // particles per cell 
+                  algoConfigs.use_FEM = CheckBool(algo, "use_FEM", false);
+                  algoConfigs.use_ASFLIP = CheckBool(algo, "use_ASFLIP", true);
+                  algoConfigs.ASFLIP_alpha = CheckDouble(algo, "ASFLIP_alpha", 0.);
+                  algoConfigs.ASFLIP_beta_min = CheckDouble(algo, "ASFLIP_beta_min", 0.);
+                  algoConfigs.ASFLIP_beta_max = CheckDouble(algo, "ASFLIP_beta_max", 0.);
+                  algoConfigs.use_FBAR = CheckBool(algo, "use_FBAR", true);
+                  algoConfigs.FBAR_ratio = CheckDouble(algo, "FBAR_psi", 0.);
+                  algoConfigs.FBAR_fused_kernel = CheckBool(algo, "FBAR_fused_kernel", false);
+                  // algoConfigs.ASFLIP_alpha = CheckDouble(algo, "ASFLIP_velocity_ratio", 0.);
+                  // algoConfigs.ASFLIP_beta_min = CheckDouble(algo, "ASFLIP_position_ratio_min", 0.);
+                  // algoConfigs.ASFLIP_beta_max = CheckDouble(algo, "ASFLIP_position_ratio_max", 0.);
+                  // algoConfigs.FBAR_ratio = CheckDouble(algo, "FBAR_antilocking_ratio", 0.);
+                  fmt::print(fg(green), "GPU[{}] Read algorithm parameters.\n", gpu_id);
+                  
+                }
+              }
+            }
+            else {
+              algoConfigs.use_FEM = CheckBool(model, "use_FEM", false);
+              algoConfigs.use_ASFLIP = CheckBool(model, "use_ASFLIP", true);
+              algoConfigs.ASFLIP_alpha = CheckDouble(model, "alpha", 0.);
+              algoConfigs.ASFLIP_beta_min = CheckDouble(model, "beta_min", 0.);
+              algoConfigs.ASFLIP_beta_max = CheckDouble(model, "beta_max", 0.);
+              algoConfigs.use_FBAR = CheckBool(model, "use_FBAR", true);
+              algoConfigs.FBAR_ratio = CheckDouble(model, "FBAR_ratio", 0.); 
+              algoConfigs.FBAR_fused_kernel = CheckBool(model, "FBAR_fused_kernel", false); 
+            }
+
+            std::string constitutive; // Material's constitutive law name, bodies:material:constitutive
+            if (use_HydroUQ_interface) { 
+              // Begin bodies:material
+              auto findMat = model.FindMember("material");
+              if (findMat != model.MemberEnd()) {
+                auto &mat = findMat->value;
+                if (mat.IsObject()) {
+                  fmt::print(fmt::emphasis::bold,
+                      "-----------------------------------------------------------"
+                      "-----\n");
+                  constitutive = CheckString(mat, "constitutive", std::string{"JFluid"});
+                  fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
+
+                  // Basic material properties
+                  materialConfigs.ppc = CheckDouble(mat, "ppc", 8.0); // particles per cell , TODO: Move into bodies:algorithm / numerical representation object
+                  materialConfigs.rho = CheckDouble(mat, "rho", 1e3); // density
+                  materialConfigs.CFL = CheckDouble(mat, "CFL", 0.5); // CFL number
+
+                  if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
+                    materialConfigs.bulk = CheckDouble(mat, "bulk_modulus", 2e7); // bulk modulus
+                    materialConfigs.gamma = CheckDouble(mat, "gamma", 7.1); // deriv bulk wrt pressure
+                    materialConfigs.visco = CheckDouble(mat, "viscosity", 0.001); // viscosity
+                  }  
+                  else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
+                    materialConfigs.E = CheckDouble(mat, "youngs_modulus", 1e7);
+                    materialConfigs.nu = CheckDouble(mat, "poisson_ratio", 0.2);
+                    if (materialConfigs.nu >= 0.5) { 
+                      materialConfigs.nu = 0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                    } else if (materialConfigs.nu <= -0.5) { 
+                      materialConfigs.nu = -0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                    }
+                  }
+                  else if (constitutive == "NeoHookean" || constitutive == "neohookean" || 
+                          constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
+                    materialConfigs.E = CheckDouble(mat, "youngs_modulus", 1e7); 
+                    materialConfigs.nu = CheckDouble(mat, "poisson_ratio", 0.2);
+                    if (materialConfigs.nu >= 0.5) { 
+                      materialConfigs.nu = 0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                    } else if (materialConfigs.nu <= -0.5) { 
+                      materialConfigs.nu = -0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                    }
+                  }
+                  else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
+                    materialConfigs.E = CheckDouble(mat, "youngs_modulus", 1e7); 
+                    materialConfigs.nu = CheckDouble(mat, "poisson_ratio", 0.2);
+                    materialConfigs.logJp0 = CheckDouble(mat, "logJp0", 0.0); // TODO: Rename
+                    materialConfigs.frictionAngle = CheckDouble(mat, "friction_angle", 30.0);
+                    materialConfigs.cohesion = CheckDouble(mat, "cohesion", 0.0); // TODO: Rename
+                    materialConfigs.beta = CheckDouble(mat, "beta", 0.5); // TODO: Rename
+                    materialConfigs.volumeCorrection = CheckBool(mat, "SandVolCorrection", true); 
+                    // materialConfigs.dilationAngle = CheckDouble(moat "dilation_angle", 30.0);
+                    if (materialConfigs.nu >= 0.5) { 
+                      materialConfigs.nu = 0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                    } else if (materialConfigs.nu <= -0.5) { 
+                      materialConfigs.nu = -0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                    }
+                  }
+                  else if (constitutive == "CoupledUP" || constitutive == "coupled" || constitutive == "up" || constitutive == "UP" || constitutive == "coupledup" || constitutive == "undrained") { 
+                    materialConfigs.E = CheckDouble(mat, "youngs_modulus", 1e7); 
+                    materialConfigs.nu = CheckDouble(mat, "poisson_ratio", 0.2);
+                    materialConfigs.logJp0 = CheckDouble(mat, "logJp0", 0.0);
+                    materialConfigs.frictionAngle = CheckDouble(mat, "friction_angle", 30.0);
+                    materialConfigs.cohesion = CheckDouble(mat, "cohesion", 0.0);
+                    materialConfigs.beta = CheckDouble(mat, "beta", 0.5);
+                    materialConfigs.volumeCorrection = CheckBool(mat, "SandVolCorrection", true); 
+                    materialConfigs.rhow = CheckDouble(mat, "rhow", 1e3); // Density of water [kg/m3]
+                    materialConfigs.alpha1 = CheckDouble(mat, "alpha1", 1.0); // Biot coefficient
+                    materialConfigs.poro = CheckDouble(mat, "poro", 0.9); // Porosity
+                    materialConfigs.Kf = CheckDouble(mat, "Kf", 1.0e7); // Bulk modulus of fluid [Pa]
+                    materialConfigs.Ks = CheckDouble(mat, "Ks", 2.2e7); // Bulk modulus of solid [Pa]
+                    materialConfigs.Kperm = CheckDouble(mat, "Kperm", 1.0e-5); // Permeability
+                    if (materialConfigs.nu >= 0.5) { 
+                      materialConfigs.nu = 0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                    } else if (materialConfigs.nu <= -0.5) { 
+                      materialConfigs.nu = -0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                    }
+                  }
+                  else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
+                    materialConfigs.E = CheckDouble(mat, "youngs_modulus", 1e7); 
+                    materialConfigs.nu = CheckDouble(mat, "poisson_ratio", 0.2);
+                    materialConfigs.logJp0 = CheckDouble(mat, "logJp0", 0.0);
+                    materialConfigs.frictionAngle = CheckDouble(mat, "friction_angle", 30.0);
+                    materialConfigs.xi = CheckDouble(mat, "xi", 0.8);
+                    materialConfigs.beta = CheckDouble(mat, "beta", 0.5);
+                    materialConfigs.hardeningOn = CheckBool(mat, "hardeningOn", true); 
+                    // materialConfigs.Msqr = CheckDouble(mat, "Msqr", 0.0); // mohr_friction squared
+                    // materialConfigs.hardeningRatio = CheckDouble(mat, "hardening_ratio", 0.0);
+                    // materialConfigs.cohesionRatio = CheckDouble(mat, "cohesion_ratio", 0.0);
+                    // materialConfigs.mohrFriction = CheckDouble(mat, "mohr_friction", 0.0);
+                    if (materialConfigs.nu >= 0.5) { 
+                      materialConfigs.nu = 0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                    } else if (materialConfigs.nu <= -0.5) { 
+                      materialConfigs.nu = -0.4999; 
+                      fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                    }
+                  }
+                }
+              }
+            } // end bodies:material
+            else {
+              constitutive = CheckString(model, "constitutive", std::string{"JFluid"});
+              fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
+
+              materialConfigs.ppc = CheckDouble(model, "ppc", 8.0); // particles per cell
+              materialConfigs.rho = CheckDouble(model, "rho", 1e3); // density
+              materialConfigs.CFL = CheckDouble(model, "CFL", 0.5); // CFL number
+            }
 
             auto initModel = [&](auto &positions, auto &velocity) {
               bool algo_error = false, mat_error  = false;
               if (constitutive == "JFluid" || constitutive == "J-Fluid" || constitutive == "J_Fluid" || constitutive == "J Fluid" ||  constitutive == "jfluid" || constitutive == "j-fluid" || constitutive == "j_fluid" || constitutive == "j fluid" || constitutive == "Fluid" || constitutive == "fluid" || constitutive == "Water" || constitutive == "Liquid") {
-                materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); // bulk modulus
-                materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); // deriv bulk wrt pressure
-                materialConfigs.visco = CheckDouble(model, "viscosity", 0.001); // viscosity
-
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.bulk = CheckDouble(model, "bulk_modulus", 2e7); // bulk modulus
+                  materialConfigs.gamma = CheckDouble(model, "gamma", 7.1); // deriv bulk wrt pressure
+                  materialConfigs.visco = CheckDouble(model, "viscosity", 0.001); // viscosity
+                }
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt(materialConfigs.bulk / materialConfigs.rho);
                 PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
@@ -1646,14 +1789,16 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "FixedCorotated" || constitutive == "Fixed_Corotated" || constitutive == "Fixed-Corotated" || constitutive == "Fixed Corotated" || constitutive == "fixedcorotated" || constitutive == "fixed_corotated" || constitutive == "fixed-corotated"|| constitutive == "fixed corotated") {
-                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7);
-                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-                if (materialConfigs.nu >= 0.5) { 
-                  materialConfigs.nu = 0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
-                } else if (materialConfigs.nu <= -0.5) { 
-                  materialConfigs.nu = -0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7);
+                  materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                  if (materialConfigs.nu >= 0.5) { 
+                    materialConfigs.nu = 0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                  } else if (materialConfigs.nu <= -0.5) { 
+                    materialConfigs.nu = -0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                  }
                 }
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
@@ -1686,14 +1831,16 @@ void parse_scene(std::string fn,
               } 
               else if (constitutive == "NeoHookean" || constitutive == "neohookean" || 
                       constitutive == "Neo-Hookean" || constitutive == "neo-hookean") {
-                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
-                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-                if (materialConfigs.nu >= 0.5) { 
-                  materialConfigs.nu = 0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
-                } else if (materialConfigs.nu <= -0.5) { 
-                  materialConfigs.nu = -0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                  materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                  if (materialConfigs.nu >= 0.5) { 
+                    materialConfigs.nu = 0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                  } else if (materialConfigs.nu <= -0.5) { 
+                    materialConfigs.nu = -0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                  }
                 }
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
@@ -1711,20 +1858,22 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "Sand" || constitutive == "sand" || constitutive == "DruckerPrager" || constitutive == "Drucker_Prager" || constitutive == "Drucker-Prager" || constitutive == "Drucker Prager") { 
-                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
-                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-                if (materialConfigs.nu >= 0.5) { 
-                  materialConfigs.nu = 0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
-                } else if (materialConfigs.nu <= -0.5) { 
-                  materialConfigs.nu = -0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                  materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                  materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                  materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                  materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
+                  materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                  materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
+                  if (materialConfigs.nu >= 0.5) { 
+                    materialConfigs.nu = 0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                  } else if (materialConfigs.nu <= -0.5) { 
+                    materialConfigs.nu = -0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                  }
                 }
-                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
-                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
-                materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
-                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
-                materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
                 
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
@@ -1743,27 +1892,28 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "CoupledUP" || constitutive == "coupled" || constitutive == "up" || constitutive == "UP" || constitutive == "coupledup") { 
-                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
-                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-                if (materialConfigs.nu >= 0.5) { 
-                  materialConfigs.nu = 0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
-                } else if (materialConfigs.nu <= -0.5) { 
-                  materialConfigs.nu = -0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                  materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                  materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                  materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                  materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
+                  materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                  materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
+                  materialConfigs.rhow = CheckDouble(model, "rhow", 1e3); // Density of water [kg/m3]
+                  materialConfigs.alpha1 = CheckDouble(model, "alpha1", 1.0); // Biot coefficient
+                  materialConfigs.poro = CheckDouble(model, "poro", 0.9); // Porosity
+                  materialConfigs.Kf = CheckDouble(model, "Kf", 1.0e7); // Bulk modulus of fluid [Pa]
+                  materialConfigs.Ks = CheckDouble(model, "Ks", 2.2e7); // Bulk modulus of solid [Pa]
+                  materialConfigs.Kperm = CheckDouble(model, "Kperm", 1.0e-5); // Permeability
+                  if (materialConfigs.nu >= 0.5) { 
+                    materialConfigs.nu = 0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                  } else if (materialConfigs.nu <= -0.5) { 
+                    materialConfigs.nu = -0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                  }
                 }
-                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
-                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
-                materialConfigs.cohesion = CheckDouble(model, "cohesion", 0.0);
-                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
-                materialConfigs.volumeCorrection = CheckBool(model, "SandVolCorrection", true); 
-
-                materialConfigs.rhow = CheckDouble(model, "rhow", 1e3); // Density of water [kg/m3]
-                materialConfigs.alpha1 = CheckDouble(model, "alpha1", 1.0); // Biot coefficient
-                materialConfigs.poro = CheckDouble(model, "poro", 0.9); // Porosity
-                materialConfigs.Kf = CheckDouble(model, "Kf", 1.0e7); // Bulk modulus of fluid [Pa]
-                materialConfigs.Ks = CheckDouble(model, "Ks", 2.2e7); // Bulk modulus of solid [Pa]
-                materialConfigs.Kperm = CheckDouble(model, "Kperm", 1.0e-5); // Permeability
                 
                 // ! TODO: Update time-step calculation for coupled model
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
@@ -1782,21 +1932,22 @@ void parse_scene(std::string fn,
                 else { algo_error = true; }
               } 
               else if (constitutive == "NACC" || constitutive == "nacc" || constitutive == "CamClay" || constitutive == "Cam_Clay" || constitutive == "Cam-Clay" || constitutive == "Cam Clay") {
-                materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
-                materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
-                if (materialConfigs.nu >= 0.5) { 
-                  materialConfigs.nu = 0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
-                } else if (materialConfigs.nu <= -0.5) { 
-                  materialConfigs.nu = -0.4999; 
-                  fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                if (use_HydroUQ_interface == false) {
+                  materialConfigs.E = CheckDouble(model, "youngs_modulus", 1e7); 
+                  materialConfigs.nu = CheckDouble(model, "poisson_ratio", 0.2);
+                  materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
+                  materialConfigs.xi = CheckDouble(model, "xi", 0.8);
+                  materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
+                  materialConfigs.beta = CheckDouble(model, "beta", 0.5);
+                  materialConfigs.hardeningOn = CheckBool(model, "hardeningOn", true); 
+                  if (materialConfigs.nu >= 0.5) { 
+                    materialConfigs.nu = 0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to 0.4999.\n", gpu_id, model_id, materialConfigs.nu);
+                  } else if (materialConfigs.nu <= -0.5) { 
+                    materialConfigs.nu = -0.4999; 
+                    fmt::print(fg(red), "GPU[{}] MODEL[{}] Poisson ratio[{}] is invalid. Set to -0.4999.\n", gpu_id, model_id, materialConfigs.nu); 
+                  }
                 }
-                materialConfigs.logJp0 = CheckDouble(model, "logJp0", 0.0);
-                materialConfigs.xi = CheckDouble(model, "xi", 0.8);
-                materialConfigs.frictionAngle = CheckDouble(model, "friction_angle", 30.0);
-                materialConfigs.beta = CheckDouble(model, "beta", 0.5);
-                materialConfigs.hardeningOn = CheckBool(model, "hardeningOn", true); 
-
                 // Update time-step for material properties: dt = dx / v_pwave * CFL
                 PREC pwave_velocity = std::sqrt((materialConfigs.E / (3.0 * (1.0 - 2.0 * materialConfigs.nu))) / materialConfigs.rho);
                 PREC max_dt = (l / mn::config::g_dx_inv_d) / pwave_velocity * materialConfigs.CFL;
@@ -2186,10 +2337,10 @@ void parse_scene(std::string fn,
       }
     } ///< end models parsing
     {
-      auto it = doc.FindMember("grid-targets");
+      auto it = doc.FindMember("grid-sensors");
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
-          fmt::print(fg(cyan),"Scene has [{}] grid-targets.\n", it->value.Size());
+          fmt::print(fg(cyan),"Scene has [{}] grid-sensors.\n", it->value.Size());
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
@@ -2265,10 +2416,10 @@ void parse_scene(std::string fn,
       }
     } ///< End grid-target parsing
     {
-      auto it = doc.FindMember("particle-targets");
+      auto it = doc.FindMember("particle-sensors"); // "sensors" used to be "targets", updated for HydroUQ
       if (it != doc.MemberEnd()) {
         if (it->value.IsArray()) {
-          fmt::print(fg(cyan),"Scene has [{}] particle-targets.\n", it->value.Size());
+          fmt::print(fg(cyan),"Scene has [{}] particle-sensors.\n", it->value.Size());
           int target_ID = 0;
           for (auto &model : it->value.GetArray()) {
           
@@ -2282,7 +2433,7 @@ void parse_scene(std::string fn,
             else if (operation == "Subtract" || operation == "subtract") target[0] = 3;
             else if (operation == "Average" || operation == "average" ||  operation == "Mean" || operation == "mean") target[0] = 4;
             else if (operation == "Variance" || operation == "variance") target[0] = 5;
-            else if (operation == "Standard Deviation" || operation == "stdev") target[0] = 6;
+            else if (operation == "Standard Deviation" || operation == "stdev" || operation == "STDEV") target[0] = 6;
             else {
               target[0] = -1;
               fmt::print(fg(red), "ERROR: particleTarget[{}] has invalid operation[{}].\n", target_ID, operation);
@@ -2323,11 +2474,11 @@ void parse_scene(std::string fn,
       }
     } ///< End particle-target parsing
     {
-      auto it = doc.FindMember("grid-boundaries");
+      auto it = doc.FindMember("boundaries"); // "boundaries" used to be "grid-boundaries", updated for HydroUQ
       if (it != doc.MemberEnd()) {
         int boundary_ID = 0;
         if (it->value.IsArray()) {
-          fmt::print(fg(cyan), "Scene has [{}] grid-boundaries.\n", it->value.Size());
+          fmt::print(fg(cyan), "Scene has [{}] boundaries.\n", it->value.Size());
           for (auto &model : it->value.GetArray()) {
             
             if (boundary_ID >= mn::config::g_max_grid_boundaries) {
@@ -2380,9 +2531,9 @@ void parse_scene(std::string fn,
             std::string object = CheckString(model, "object", std::string{"box"});
             std::string contact = CheckString(model, "contact", std::string{"Sticky"});
 
-            if ((contact == "Sticky") || (contact == "sticky") || (contact == "Stick") || (contact == "stick") || (contact == "Rigid") || (contact == "rigid") || (contact == "No-Slip") || (contact == "no-slip"))
+            if ((contact == "Sticky") || (contact == "sticky") || (contact == "Stick") || (contact == "stick") || (contact == "Rigid") || (contact == "rigid") || (contact == "No-Slip") || (contact == "no-slip") || (contact == "Fixed") || (contact == "fixed") || (contact == "Fix") || (contact == "fix"))
               h_gridBoundary._contact = mn::config::boundary_contact_t::Sticky;
-            else if (contact == "Slip" || contact == "slip") 
+            else if ((contact == "Slip") || (contact == "slip") || (contact == "Roller") || (contact == "roller")) 
               h_gridBoundary._contact = mn::config::boundary_contact_t::Slip;
             else if ( (contact == "Separable" || contact == "separable") || (contact == "Seperable" || contact == "seperable") || (contact == "Separate" || contact == "separate") || (contact == "Separatable" || contact == "separatable") )
               h_gridBoundary._contact = mn::config::boundary_contact_t::Separate;
@@ -2410,7 +2561,7 @@ void parse_scene(std::string fn,
               std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
               writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
             }
-            else if ((object == "Box") || (object == "box")) {
+            else if ((object == "Box") || (object == "box") || (object == "Cube") || (object == "cube")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Box;
               if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 3;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 4;
@@ -2421,21 +2572,21 @@ void parse_scene(std::string fn,
               std::string fn_gb = "gridBoundary[" + std::to_string(boundary_ID) + "].obj";
               writeBoxOBJ(fn_gb, h_gridBoundary._domain_start, h_gridBoundary._domain_end - h_gridBoundary._domain_start);
             }
-            else if ((object == "Sphere") || (object == "sphere")) {
+            else if ((object == "Sphere") || (object == "sphere") || (object == "Ball") || (object == "ball")) {
               h_gridBoundary._object = mn::config::boundary_object_t::Sphere;
               if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 6;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 7;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 8;
               else h_boundary[6] = -1;
             }
-            else if ((object == "OSU LWF") || (object == "OSU Flume") || (object == "OSU_LWF")) {
+            else if ((object == "OSU LWF") || (object == "OSU Flume") || (object == "OSU_LWF") || (object == "OSU_LWF_RAMP") || (object == "OSU LWF Ramp") || (object == "OSU LWF Bathymetry")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_RAMP;
               if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 9;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 10;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 11;
               else h_boundary[6] = -1;
             }
-            else if ((object == "OSU Paddle") || (object == "OSU Wave Maker") || (object == "OSU_LWF_PADDLE")) {
+            else if ((object == "OSU Paddle") || (object == "OSU LWF Paddle") || (object == "OSU LWF Piston") || (object == "OSU Wave Maker") || (object == "OSU_LWF_PADDLE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_LWF_PADDLE;
               if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 12;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 13;
@@ -2456,27 +2607,27 @@ void parse_scene(std::string fn,
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 20;
               else h_boundary[6] = -1;
             }
-            else if ((object == "USGS Ramp") || (object == "USGS Flume") || (object == "USGS_RAMP")) {
+            else if ((object == "USGS Ramp") || (object == "USGS Flume") || (object == "USGS DFF Ramp") ||  (object == "USGS_RAMP")) {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_RAMP;
               h_boundary[6] = 95; 
             }
-            else if ((object == "USGS Gate") || (object == "USGS GATE") || (object == "USGS_GATE")) {
+            else if ((object == "USGS Gate") || (object == "USGS Gates") || (object == "USGS DFF Gate") || (object == "USGS DFF Gates") || (object == "USGS GATE") || (object == "USGS_GATE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_GATE;
               h_boundary[6] = 96; 
             }
-            else if ((object == "OSU TWB Ramp") || (object == "OSU_TWB_RAMP") || (object == "OSU TWB")) {
+            else if ((object == "OSU TWB Ramp") || (object == "OSU TWB Bathymetry") || (object == "OSU_TWB_RAMP") || (object == "OSU TWB")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_RAMP;
               h_boundary[6] = 97; 
             }
-            else if ((object == "OSU TWB Paddle") || (object == "OSU_TWB_PADDLE")) {
+            else if ((object == "OSU TWB Paddle") || (object == "OSU TWB Piston") || (object == "OSU TWB Wave Maker") || (object == "OSU_TWB_PADDLE")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
               h_boundary[6] = 98; 
             }       
-            else if ((object == "WASIRF Pump") || (object == "WASIRF_PUMP")) {
+            else if ((object == "WASIRF Pump") || (object == "UW WASIRF Pump") ||  (object == "WASIRF_PUMP")) {
               h_gridBoundary._object = mn::config::boundary_object_t::WASIRF_PUMP;
               h_boundary[6] = 99; 
             }
-            else if ((object == "TOKYO Harbor") || (object == "TOKYO_HARBOR")) {
+            else if ((object == "TOKYO Harbor") || (object == "WU TWB Harbor") || (object == "Waseda Harbor") || (object == "TOKYO_HARBOR")) {
               h_gridBoundary._object = mn::config::boundary_object_t::TOKYO_HARBOR;
               h_boundary[6] = 100;
             } else if ((object == "Velocity" ) || (object == "velocity")) {

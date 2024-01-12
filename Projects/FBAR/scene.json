@@ -34,6 +34,28 @@
 			"ppc": 8.0,
 			"CFL": 0.5,
 			"rho": 1000,
+			"bulk_modulus": 1e7,
+			"gamma": 7.1,
+			"viscosity": 0.001,
+			"use_FEM": false,
+			"use_ASFLIP": true,
+			"alpha": 0.3,
+			"beta_min": 0,
+			"beta_max": 0,
+			"use_FBAR": true,
+			"FBAR_ratio": 0.99,
+			"FBAR_fused_kernel": true,
+			"velocity": [0, -1, 0],
+			"algorithm": {
+				"use_FEM": false,
+				"use_ASFLIP": true,
+				"use_FBAR": true,
+				"ASFLIP_alpha": 0.3,
+				"ASFLIP_beta_min": 0,
+				"ASFLIP_beta_max": 0,
+				"FBAR_psi": 0.99,
+				"FBAR_fused_kernel": true
+			},
 			"material": {
 				"constitutive": "JFluid",
 				"CFL": 0.5,
@@ -42,33 +64,6 @@
 				"gamma": 7.1,
 				"viscosity": 0.001
 			},
-			"bulk_modulus": 1e7,
-			"gamma": 7.1,
-			"viscosity": 0.001,
-			"use_FEM": false,
-			"FEM": {
-				"use_FEM": false
-			},
-			"use_ASFLIP": true,
-			"alpha": 0.3,
-			"beta_min": 0,
-			"beta_max": 0,
-			"ASFLIP": {
-				"use_ASFLIP": true,
-				"alpha": 0.0,
-				"beta_min": 0.0,
-				"beta_max": 0.0
-			},
-			"use_FBAR": true,
-			"FBAR_ratio": 0.99,
-			"FBAR_fused_kernel": true,
-			"FBAR": {
-				"use_FBAR": true,
-				"fused_kernel": true,
-				"stress_ratio": 1.0,
-				"strain_ratio": 0.0
-			},
-			"velocity": [0, -1, 0],
 			"geometry": [
 				{
 					"object": "Box",
@@ -108,6 +103,29 @@
 			"FBAR_fused_kernel": false,
 			"FBAR_ratio": 0.5,
 			"velocity": [0, 0, 0],
+			"material": {
+				"constitutive": "DruckerPrager",
+				"ppc": 8.0,
+				"CFL": 0.5,
+				"rho": 2000,
+				"youngs_modulus": 1e7,
+				"poisson_ratio": 0.2,
+				"cohesion": 0.00005,
+				"friction_angle": 60,
+				"logJp0": 0.0,
+				"beta": 0.0,
+				"SandVolCorrection": true
+			},
+			"algorithm": {
+				"use_ASFLIP": true,
+				"use_FEM": false,
+				"use_FBAR": true,
+				"ASFLIP_alpha": 0,
+				"ASFLIP_beta_min": 0,
+				"ASFLIP_beta_max": 0,
+				"FBAR_psi": 0.5,
+				"FBAR_fused_kernel": false
+			},
 			"geometry": [
 				{
 					"object": "Box",
@@ -120,22 +138,25 @@
 			]
 		}
 	],
-	"grid-boundaries": [
+	"boundaries": [
 		{
+			"type": "grid",
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start":[0,0,0],
 			"domain_end": [8,8,8]
 		},
 		{
+			"type": "grid",
 			"object": "Box",
 			"contact": "Separable",
 			"domain_start": [-0.2, -0.2, -0.2],
 			"domain_end": [8.2, 1.6, 3.2]
 		}
 	],
-	"grid-targets": [
+	"grid-sensors": [
 		{
+			"type": "grid",
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "Z+",
@@ -144,8 +165,9 @@
 			"domain_end": [8.05, 0.5, 8.1]
 		}
 	],
-	"particle-targets": [
+	"particle-sensors": [
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
@@ -153,6 +175,7 @@
 			"domain_end":   [4.1, 8.0, 0.1]
 		},
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
@@ -160,6 +183,7 @@
 			"domain_end":   [0.1, 8.0, 0.1]
 		},
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
