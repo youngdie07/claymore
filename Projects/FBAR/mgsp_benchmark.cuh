@@ -918,16 +918,20 @@ struct mgsp_benchmark {
               
               // Set shared memory carveout initially, once, for functions
               // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-              // Grid-to-Particle-to-Grid - g2p2g
               if (g_g2p2g_favor_shmem_over_cache) {
                   // Grid-to-Particle-to-Grid 
                   checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Grid-to-Particle-to-Grid - F-Bar Update
-                  checkCudaErrors(cudaFuncSetAttribute(g2p2g_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                  checkCudaErrors(cudaFuncSetAttribute(g2p2g_FBar<typename std::decay_t<decltype(pb)>, typename std::decay_t<decltype(partitions[rollid ^ 1][did])>, typename std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Grid-to-Particle - F-Bar Update
                   checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Particle-to-Grid - F-Bar Update
                   checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                  
+                  // checkCudaErrors(cudaFuncSetAttribute(my_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304)); // Set max shared memory for a block, for this kernel, in bytes
+                  // checkCudaErrors(cudaFuncSetCacheConfig(my_kernel, cudaFuncCachePreferShared));  // Set memory preference to Shared over L1 Cache (suggestion to compiler)
+                  cudaDeviceProp deviceProp;
+                  checkCudaErrors(cudaGetDeviceProperties(&deviceProp, 0));
               }
               
               // If model is using FBAR with fused kernels, set flag
@@ -1198,17 +1202,23 @@ struct mgsp_benchmark {
 
               // Set shared memory carveout initially, once, for functions
               // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-              // Grid-to-Particle-to-Grid - g2p2g
               if (g_g2p2g_favor_shmem_over_cache) {
                   // Grid-to-Particle-to-Grid 
                   checkCudaErrors(cudaFuncSetAttribute(g2p2g<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Grid-to-Particle-to-Grid - F-Bar Update
-                  checkCudaErrors(cudaFuncSetAttribute(g2p2g_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                  checkCudaErrors(cudaFuncSetAttribute(g2p2g_FBar<typename std::decay_t<decltype(pb)>, typename std::decay_t<decltype(partitions[rollid ^ 1][did])>, typename std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Grid-to-Particle - F-Bar Update
                   checkCudaErrors(cudaFuncSetAttribute(g2p_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
                   // Particle-to-Grid - F-Bar Update
                   checkCudaErrors(cudaFuncSetAttribute(p2g_FBar<std::decay_t<decltype(pb)>, std::decay_t<decltype(partitions[rollid ^ 1][did])>, std::decay_t<decltype(gridBlocks[0][did])>>, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared));
+                  // cudaFuncSetCacheConfig()
+                  // checkCudaErrors(cudaFuncSetAttribute(my_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304)); // Set max shared memory for a block, for this kernel, in bytes
+                  // checkCudaErrors(cudaFuncSetCacheConfig(my_kernel, cudaFuncCachePreferShared));  // Set memory preference to Shared over L1 Cache (suggestion to compiler)
+                  cudaDeviceProp deviceProp;
+                  checkCudaErrors(cudaGetDeviceProperties(&deviceProp, 0));
               }
+
+
 
               // Grid-to-Particle-to-Grid - No ASFLIP -- Default MLS-MPM Version
               if (!pb.use_ASFLIP  && !pb.use_FEM && !pb.use_FBAR) {

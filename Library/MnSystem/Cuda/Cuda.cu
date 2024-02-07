@@ -10,13 +10,16 @@
 
 namespace mn {
 
-KernelConfig::KernelConfig(KernelFunc f, cudaFuncCache cacheConfig, bool isWave)
+KernelConfig::KernelConfig(KernelFunc f, 
+                           cudaFuncCache cacheConfig, // Shared mem usually bottleneck for ClaymoreUW. - Justin
+                           bool isWave)
     : func(f), cachePreference(cacheConfig), waveFashion(isWave) {
   cudaFuncGetAttributes(&attribs, f);
   maxOccBlockSize = Cuda::evalOptimalBlockSize(attribs, cachePreference);
   if (cacheConfig != cudaFuncCachePreferNone) ///< should be different from
     ///< device cache preference
     checkCudaErrors(cudaFuncSetCacheConfig(f, cacheConfig));
+    checkCudaErrors(cudaFuncSetAttribute(f, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxShared)); // Should rebind for run-time / user setting that isn't Max Shared - Justin
 }
 
 Cuda::Cuda() : _default_devId{0} {
@@ -150,7 +153,7 @@ int Cuda::waveGridSize(int &threadNum, int &blockSize) const {
 
 /// static methods
 int Cuda::evalOptimalBlockSize(cudaFuncAttributes attribs,
-                               cudaFuncCache cachePreference,
+                               cudaFuncCache cachePreference, // Shared mem usually bottleneck for ClaymoreUW. - Justin
                                std::size_t smemBytes) {
   auto instance = getInstance();
   cudaOccDeviceProp prop =
@@ -159,15 +162,19 @@ int Cuda::evalOptimalBlockSize(cudaFuncAttributes attribs,
   cudaOccDeviceState occCache;
   switch (cachePreference) {
   case cudaFuncCachePreferNone:
+    occCache.carveoutConfig = SHAREDMEM_CARVEOUT_DEFAULT; // Better to use carveoutConfig over cacheConfig for modern CUDA, - Justin
     occCache.cacheConfig = CACHE_PREFER_NONE;
     break;
   case cudaFuncCachePreferShared:
+    occCache.carveoutConfig = SHAREDMEM_CARVEOUT_MAX_SHARED; // Better to use carveoutConfig over cacheConfig for modern CUDA, - Justin
     occCache.cacheConfig = CACHE_PREFER_SHARED;
     break;
   case cudaFuncCachePreferL1:
+    occCache.carveoutConfig = SHAREDMEM_CARVEOUT_MAX_L1; // Better to use carveoutConfig over cacheConfig for modern CUDA, - Justin
     occCache.cacheConfig = CACHE_PREFER_L1;
     break;
   case cudaFuncCachePreferEqual:
+    occCache.carveoutConfig = SHAREDMEM_CARVEOUT_HALF; // Better to use carveoutConfig over cacheConfig for modern CUDA, - Justin
     occCache.cacheConfig = CACHE_PREFER_EQUAL;
     break;
   default:; ///< should throw error
@@ -201,7 +208,8 @@ ExecutionPolicy Cuda::launchConfig(std::string kernelName, int threadNum,
 }
 
 void Cuda::registerKernel(std::string tag, KernelFunc f,
-                          cudaFuncCache cacheConfig, bool waveFashion) {
+                          cudaFuncCache cacheConfig, // Shared mem usually bottleneck for ClaymoreUW. - Justin, 
+                          bool waveFashion) {
   auto instance = getInstance();
   instance->_kFuncTable.emplace(tag, KernelConfig(f, cacheConfig, waveFashion));
   printf("Kernel[%s](%s) block size configuration: %d\n", tag.data(),

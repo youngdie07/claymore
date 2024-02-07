@@ -76,7 +76,10 @@ enum class num_attribs_e : int { Zero = 0, One = 1, Two = 2, Three = 3,
 #define DEBUG_COUPLED_UP false //< Debugging flag for CoupleUP model. False = Don't reserve grid memory for debugging. True = Reserve grid memory for debugging.
 constexpr bool g_debug_CoupledUP = DEBUG_COUPLED_UP; //< Debugging flag for CoupleUP
 
+#define G_MAX_SHMEM_PER_BLOCK 48 //< Estimated max shared memory per block in kB. Used to estimate max. number of blocks per GPU. Used for debugging.
+#define G_MAX_SHMEM_PER_SM 96 //< Estimated max shared memory per kernel on a streaming-multiprocessor in kB. Used to estimate max. number of blocks per GPU. Used for debugging.
 constexpr bool g_g2p2g_favor_shmem_over_cache = true; //< ADVANCED. Tell CUDA to assign more of the "carveout" on new GPUs as shared-memory. Reduces the L1 Cache (i.e. greater risk of storing register temp values in global mem, can be very slow though large L2 cache on newer GPUs offsets this). Larger shmem pool allows more CUDA blocks to run concurrently, in some cases can ~2x simulation speed. Especially helpful if using ASFLIP+FBAR for G2P2G kernels (requires a lot of shmem), likewise if eventually using double precision vals in shmem (2x the shmem requirement).  
+
 /// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html, F.3.16.5
 namespace config /// * Simulation config setup and name-space
 {
@@ -90,11 +93,11 @@ constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per 
 constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
 // * Output set-up
-constexpr bool g_particles_output_exterior_only = false; // Default if not set in input script. Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
-constexpr int g_exterior_particles_cutoff = 128; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
 enum class log_e : int { None, Errors, Warn, Info, Tips };
 constexpr int g_log_level = (int)log_e::Info; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
 constexpr int g_info_rate = 10; //< How often to print to stdout extra info messages of grid/particle memory use, etc. 1 = every frame, 2 = every other frame, etc.
+constexpr bool g_particles_output_exterior_only = false; // Default if not set in input script. Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
+constexpr int g_exterior_particles_cutoff = 128; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
 
 // * Grid set-up
 #define DOMAIN_BITS 11 //< Domain resolution. 8 -> (2^8)^3 grid-nodes. Increase = finer grids.
@@ -161,7 +164,7 @@ constexpr bool is_powerof2(int val) {
     return val && ((val & (val - 1)) == 0);
 }
 constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
-constexpr int g_max_particle_num = 1000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+constexpr int g_max_particle_num = 1500000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB

@@ -28,7 +28,7 @@ struct KernelConfig { ///< static kernel attrib, could contain run-time debugger
   bool waveFashion;    ///< general fashion or loop fashion
   int maxOccBlockSize; ///< condition: use no shared memory
   explicit KernelConfig(KernelFunc f = nullptr,
-                        cudaFuncCache cacheConfig = cudaFuncCachePreferNone,
+                        cudaFuncCache cacheConfig = cudaFuncCachePreferShared, // Shared memory usually bottleneck for ClaymoreUW due to SM occupancy. L1 Cache isn't as important. - Justin
                         bool isWave = false);
 };
 
@@ -56,14 +56,15 @@ public:
   };
 
   static void registerKernel(std::string tag, KernelFunc f,
-                             cudaFuncCache cacheConfig = cudaFuncCachePreferL1,
+                             cudaFuncCache cacheConfig = cudaFuncCachePreferShared, // Shared mem usually bottleneck for ClaymoreUW. - Justin
+                            //  bool isWave = false);
                              bool waveFashion = true);
   static const KernelConfig &findKernel(std::string name);
 
   int generalGridSize(int &threadNum, int &blockSize) const;
   int waveGridSize(int &threadNum, int &blockSize) const;
   static int evalOptimalBlockSize(cudaFuncAttributes attribs,
-                                  cudaFuncCache cachePreference,
+                                  cudaFuncCache cachePreference = cudaFuncCachePreferShared, // Shared mem usually bottleneck for ClaymoreUW. - Justin,
                                   size_t smemBytes = 0);
   ExecutionPolicy launchConfig(std::string kernelName, int threadNum,
                                bool sync = false, size_t smemSize = 0,

@@ -1,6 +1,6 @@
 {
 	"simulation": {
-		"fps": 30,
+		"fps": 120,
 		"frames": 10,
 		"time": 0,
 		"default_dt": 1e-3,
@@ -12,7 +12,7 @@
 		"particles_output_exterior_only": true,
 		"froude_scaling": 1.0
 	},
-	"models": [
+	"bodies": [
 		{
 			"gpu": 0,
 			"model": 0,
