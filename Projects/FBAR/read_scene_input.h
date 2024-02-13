@@ -1576,7 +1576,7 @@ void parse_scene(std::string fn,
               if (mn::config::g_log_level >= 3) { fmt::print(fg(red), "Press ENTER to continue..."); getchar(); } continue;
             }
 
-            const bool use_HydroUQ_interface = false; //< temporary flag to switch between new HydroUQ and ClaymoreUW legacy user-interface
+            const bool use_HydroUQ_interface = true; //< temporary flag to switch between new HydroUQ and ClaymoreUW legacy user-interface
 
             std::vector<std::string> output_attribs;
             std::vector<std::string> input_attribs;
@@ -1597,8 +1597,9 @@ void parse_scene(std::string fn,
                   fmt::print(fmt::emphasis::bold,
                       "-----------------------------------------------------------"
                       "-----\n");
-                  // algoConfigs.type = CheckString(algo, "type", std::string{"particles"});
+                  materialConfigs.ppc = CheckDouble(algo, "ppc", 8.0); // particles per cell , TODO: Move into bodies:algorithm / numerical representation object
                   // algoConfigs.ppc = CheckDouble(algo, "ppc", 8.0); // particles per cell 
+                  // algoConfigs.type = CheckString(algo, "type", std::string{"particles"});
                   algoConfigs.use_FEM = CheckBool(algo, "use_FEM", false);
                   algoConfigs.use_ASFLIP = CheckBool(algo, "use_ASFLIP", true);
                   algoConfigs.ASFLIP_alpha = CheckDouble(algo, "ASFLIP_alpha", 0.);
@@ -1606,6 +1607,7 @@ void parse_scene(std::string fn,
                   algoConfigs.ASFLIP_beta_max = CheckDouble(algo, "ASFLIP_beta_max", 0.);
                   algoConfigs.use_FBAR = CheckBool(algo, "use_FBAR", true);
                   algoConfigs.FBAR_ratio = CheckDouble(algo, "FBAR_psi", 0.);
+                  // algoConfigs.FBAR_ratio = CheckDouble(algo, "FBAR_ratio", 0.);
                   algoConfigs.FBAR_fused_kernel = CheckBool(algo, "FBAR_fused_kernel", false);
                   // algoConfigs.ASFLIP_alpha = CheckDouble(algo, "ASFLIP_velocity_ratio", 0.);
                   // algoConfigs.ASFLIP_beta_min = CheckDouble(algo, "ASFLIP_position_ratio_min", 0.);
@@ -1641,7 +1643,7 @@ void parse_scene(std::string fn,
                   fmt::print(fg(green), "GPU[{}] Read model constitutive[{}].\n", gpu_id, constitutive);
 
                   // Basic material properties
-                  materialConfigs.ppc = CheckDouble(mat, "ppc", 8.0); // particles per cell , TODO: Move into bodies:algorithm / numerical representation object
+                  // materialConfigs.ppc = CheckDouble(mat, "ppc", 8.0); // particles per cell , TODO: Move into bodies:algorithm / numerical representation object
                   materialConfigs.rho = CheckDouble(mat, "rho", 1e3); // density
                   materialConfigs.CFL = CheckDouble(mat, "CFL", 0.5); // CFL number
 
@@ -2011,6 +2013,7 @@ void parse_scene(std::string fn,
 
             // * Begin particle geometry construction 
             auto geo = model.FindMember("geometry");
+            // auto geos = model.FindMember("geometries"); // TODO: Use this instead or have schema accept either (but not both?)
             if (geo != model.MemberEnd()) {
               if (geo->value.IsArray()) {
                 fmt::print(fg(cyan),"GPU[{}] MODEL[{}] has [{}] particle geometry operations to perform. \n", gpu_id, model_id, geo->value.Size());
@@ -2619,7 +2622,7 @@ void parse_scene(std::string fn,
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_RAMP;
               h_boundary[6] = 97; 
             }
-            else if ((object == "OSU TWB Paddle") || (object == "OSU TWB Piston") || (object == "OSU TWB Wave Maker") || (object == "OSU_TWB_PADDLE")) {
+            else if ((object == "OSU TWB Paddle") || (object == "OSU TWB Piston") || (object == "OSU TWB Wave Maker") || (object == "OSU_TWB_PADDLE") || (object == "OSU DWB Paddle")) {
               h_gridBoundary._object = mn::config::boundary_object_t::OSU_TWB_PADDLE;
               h_boundary[6] = 98; 
             }       
