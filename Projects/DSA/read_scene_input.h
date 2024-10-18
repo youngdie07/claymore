@@ -1513,8 +1513,10 @@ void parse_scene(std::string fn,
 
 
             // * NOTE : Assumes geometry "file" specified by scene.json is in AssetDirPath/, e.g. ~/claymore/Data/file
-            std::string elements_fn = std::string(AssetDirPath) + model["file_elements"].GetString();
-            std::string vertices_fn = std::string(AssetDirPath) + model["file_vertices"].GetString();
+            // std::string elements_fn = std::string(AssetDirPath) + model["file_elements"].GetString();
+            // std::string vertices_fn = std::string(AssetDirPath) + model["file_vertices"].GetString();
+            std::string elements_fn = std::string("./") + model["file_elements"].GetString();
+            std::string vertices_fn = std::string("./") + model["file_vertices"].GetString();
 
             fmt::print(fg(cyan),"GPU[{}] Load FEM elements file[{}]...", model["gpu"].GetInt(),  elements_fn);
             load_FEM_Elements(elements_fn, ',', h_FEM_Elements);
@@ -2124,7 +2126,8 @@ void parse_scene(std::string fn,
                   {
                     // * NOTE : Assumes geometry "file" specified by scene.json is in  AssetDirPath/, e.g. for AssetDirPath = ~/claymore/Data/, then use ~/claymore/Data/file
                     std::string geometry_file = CheckString(geometry, "file", std::string{"MpmParticles/yoda.sdf"});
-                    std::string geometry_fn = std::string(AssetDirPath) + geometry_file;
+                    // std::string geometry_fn = std::string(AssetDirPath) + geometry_file;
+                    std::string geometry_fn = std::string("./") + geometry_file;
                     fs::path geometry_file_path{geometry_fn};
                     if (geometry_file_path.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", geometry_fn);
                     else {
@@ -2659,7 +2662,8 @@ void parse_scene(std::string fn,
             {
               fmt::print(fg(cyan),"Found motion file for grid-boundary[{}]. Loading... \n", boundary_ID);
               MotionHolder motionPath;
-              std::string motion_fn = std::string(AssetDirPath) + model["file"].GetString();
+              // std::string motion_fn = std::string(AssetDirPath) + model["file"].GetString();
+              std::string motion_fn = std::string("./") + model["file"].GetString();
               fs::path motion_file_path{motion_fn};
               if (motion_file_path.empty()) fmt::print(fg(red), "ERROR: Input file[{}] does not exist.\n", motion_fn);
               else {

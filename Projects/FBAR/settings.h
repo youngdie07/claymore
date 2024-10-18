@@ -89,7 +89,7 @@ namespace config /// * Simulation config setup and name-space
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
 constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
-constexpr int g_models_per_gpu = 2; //< IMPORTANT. Max num. particle models per GPU. Default 1.
+constexpr int g_models_per_gpu = 3; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
 // * Output set-up
@@ -164,7 +164,7 @@ constexpr bool is_powerof2(int val) {
     return val && ((val & (val - 1)) == 0);
 }
 constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
-constexpr int g_max_particle_num = 1500000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+constexpr int g_max_particle_num = 2000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
