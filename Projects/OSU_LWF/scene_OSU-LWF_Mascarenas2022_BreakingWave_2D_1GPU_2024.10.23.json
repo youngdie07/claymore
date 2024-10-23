@@ -1,5 +1,6 @@
 {
 	"simulation": {
+		"gpuid": 0,
 		"gravity": [0.0, -9.80665, 0.0],
 		"fps": 10,
 		"frames": 320,
@@ -11,7 +12,7 @@
 		"particles_output_exterior_only": false,
 		"froude_scaling": 1.0
 	},
-	"models": [
+	"bodies": [
 		{
 			"gpu": 0,
 			"model": 0,
@@ -25,29 +26,27 @@
 			"material": {
 				"type": "particles",
 				"constitutive": "JFluid",
-				"ppc": 8,
+				"ppc": 27.0000,
 				"CFL": 0.425,
-				"rho": 998.,
+				"rho": 998.0,
 				"bulk_modulus": 2.0e8,
 				"gamma": 7.125,
 				"viscosity": 0.001
 			},
 			"algorithm": {
 				"type": "particles",
-				"ppc": 8,
+				"ppc": 27.0000,
 				"CFL": 0.425,
-				"use_LBM": false,
-				"use_SPH": false,
 				"use_FEM": false,
-				"use_MPM": true,
 				"use_ASFLIP": false,
 				"use_FBAR": true,
-				"alpha": 0.,
-				"beta_min": 0.,
-				"beta_max": 0.,
-				"FBAR_ratio": 0.975
-			}
-			"velocity": [0., 0., 0.],
+				"ASFLIP_alpha": 0.0,
+				"ASFLIP_beta_min": 0.0,
+				"ASFLIP_beta_max": 0.0,
+				"FBAR_psi": 0.98,
+				"FBAR_fused_kernel": true
+			},
+			"velocity": [0.0, 0.0, 0.0],
 			"geometry": [
 				{
 					"object": "OSU LWF",
@@ -55,7 +54,7 @@
 					"span": [88.1, 1.85, 0.05],
 					"offset": [1.9, 0.0, 0.0],
 					"array": [1, 1, 1],
-					"spacing": [0, 0, 0],
+					"spacing": [0.0, 0.0, 0.0],
 					"track_particle_id": [0]
 				}
 			],
@@ -67,27 +66,31 @@
 			"model": 1,
 			"type": "particles",
 			"constitutive": "FixedCorotated",
-			"output_attribs": ["ID", "Pressure", "Velocity_X", "Velocity_Y", "VonMisesStress"],
+			"output_attribs": ["ID", "Pressure", "Velocity_X", "Velocity_Y"],
 			"track_particle_id": [0],
 			"track_attribs": ["Position_X"],
 			"target_attribs": ["Position_Y"],
 			"material": {
 				"constitutive": "FixedCorotated",
 				"type": "particles",
-				"ppc": 8,
+				"ppc": 27.0000,
 				"CFL": 0.425,
 				"rho": 988,
 				"youngs_modulus": 1e8,
 				"poisson_ratio": 0.0
 			},
 			"algorithm": {
+				"type": "particles",
+				"ppc": 27.0000,
+				"CFL": 0.425,
 				"use_ASFLIP": true,
 				"use_FEM": false,
 				"use_FBAR": false,
-				"alpha": 0.0,
-				"beta_min": 0.0,
-				"beta_max": 0.0,
-				"FBAR_ratio": 0.0
+				"ASFLIP_alpha": 0.0,
+				"ASFLIP_beta_min": 0.0,
+				"ASFLIP_beta_max": 0.0,
+				"FBAR_psi": 0.0,
+				"FBAR_fused_kernel": true
 			},
 			"velocity": [0.0, 0.0, 0.0],
 			"geometry": [
@@ -95,9 +98,9 @@
 					"object": "Box",
 					"operation": "Add",
 					"span": [0.5, 0.1, 0.05],
-					"offset": [42.5, 1.85, 0.0],
+					"offset": [40.3, 1.85, 0.0],
 					"array": [4, 1, 1],
-					"spacing": [0.5, 0, 0],
+					"spacing": [1.0, 0.0, 0.0],
 					"track_particle_id": [0]
 				}
 			],
@@ -107,6 +110,7 @@
 	],
 	"boundaries": [
 		{
+			"type": "grid",
 			"object": "Wall",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
@@ -114,41 +118,46 @@
 			"time": [0, 180]
 		},
 		{
+			"type": "grid",
 			"object": "OSU LWF",
 			"contact": "Separable",
 			"domain_start": [0.0, 0.0, 0.0],
 			"domain_end": [90, 4.5, 0.05],
 			"time": [0, 180]
-		},	
+		},
 		{
+			"type": "grid",
 			"object": "Box",
 			"contact": "Separable",
-			"domain_start": [45.79, 2.0, 0.0],
-			"domain_end": [46.86, 2.615, 1.016],
+			"domain_start": [45.79, 2.1, 0.0],
+			"domain_end": [46.86, 2.715, 1.016],
 			"time": [0, 180]
 		},
 		{
+			"type": "grid",
 			"object": "OSU Paddle",
 			"contact": "Separable",
 			"domain_start": [1.6, -0.2, -0.2],
 			"domain_end": [2.0, 5, 4],
 			"time": [0, 180],
-			"file":"wmdisp_hydro2sec_smooth_19012023.csv",
-			"output_frequency": 120
-		}	
+			"file": "wmdisp_hydro2sec_1200hz_smooth_14032023.csv",
+			"output_frequency": 1200
+		}
 	],
 	"grid-sensors": [
 		{
+			"type": "grid",
 			"attribute": "Force",
 			"operation": "Sum",
 			"direction": "X+",
 			"output_frequency": 120,
-			"domain_start": [45.790, 2.049, -0.2],
+			"domain_start": [45.790, 2.1, -0.2],
 			"domain_end": [45.85, 2.615, 2.338]
 		}
 	],
 	"particle-sensors": [
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
@@ -156,6 +165,7 @@
 			"domain_end":   [16.1, 3.6, 1.0]
 		},
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
@@ -163,6 +173,7 @@
 			"domain_end": [34.369, 3.6, 1.1]
 		},
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
@@ -170,6 +181,7 @@
 			"domain_end": [38.214, 3.6, 1.1]
 		},
 		{
+			"type": "particles",
 			"attribute": "Elevation",
 			"operation": "Max",
 			"output_frequency": 120,
