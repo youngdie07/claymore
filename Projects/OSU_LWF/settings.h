@@ -88,7 +88,7 @@ namespace config /// * Simulation config setup and name-space
 // * g_device_cnt = 4, g_models_per_gpu = 2 ---> g_model_cnt = 8
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
-constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
+constexpr int g_device_cnt = 3; //< IMPORTANT. Num. GPUs to compile for. Default 1.
 constexpr int g_models_per_gpu = 3; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
@@ -155,7 +155,7 @@ constexpr std::size_t g_max_halo_block = 1024 * 0; //< Max active halo blocks be
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = g_num_warps_per_grid_block * g_num_grid_blocks_per_cuda_block;
-constexpr int g_max_active_block = 24000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 25000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
@@ -164,7 +164,7 @@ constexpr bool is_powerof2(int val) {
     return val && ((val & (val - 1)) == 0);
 }
 constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
-constexpr int g_max_particle_num = 3200000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+constexpr int g_max_particle_num = 10000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
