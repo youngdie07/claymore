@@ -7,6 +7,9 @@
 #include <iostream>
 #include <array>
 #include <vector>
+// #include <chrono> // maybe place in another file
+//NOLINTNEXTLINE(cppcoreguidelines-macro-usage) Macro usage necessary here for preprocessor if
+#define PRINT_CELL_OVERFLOW 0//TODO: Move to another place
 
 namespace mn {
 
@@ -46,11 +49,14 @@ using vec3x3 = vec<float, 3, 3>;
 using vec3x4 = vec<float, 3, 4>;
 using vec3x3x3 = vec<float, 3, 3, 3>;
 
+
+// using Duration = std::chrono::duration<float>;
+
 /// * Available material models
 enum class material_e { JFluid, JFluid_ASFLIP, JFluid_FBAR, JBarFluid,
                         FixedCorotated, FixedCorotated_ASFLIP, FixedCorotated_ASFLIP_FBAR,
                         NeoHookean_ASFLIP_FBAR,
-                        Sand, 
+                        Sand, // Drucker Prager Plasticity, StvkHencky Elasticity
                         NACC, 
                         CoupledUP,
                         Meshed,
@@ -94,7 +100,7 @@ constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. p
 
 // * Output set-up
 enum class log_e : int { None, Errors, Warn, Info, Tips };
-constexpr int g_log_level = (int)log_e::Info; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
+constexpr int g_log_level = (int)log_e::Warn; //< 0 = Print Nothing, 1 = + Errors, 2 = + Warnings, 3 = + Info, 4 = + Tips.
 constexpr int g_info_rate = 10; //< How often to print to stdout extra info messages of grid/particle memory use, etc. 1 = every frame, 2 = every other frame, etc.
 constexpr bool g_particles_output_exterior_only = false; // Default if not set in input script. Output only particles in exteriors blocks per frame, reduces memory usage on disk. Turn off for FULL particle output. 
 constexpr int g_exterior_particles_cutoff = 128; // Number of particles minimum in an exterior block to qualify for output. Avoid false positives when particle block is practically empty visually (e.g. 2 particles may as well be 0 cause you can see through it when visualizing)
@@ -148,14 +154,14 @@ constexpr int g_grid_size_z = (int)constCeil(static_cast<float>(g_grid_size * g_
 /// * Preallocate GPU memory for particles, grids, finite elements, grid-targets, etc
 /// ------------------
 // * Halo Blocks for Multi-GPU Communication. Set zero if only on Single-GPU
-constexpr std::size_t g_max_halo_block = 1024 * 0; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
+constexpr std::size_t g_max_halo_block = 1024 * 4; //< Max active halo blocks between any two GPUs. Preallocated, can resize. 
 
 // * Grids
 #define GBPCB 8 //< Grid blocks per cuda block. 8 or 16 is usually good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = g_num_warps_per_grid_block * g_num_grid_blocks_per_cuda_block;
-constexpr int g_max_active_block = 25000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 30000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
@@ -164,7 +170,7 @@ constexpr bool is_powerof2(int val) {
     return val && ((val & (val - 1)) == 0);
 }
 constexpr bool g_ppc_pow2 = is_powerof2(g_max_ppc);
-constexpr int g_max_particle_num = 10000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
+constexpr int g_max_particle_num = 4000000; //< Max no. particles. Very important, affects memory usage and performance. Preallocated, can resize.
 constexpr int g_num_warps_per_particle_bin = 1; //< No. warps per particle bin. Usually 1 is good. Can cause kernels to fail if a bad number for the specific GPU. Can slightly effect performance.
 constexpr int g_bin_capacity = 32 * g_num_warps_per_particle_bin; //< Particles / threads per particle bin. Multiple of 32 highly recommended (32 or 64 usually)
 constexpr int g_particle_batch_capacity = 4 * g_bin_capacity; // Sets thread block size in g2p2g, etc. Usually 64, 128, 256, or 512 is good. If kernel uses a lot of shared memory (e.g. 32kB+ when using FBAR and ASFLIP) then raise num. for occupancy benefits. If said kernel uses a lot of registers (e.g. 64+), then lower for occupancy. See CUDA occupancy calculator online, varies by GPU/system. - JB
@@ -275,6 +281,7 @@ struct AlgoConfigs {
 // * Boundary condition enumerators for easier reading
 enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate, Seperable = Separable};
 enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, 
+                                WALLS = Walls, BOX = Box, SPHERE = Sphere, CYLINDER = Cylinder, PLANE = Plane,
                                 OSU_LWF_RAMP, OSU_LWF_PADDLE, 
                                 USGS_RAMP, USGS_GATE, 
                                 OSU_TWB_RAMP, OSU_TWB_PADDLE,
@@ -285,6 +292,7 @@ enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane,
                                 MOMENTUM_BOUNDARY,
                                 FORCE_BOUNDARY,
                                 FLOOR,
+                                BATHYMETRY,
                                 TOTAL };
 // Structure for holding grid-boundary configs. Sent to GPU as a SMALL kernel parameter (GPU constant mem. is like 4kb)
 struct GridBoundaryConfigs {
@@ -302,6 +310,8 @@ struct GridBoundaryConfigs {
   // vec3 _omega; 
   vec<int, 3> _array; //< Array of boundary objects
   vec<PREC_G, 3> _spacing; // Spacing between boundary objects
+  int _num_bathymetry_points; //< Number of bathymetry points
+  vec<PREC_G, 2> _bathymetry_points[32]; //< Bathymetry points
 };
 // Deprecated structure for holding grid-target configs
 // TODO: Undeprecate

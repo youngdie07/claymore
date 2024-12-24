@@ -22,11 +22,9 @@ __global__ void activate_blocks(uint32_t particleCount, ParticleArray parray,
                                 Partition partition) {
   uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
   if (parid >= particleCount) return; // Return if global ID exceeds particle count
-  ivec3 blockid{
-      int(std::lround(parray.val(_0, parid) * g_dx_inv) - g_bc) / g_blocksize,
-      int(std::lround(parray.val(_1, parid) * g_dx_inv) - g_bc) / g_blocksize,
-      int(std::lround(parray.val(_2, parid) * g_dx_inv) - g_bc) / g_blocksize};
-  partition.insert(blockid); // Insert block ID into partition's hash-table
+  const ivec3 coord	= get_block_id<PREC>({parray.val(_0, parid), parray.val(_1, parid), parray.val(_2, parid)}) - 2;
+  const ivec3 blockid = coord / static_cast<int>(config::g_blocksize); 
+  partition.insert(blockid); // Create block in partition
 }
 
 // Used to associate particles with grid-cells. 
@@ -35,37 +33,52 @@ template <typename ParticleArray, typename Partition>
 __global__ void build_particle_cell_buckets(uint32_t particleCount,
                                             ParticleArray parray,
                                             Partition partition) {
-  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
+  const uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
   if (parid >= particleCount) return; // Return if global ID exceeds particle count
-  ivec3 coord{int(std::lround(parray.val(_0, parid) * g_dx_inv) - 2),
-              int(std::lround(parray.val(_1, parid) * g_dx_inv) - 2),
-              int(std::lround(parray.val(_2, parid) * g_dx_inv) - 2)};
+
+	//Get block id by particle pos
+	const ivec3 coord	= get_block_id<PREC>({parray.val(_0, parid), parray.val(_1, parid), parray.val(_2, parid)}) - 2;
+	const ivec3 blockid = coord / static_cast<int>(config::g_blocksize);
+  auto blockno = partition.query(blockid); // Block number
   int cellno = (coord[0] & g_blockmask) * g_blocksize * g_blocksize +
                (coord[1] & g_blockmask) * g_blocksize +
                (coord[2] & g_blockmask); // Cell number
-  coord = coord / g_blocksize; // Block 3D coordinate
-  auto blockno = partition.query(coord); // Block number
   auto pidic = atomicAdd(partition._ppcs + blockno * g_blockvolume + cellno, 1); // ID in cell
+  if (pidic >= g_max_ppc) {
+    atomicSub(partition._ppcs + blockno * g_blockvolume + cellno, 1); // Reduce count
+#if PRINT_CELL_OVERFLOW
+    printf("No space left in cell: block(%d), cell(%d)\n", blockno, cellno);
+#endif
+    return;
+  }
   partition._cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc + 
-                         pidic] = parid; // Store particle ID in cell bucket. Max IDs: g_max_ppc
+                         pidic] = static_cast<int>(parid); // Store particle ID in cell bucket. Max IDs: g_max_ppc
 }
 template <typename ParticleArray, typename ParticleBuffer, typename Partition>
 __global__ void
 build_particle_cell_buckets(uint32_t particleCount, ParticleArray parray,
                             ParticleBuffer pbuffer, Partition partition) {
-  uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
+  const uint32_t parid = blockIdx.x * blockDim.x + threadIdx.x; // Global particle ID
   if (parid >= particleCount) return; // Return if global ID exceeds particle count
-  ivec3 coord{int(std::lround(parray.val(_0, parid) / g_dx) - g_bc),
-              int(std::lround(parray.val(_1, parid) / g_dx) - g_bc),
-              int(std::lround(parray.val(_2, parid) / g_dx) - g_bc)}; // Grid-cell 3D coordinate
+
+	//Get block id by particle pos
+	const ivec3 coord	= get_block_id<PREC>({parray.val(_0, parid), parray.val(_1, parid), parray.val(_2, parid)}) - 2;
+	const ivec3 blockid = coord / static_cast<int>(config::g_blocksize);
+  auto blockno = partition.query(blockid); // Block number
   int cellno = (coord[0] & g_blockmask) * g_blocksize * g_blocksize +
                (coord[1] & g_blockmask) * g_blocksize +
-               (coord[2] & g_blockmask); // Cell number
-  coord = coord / g_blocksize; // Block 3D coordinate
-  auto blockno = partition.query(coord); // Block number
+               (coord[2] & g_blockmask); // Cell number in block
   auto pidic = atomicAdd(pbuffer._ppcs + blockno * g_blockvolume + cellno, 1); // ID in cell
+	if (pidic >= g_max_ppc) {
+	  // If no space is left, don't store the particle. Reduce count again
+    atomicSub(pbuffer._ppcs + blockno * g_blockvolume + cellno, 1);
+#if PRINT_CELL_OVERFLOW
+    printf("No space left in cell: block(%d), cell(%d)\n", blockno, cellno);
+#endif
+    return;
+  }
   pbuffer._cellbuckets[blockno * g_particle_num_per_block + cellno * g_max_ppc +
-                        pidic] = parid; // Store par. ID in cell bucket. Max IDs: g_max_ppc
+                        pidic] = static_cast<int>(parid); // Store par. ID in cell bucket. Max IDs: g_max_ppc
 }
 
 // GMPM
@@ -1485,7 +1498,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
 
         //< sJBar = (1 - JBar) = Sum_p ( sJBar * voln ) / Sum_p ( voln ), zero-out if no volume
         sJBar = (voln > 0.f) ? sJBar / voln : 0.f; // No division by zero or negative volumes
-        constexpr PREC_G deformation_limit = 0.9f; // Arbitrary limit for deformation
+        constexpr PREC_G deformation_limit = 0.9f; // Standard limit for vol. deformation in common equations of state (e.g. Tait-Murnaghan Water)
         sJBar = (abs(sJBar) > deformation_limit) ? copysign(deformation_limit , sJBar) : sJBar; //< Clamp sJBar to [-deformation_limit, deformation_limit], done for stability of compressible fluids, though may be unnecassary for some materials
   
         // ! TODO : move into scopes to save registers
@@ -1681,6 +1694,99 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                     isInBound |= isOnStruct; // OR reduce into regular boundary for efficiency
                   }
                 }
+                // TODO: 1) Right now cylinder assumes perfect circle cross-section, i.e. not ellipse. 
+                //          Affects normal vector and penetration condition calc.
+                //       2) Assumes Y+ oriented long axis for now
+                //       3) No "caps" on the cylinder faces, only the cylinder body
+                else if (gb._object == boundary_object_t::Cylinder) { // Assume Y+ oriented axis for now
+                  PREC_G r = boundary_dim[0] * 0.5f; // Cylinder radius assuming perfect circle cross-section and Y+ axis
+                  PREC_G d = sqrt((xc - (boundary_pos[0] + boundary_dim[0] * 0.5f)) * (xc - (boundary_pos[0] + boundary_dim[0] * 0.5f)) 
+                                + (zc - (boundary_pos[2] + boundary_dim[2] * 0.5f)) * (zc - (boundary_pos[2] + boundary_dim[2] * 0.5f))); // Distance from center
+                  const bool isInRadius = (d <= r);
+                  const bool isInHeight = (yc >= boundary_pos[1]) && (yc <= boundary_pos[1] + boundary_dim[1]);
+                  const bool isInside = isInRadius && isInHeight;
+                  if (gb._contact == boundary_contact_t::Sticky) {
+                    isOutStruct = isInside * ((1 << 2) | (1 << 1) | 1); // Check if within cylinder radius
+                    isInBound |= isOutStruct; // Update with regular boundary for efficiency
+                  } else if (gb._contact == boundary_contact_t::Slip || gb._contact == boundary_contact_t::Separable) {
+                    // Assumes perfect circle cross-section and Y+ oriented axis for now
+                    if (isInside) {
+                      // Distance vector from center axis
+                      PREC_G dist[3];
+                      dist[0] = xc - (boundary_pos[0] + boundary_dim[0] * 0.5f);
+                      dist[1] = 0.f; // Assume Y+ oriented axis for now
+                      dist[2] = zc - (boundary_pos[2] + boundary_dim[2] * 0.5f);
+
+                      // Normalize distance vector
+                      PREC_G norm = 0.f;
+                      for (int i = 0; i < 3; i++) norm += dist[i] * dist[i];
+                      const PREC_G small = 1e-6f; // Small value to prevent division by zero
+                      norm = sqrt(norm);
+                      if (norm > 0.f) for (int i = 0; i < 3; i++) dist[i] /= norm; 
+                      
+                      // Dot product of normalized distance vector and velocity vector
+                      PREC_G dot = 0.f; 
+                      for (int i = 0; i < 3; i++) dot += dist[i] * vel[i];
+
+                      // Subtract the projection of velocity vector onto distance vector from velocity vector
+                      if (gb._contact == boundary_contact_t::Slip) {
+                        for (int i = 0; i < 3; i++) vel[i] = vel[i] - dot * dist[i];
+                      } else {
+                        // Separable boundary, check if grid node velocity is pointing into boundary
+                        const bool isDecoupling = (dot >= 0.f);
+                        if (isDecoupling == false) {
+                          for (int i = 0; i < 3; i++) vel[i] = vel[i] - dot * dist[i];
+                        }
+                      }
+                    }
+                  }
+                } 
+                // TODO: Right now sphere assumes perfect sphere, i.e. not ellipsoid. 
+                //       Affects normal vector and penetration condition calc.
+                else if (gb._object == boundary_object_t::Sphere) {
+                  PREC_G r = boundary_dim[0] * 0.5f; // Sphere radius
+                  PREC_G d = sqrt((xc - (boundary_pos[0] + boundary_dim[0] * 0.5f)) * (xc - (boundary_pos[0] + boundary_dim[0] * 0.5f)) 
+                                + (yc - (boundary_pos[1] + boundary_dim[1] * 0.5f)) * (yc - (boundary_pos[1] + boundary_dim[1] * 0.5f)) 
+                                + (zc - (boundary_pos[2] + boundary_dim[2] * 0.5f)) * (zc - (boundary_pos[2] + boundary_dim[2] * 0.5f))); // Distance from center
+                  const bool isInRadius = (d <= r);
+                  if (gb._contact == boundary_contact_t::Sticky) {
+                    // Check if grid-cell is within sticky interior of sphere
+                    isOutStruct = isInRadius * ((1 << 2) | (1 << 1) | 1); // If within sphere radius set xyz boundary bit flags
+                    isInBound |= isOutStruct; // Update with regular boundary for efficiency
+                  } else if (gb._contact == boundary_contact_t::Slip || gb._contact == boundary_contact_t::Separable) {
+                    // Check if grid-cell is within sticky interior of sphere
+                    if (isInRadius) {
+                      // distance vector from center axis
+                      PREC_G dist[3];
+                      dist[0] = xc - (boundary_pos[0] + boundary_dim[0] * 0.5f);
+                      dist[1] = yc - (boundary_pos[1] + boundary_dim[1] * 0.5f);
+                      dist[2] = zc - (boundary_pos[2] + boundary_dim[2] * 0.5f);
+
+                      // normalize distance vector
+                      PREC_G norm = 0.f;
+                      for (int i = 0; i < 3; i++) norm += dist[i] * dist[i];
+                      norm = sqrt(norm);
+                      if (norm > 0.f) for (int i = 0; i < 3; i++) dist[i] /= norm;
+                      
+                      // dot product of normalized distance vector and velocity vector
+                      PREC_G dot = 0.f;
+                      for (int i = 0; i < 3; i++) dot += dist[i] * vel[i];
+
+                      // subtract the projection of velocity vector onto distance vector from velocity vector
+                      if (gb._contact == boundary_contact_t::Slip) {
+                        for (int i = 0; i < 3; i++) vel[i] = vel[i] - dot * dist[i];
+                      } else {
+                        // Separable boundary, check if node is moving towards boundary
+                        const bool isDecoupling = (dot >= 0.f);
+                        if (isDecoupling == false) {
+                          // subtract the projection of velocity vector onto distance vector from velocity vector
+                          for (int i = 0; i < 3; i++) vel[i] = vel[i] - dot * dist[i];
+                        }
+                      }
+                    }
+                  }
+                }
+
                 else if (gb._object == boundary_object_t::USGS_GATE) {
                   if (gb._contact == boundary_contact_t::Separable) {
                     // TODO : Reimplement timed boundaries
@@ -1798,7 +1904,103 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
           boundary_pos[0] = boundary[0];
           boundary_pos[1] = boundary[1];
           boundary_pos[2] = boundary[2];
-          if (gb._object == boundary_object_t::OSU_LWF_RAMP) {
+          if (( gb._object == boundary_object_t::BATHYMETRY
+              || gb._object == boundary_object_t::OSU_LWF_RAMP 
+              || gb._object == boundary_object_t::OSU_TWB_RAMP 
+              || gb._object == boundary_object_t::USGS_RAMP
+              || gb._object == boundary_object_t::TOKYO_HARBOR 
+              || gb._object == boundary_object_t::FLOOR
+              || gb._object == boundary_object_t::PLANE)
+              && gb._num_bathymetry_points > 0) {
+            int num_bathymetry_points = gb._num_bathymetry_points;
+            int num_bathymetry_panels = num_bathymetry_points - 1;
+            if (num_bathymetry_panels < 1) continue;
+            for (int i = 0; i < num_bathymetry_panels; ++i) {
+              vec3 ns; //< Ramp boundary surface normal
+              // Ramp X bounds
+              if (xc < gb._bathymetry_points[i][0]) continue;
+              if (xc >= gb._bathymetry_points[i+1][0]) continue;
+              PREC_G slope = (gb._bathymetry_points[i+1][1] - gb._bathymetry_points[i][1]) / (gb._bathymetry_points[i+1][0] - gb._bathymetry_points[i][0]);
+              PREC_G ys, xo, yo;
+              xo = gb._bathymetry_points[i][0];
+              yo = gb._bathymetry_points[i][1];
+              ys = slope * (xc - xo) + yo;
+              
+              // Ramp Y bounds
+              if (yc > ys + 1.f * g_dx) continue;
+
+              // Ramp normal vector
+              // TODO: Check for non ascending bathymetry point x values
+              ns.set(0.f);
+              if (gb._bathymetry_points[i+1][1] < gb._bathymetry_points[i][1]) {
+                ns[0] = gb._bathymetry_points[i][1] - gb._bathymetry_points[i+1][1];
+                ns[1] = gb._bathymetry_points[i+1][0] - gb._bathymetry_points[i][0];
+              } else {
+                ns[0] = gb._bathymetry_points[i][1] - gb._bathymetry_points[i+1][1];
+                ns[1] = gb._bathymetry_points[i+1][0] - gb._bathymetry_points[i][0];
+              }
+              PREC_G ns_norm = sqrt(ns[0] * ns[0] + ns[1] * ns[1]);
+              if (ns_norm > 0.f) {
+                ns[0] /= ns_norm;
+                ns[1] /= ns_norm;
+              } else {
+                ns[0] = 0.f;
+                ns[1] = 1.f; // Default flat panel if poorly defined coordinates, points up (y+)
+              }
+              PREC_G vdotns = vel[0]*ns[0] + vel[1]*ns[1]; // Projected velocity on normal, negative values mean moving into the boundary, positive values mean moving away from the boundary surface
+
+              // --------- Wen-Chia Yang's disseration, UW 2016, p. 50? ---------
+              {
+                // f_boundary = -f_internal - f_external - (1/dt)*p
+                // Node accel. = (f_internal + f_external + ySf*f_boundary) / mass
+                // TODO : Reimplement for all Wen-Chia Yang boundary conditions (e.g. linear, quadratic, sinusoidal, etc.)
+                // In throw-away scope for register reuse
+
+                // Boundary thickness and cell distance
+                //h  = sqrt((g_dx*g_dx*ns[0]) + (g_dx*g_dx*ns[1]) + (g_dx*g_dx*ns[2]));
+                //float r  = sqrt((xc - xs)*(xc - xs) + (yc - ys)*(yc - ys));
+
+                // TODO : Bound. surf. elev. (ys) inaccurate (close for small angles). Can use trig. to calc, but may use too many registers.
+                // Calc. decay coef. (ySF) for grid-node pos. Adjusts vel. irregular boundaries.
+                // Decay coef: 0 = free, (0-1) = decayed slip/sep., 1 = slip/sep., 2 = rigid
+                PREC_G ySF=0.f; // Boundary decay coef. 
+                if (yc >= ys + 1.f * g_dx) ySF = 0.f; // Above decay layer
+                else if (yc <= ys && yc > (ys - 2.5f*g_dx)) {
+                  ySF = (gb._contact == boundary_contact_t::Separable) ? 1.0f 
+                        : ((gb._contact == boundary_contact_t::Slip) ? 1.5f 
+                        : 2.f);
+                  } // Below boundary surface
+                else if (yc <= (ys - 2.5f*g_dx)) ySF = 2.f; // Far below bound. surf.
+                else {
+                  if (1) { 
+                    // linear decay
+                    ySF = 1.f - (yc - ys) / g_dx ; 
+                  } else if (0) { 
+                    // quadratic decay
+                    ySF = 1.f - (yc - ys) / g_dx; 
+                    ySF *= ySF;
+                  } else {  
+                    // cubic decay
+                    ySF = 1.f - (yc - ys) / g_dx; 
+                    ySF *= ySF; 
+                    ySF *= ySF;
+                  }
+                }
+
+                // Adjust grid-node velocity via decay layer coef. and surface normal
+                if (ySF > 1.5f) // Fix vel. rigidly if deep below boundary surf.
+                  for (int d=0; d<3; ++d) vel[d] = 0.f;
+                else if (ySF == 1.f) // Separable vel. at boundary surf.
+                  if (vdotns < 0.f) for (int d=0; d<3; ++d) vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                else if (ySF == 1.5f) // Slip vel. below boundary surf.
+                  for (int d=0; d<3; ++d) vel[d] -= ySF * (vdotns * ns[d]);// ySF*(vel - vdotns*ns)??
+                else // Adjust vel. normal if in decay layer 
+                  if (vdotns < 0.f) for (int d=0; d<3; ++d) vel[d] -= ySF * (vdotns * ns[d]);
+              
+              }
+
+            }
+          } else if (gb._object == boundary_object_t::OSU_LWF_RAMP && (gb._num_bathymetry_points == 0)) {
             PREC_G wave_maker_neutral = -2.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU LWF        
             PREC_G ys=0.f, xo=0.f, yo=0.f;
             vec3 ns; //< Ramp boundary surface normal
@@ -1935,7 +2137,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               vel[0] = (boundary_motion[2] / l); // Slip vel. (NO seperable)
 #endif
             }
-          } else if (gb._object == boundary_object_t::OSU_TWB_RAMP) {
+          } else if (gb._object == boundary_object_t::OSU_TWB_RAMP && (gb._num_bathymetry_points == 0)) {
             if (gb._contact == boundary_contact_t::Separable) {
               PREC_G wave_maker_neutral = 0.f * fr_scale; // Wave-maker neutral X pos. [m] at OSU TWB       
               PREC_G ys=0.f, xo=0.f, yo=0.f;
@@ -2036,7 +2238,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               }
 
             }
-          } else if (gb._object == boundary_object_t::FLOOR) {
+          } else if (gb._object == boundary_object_t::FLOOR && (gb._num_bathymetry_points == 0)) {
             if ((xc >= gb._domain_start[0]) && (xc <= gb._domain_end[0])) 
             if ((yc >= gb._domain_start[1]) && (yc <= gb._domain_end[1])) 
             if ((zc >= gb._domain_start[2]) && (zc <= gb._domain_end[2])) {
@@ -2062,7 +2264,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
                 if (vel[1] < 0.f) vel[1] = 0.f;
               }
             }
-          } else if (gb._object == boundary_object_t::TOKYO_HARBOR) {
+          } else if (gb._object == boundary_object_t::TOKYO_HARBOR && (gb._num_bathymetry_points == 0)) {
             if (gb._contact == boundary_contact_t::Separable) {
               PREC_G ns[3] = {0.f, 1.f, 0.f}; //< Ramp surface normal, flat panel, points up (y+)
               PREC_G START_HARBOR_X = 4.45f * fr_scale; // Start harbor at X position [m]
@@ -2089,7 +2291,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
               } 
 
             }
-          } else if (gb._object == boundary_object_t::Plane) {
+          } else if (gb._object == boundary_object_t::Plane && (gb._num_bathymetry_points == 0)) {
             if (1) {
               PREC_G X_GATE = 0.f * fr_scale; // Gate X position [m]
 
@@ -2199,7 +2401,7 @@ __global__ void update_grid_velocity_query_max(uint32_t blockCount, Grid grid,
             }
 
 
-          } else if (gb._object == boundary_object_t::USGS_RAMP) {
+          } else if (gb._object == boundary_object_t::USGS_RAMP && (gb._num_bathymetry_points == 0)) {
             if (gb._contact == boundary_contact_t::Separable) {
               PREC_G X_GATE = 0.f * fr_scale; // Gate X position [m]
 
@@ -3821,8 +4023,8 @@ __global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
 
     local_base_index = (pos * g_dx_inv + 0.5f).cast<int>() - 1;
     {
-      int direction_tag = dir_offset((base_index - 1) / g_blocksize -
-                              (local_base_index - 1) / g_blocksize);
+      const int direction_tag = dir_offset(((base_index - 1) / static_cast<int>(g_blocksize) -
+                              (local_base_index - 1) / static_cast<int>(g_blocksize)));
       if (g_buckets_on_particle_buffer)
         next_pbuffer.add_advection(partition, local_base_index - 1, direction_tag, pidib);
       else 
@@ -3844,6 +4046,14 @@ __global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
       local_base_index[dd] = (((base_index[dd] - 1) & g_blockmask) + 1) +
                              local_base_index[dd] - base_index[dd];
     }
+
+		//Dim of p2gbuffer is (4, 8, 8, 8). So if values are too big, discard whole particle
+		if(local_base_index[0] < 0 || local_base_index[1] < 0 || local_base_index[2] < 0 || local_base_index[0] + 2 >= 8 || local_base_index[1] + 2 >= 8 || local_base_index[2] + 2 >= 8) {
+			//NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg) Cuda has no other way to print; Numbers are array indices to be printed
+			printf("local_base_index out of range: %d %d %d\n", local_base_index[0], local_base_index[1], local_base_index[2]);
+			return;
+		}
+
 #pragma unroll 3
     for (char i = 0; i < 3; i++)
 #pragma unroll 3
@@ -3895,23 +4105,21 @@ __global__ void g2p2g(double dt, double newDt, const ivec3 *__restrict__ blocks,
   }
   __syncthreads();
   /// arena no, channel no, cell no
-  for (int base = threadIdx.x; base < numMViInArena; base += blockDim.x) {
-    char local_block_id = base / numMViPerBlock;
-    auto blockno = partition.query(
+  for (int base = static_cast<int>(threadIdx.x); base < numMViInArena; base += static_cast<int>(blockDim.x)) {
+    const char local_block_id = static_cast<char>(base / numMViPerBlock);
+    const auto blockno = partition.query(
         ivec3{blockid[0] + ((local_block_id & 4) != 0 ? 1 : 0),
               blockid[1] + ((local_block_id & 2) != 0 ? 1 : 0),
               blockid[2] + ((local_block_id & 1) != 0 ? 1 : 0)});
     // auto grid_block = next_grid.template ch<0>(blockno);
-    int channelid = base % numMViPerBlock;
-    char c = channelid % g_blockvolume;
-    char cz = channelid & g_blockmask;
-    char cy = (channelid >>= g_blockbits) & g_blockmask;
-    char cx = (channelid >>= g_blockbits) & g_blockmask;
+    int channelid = static_cast<int>(base % numMViPerBlock);
+    const char c = static_cast<char>(channelid % g_blockvolume);
+    const char cz = static_cast<char>(channelid & g_blockmask);
+    const char cy = static_cast<char>((channelid >>= g_blockbits) & g_blockmask);
+    const char cx = static_cast<char>((channelid >>= g_blockbits) & g_blockmask);
     channelid >>= g_blockbits;
-    float val =
-        p2gbuffer[channelid][cx + (local_block_id & 4 ? g_blocksize : 0)]
-                 [cy + (local_block_id & 2 ? g_blocksize : 0)]
-                 [cz + (local_block_id & 1 ? g_blocksize : 0)];
+		float val = p2gbuffer[channelid][static_cast<size_t>(static_cast<size_t>(cx) + (local_block_id & 4 ? config::g_blocksize : 0))][static_cast<size_t>(static_cast<size_t>(cy) + (local_block_id & 2 ? config::g_blocksize : 0))][static_cast<size_t>(static_cast<size_t>(cz) + (local_block_id & 1 ? config::g_blocksize : 0))];
+
     if (channelid == 0) {
       atomicAdd(&next_grid.ch(_0, blockno).val_1d(_0, c), val);
     } else if (channelid == 1) {
@@ -8771,7 +8979,7 @@ __global__ void p2g_FBar(double dt, double newDt, const ivec3 *__restrict__ bloc
 #pragma unroll 3
     for (char dd = 0; dd < 3; ++dd) {
       local_pos[dd] = pos[dd] - static_cast<PREC>(local_base_index[dd]) * g_dx_d;
-      PREC d = (local_pos[dd] - static_cast<PREC>(std::floor(local_pos[dd] * g_dx_inv_d + 0.5) - 1.0) * g_dx_d) * g_dx_inv_d;
+      PREC d = (local_pos[dd] - static_cast<PREC>(std::floor(local_pos[dd] * g_dx_inv_d + 0.5) - 1) * g_dx_d) * g_dx_inv_d;
       dws(dd, 0) = 0.5 * (1.5 - d) * (1.5 - d);
       d -= 1.0;
       dws(dd, 1) = 0.75 - d * d;

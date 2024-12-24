@@ -554,6 +554,14 @@ struct mgsp_benchmark {
     h_gridBoundaryConfigs[boundary_ID]._spacing = gridBoundaryConfigs._spacing;
     h_gridBoundaryConfigs[boundary_ID]._friction_static = gridBoundaryConfigs._friction_static;
     h_gridBoundaryConfigs[boundary_ID]._friction_dynamic = gridBoundaryConfigs._friction_dynamic;
+    h_gridBoundaryConfigs[boundary_ID]._num_bathymetry_points = gridBoundaryConfigs._num_bathymetry_points;
+    for (int i = 0; i < gridBoundaryConfigs._num_bathymetry_points; i++) {
+      constexpr int BATHYMETRY_DIMENSIONS = 2; // X, Y (Z assumed flat, i.e. no out of plane sloping of panels)
+      for (int j = 0; j < BATHYMETRY_DIMENSIONS; j++) {
+        h_gridBoundaryConfigs[boundary_ID]._bathymetry_points[i][j] = static_cast<PREC_G>(gridBoundaryConfigs._bathymetry_points[i][j]);
+      }
+    }
+
 
     fmt::print("NOTE: gridBoundary[{}]: Type of object[{}], type of contact[{}], active time[{} --> {}] sec.\n", boundary_ID, h_gridBoundaryConfigs[boundary_ID]._object, h_gridBoundaryConfigs[boundary_ID]._contact, h_gridBoundaryConfigs[boundary_ID]._time[0],h_gridBoundaryConfigs[boundary_ID]._time[1]);
     // First boundary initializes all other boundaries to -1 (empty) before starting to fill

@@ -2604,6 +2604,7 @@ void parse_scene(std::string fn,
               if (h_gridBoundary._contact == mn::config::boundary_contact_t::Sticky) h_boundary[6] = 15;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 16;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 17;
+              // Default to a Z+ oriented cylinder
               else h_boundary[6] = -1;
             }
             else if ((object == "Plane") || (object == "plane") || (object == "Surface") || (object == "surface")) {
@@ -2612,6 +2613,10 @@ void parse_scene(std::string fn,
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Slip) h_boundary[6] = 19;
               else if (h_gridBoundary._contact == mn::config::boundary_contact_t::Separate) h_boundary[6] = 20;
               else h_boundary[6] = -1;
+            }
+            else if ((object == "Bathymetry") || (object == "bathymetry") || (object == "bath") || (object == "Bath") || (object == "BATH")) {
+              h_gridBoundary._object = mn::config::boundary_object_t::BATHYMETRY;
+              h_boundary[6] = 94;
             }
             else if ((object == "USGS Ramp") || (object == "USGS Flume") || (object == "USGS DFF Ramp") ||  (object == "USGS_RAMP")) {
               h_gridBoundary._object = mn::config::boundary_object_t::USGS_RAMP;
@@ -2654,6 +2659,40 @@ void parse_scene(std::string fn,
               PREC_G temp_friction = std::max(h_gridBoundary._friction_static, static_cast<PREC_G>(0.0));
               h_gridBoundary._friction_dynamic = CheckFloat(model,"friction_dynamic", temp_friction);
             }
+
+            // Check for bathymetry coordinates (optional)
+            auto bathymetry = model.FindMember("bathymetry"); // [[x1,y1],[x2,y2],...]
+            if (bathymetry != model.MemberEnd()) {
+              fmt::print(fg(cyan),"Found bathymetry for grid-boundary[{}]. Loading... \n", boundary_ID);
+              const int max_bathymetry_coordinates = 32; // Limited as we pass in as kernel argument
+              // vec<PREC_G, 2> bathymetry_coords[max_bathymetry_coordinates];
+
+              int bathymetry_size = static_cast<int>(model["bathymetry"].GetArray().Size());
+              if (bathymetry_size > max_bathymetry_coordinates) {
+                fmt::print(fg(red),"ERROR: Too many bathymetry coordinates[{}] for grid-boundary[{}]. Max allowed is [{}].\n", bathymetry_size, boundary_ID, max_bathymetry_coordinates);
+                if (mn::config::g_log_level >= 3) getchar();
+              }
+              h_gridBoundary._num_bathymetry_points = static_cast<int>(bathymetry_size);
+              fmt::print(fg(cyan),"Found [{}] bathymetry coordinates for grid-boundary[{}]! Max allowable: [32] \n", h_gridBoundary._num_bathymetry_points, boundary_ID); 
+
+              int bathymetry_i = 0;
+              for (auto &coord : model["bathymetry"].GetArray()) {
+                if (bathymetry_i >= max_bathymetry_coordinates) break;
+                mn::vec<PREC_G, 2> xy;
+                for (int d = 0; d < 2; ++d) {
+                  xy[d] = coord.GetArray()[d].GetFloat();
+                }
+                h_gridBoundary._bathymetry_points[bathymetry_i][0] = xy[0] * froude_scaling / l + o;
+                h_gridBoundary._bathymetry_points[bathymetry_i][1] = xy[1] * froude_scaling / l + o;
+                fmt::print(fg(green),"Bathymetry[{}/{}]: Input [{}, {}], Scaled [{}, {}]\n", bathymetry_i, h_gridBoundary._num_bathymetry_points, xy[0], xy[1], h_gridBoundary._bathymetry_points[bathymetry_i][0], h_gridBoundary._bathymetry_points[bathymetry_i][1]);
+                bathymetry_i++;
+              }
+              // h_gridBoundary._bathymetry_points = bathymetry_coords;
+            } else {
+              h_gridBoundary._num_bathymetry_points = 0;
+              fmt::print(fg(yellow),"NOTE: No custom bathymetry points set for grid-boundary[{}].\n", boundary_ID);
+            }
+
 
             // Set up moving grid-boundary if applicable
             auto motion_file = model.FindMember("file"); // Check for motion file
