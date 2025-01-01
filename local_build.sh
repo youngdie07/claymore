@@ -34,20 +34,20 @@ echo "Build ClaymoreUW and External Libraries"
 cmake --build .
 
 echo "Set permissions of executables (allows others to run your compiled programs on TACC systems if made available)"
-sudo chmod a+rwx ./Projects/FBAR/fbar
+#sudo chmod a+rwx ./Projects/FBAR/fbar
 sudo chmod a+rwx ./Projects/OSU_LWF/osu_lwf
-sudo chmod a+rwx ./Projects/DSA/dsa
+#sudo chmod a+rwx ./Projects/DSA/dsa
 
 echo "Copy executables from build subdirectories to upper-level subdirectories..."
-cp ./Projects/FBAR/fbar ../Projects/FBAR/ 
+#cp ./Projects/FBAR/fbar ../Projects/FBAR/ 
 cp ./Projects/OSU_LWF/osu_lwf ../Projects/OSU_LWF/ 
-cp ./Projects/DSA/dsa ../Projects/DSA/
+#cp ./Projects/DSA/dsa ../Projects/DSA/
 
 echo "Copy experimental wave-maker paddle-motion resources to Project subfolders..."
-cp ../Data/WaveMaker/wmdisp_hydro2sec_1200hz_smooth_14032023.csv ../Projects/FBAR/
-cp ../Data/WaveMaker/wmdisp_LWF_Unbroken_Amp4_SF500_twm10sec_1200hz_14032023.csv ../Projects/FBAR/
-cp ../Data/WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv ../Projects/FBAR/
-cp ../Data/WaveMaker/wmdisp_TWB_Amp2_SF375_twm10sec_1200hz_16052023.csv ../Projects/FBAR/
+#cp ../Data/WaveMaker/wmdisp_hydro2sec_1200hz_smooth_14032023.csv ../Projects/FBAR/
+#cp ../Data/WaveMaker/wmdisp_LWF_Unbroken_Amp4_SF500_twm10sec_1200hz_14032023.csv ../Projects/FBAR/
+#cp ../Data/WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv ../Projects/FBAR/
+#cp ../Data/WaveMaker/wmdisp_TWB_Amp2_SF375_twm10sec_1200hz_16052023.csv ../Projects/FBAR/
 cp ../Data/WaveMaker/wmdisp_hydro2sec_1200hz_smooth_14032023.csv ../Projects/OSU_LWF/
 cp ../Data/WaveMaker/wmdisp_LWF_Unbroken_Amp4_SF500_twm10sec_1200hz_14032023.csv ../Projects/OSU_LWF/
 cp ../Data/WaveMaker/wmdisp_TWB_Amp2_SF350_twm10sec_1200hz_14032023.csv ../Projects/OSU_LWF/
