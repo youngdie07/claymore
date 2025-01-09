@@ -595,6 +595,58 @@ void make_sphere(std::vector<std::array<PREC, 3>>& fields,
 }
 
 
+/// @brief Make bathymetry flume fluid as particles, write to fields as [x,y,z] data.
+/// @brief Assume span, offset, radius, partition_start/end are already scaled to 1x1x1 domain. 
+/// @param fields Vector of arrays to write particle position [x,y,z] data into
+/// @param span Sets max span to look in (for efficiency). Erases particles if too low.
+/// @param offset Offsets starting corner of particle object from origin. Assume simulation's grid buffer is already included (offset += g_offset, e.g. 8*g_dx).
+/// @param ppc Particle-per-cell, number of particles to sample per 3D grid-cell (e.g. 8).
+/// @param partition_start Start corner of particle GPU partition, cut out everything before.
+/// @param partition_end End corner of particle GPU partition, cut out everything beyond.
+void make_bathymetry(std::vector<std::array<PREC, 3>>& fields, 
+                        mn::vec<PREC, 3> span, mn::vec<PREC, 3> offset,
+                        PREC ppc, mn::vec<PREC,3> partition_start, mn::vec<PREC,3> partition_end, mn::vec<PREC, 3, 3>& rotation, mn::vec<PREC, 3>& fulcrum, mn::vec<PREC, 2> bathymetry_points[mn::config::g_max_bathymetry_points], int num_bathymetry_points, double fr_scale = 1.0) {
+  PREC ppl_dx = dx / cbrt(ppc); // Linear spacing of particles [1x1x1]
+  int i_lim, j_lim, k_lim; // Number of par. per span direction
+  i_lim = (int)((span[0]) / ppl_dx + 1.0); 
+  j_lim = (int)((span[1]) / ppl_dx + 1.0); 
+  k_lim = (int)((span[2]) / ppl_dx + 1.0); 
+  
+  for (int i = 0; i < i_lim ; i++) {
+    for (int j = 0; j < j_lim ; j++) {
+      for (int k = 0; k < k_lim ; k++) {
+        std::array<PREC, 3> arr;
+        arr[0] = (i + 0.5) * ppl_dx + offset[0];
+        arr[1] = (j + 0.5) * ppl_dx + offset[1];
+        arr[2] = (k + 0.5) * ppl_dx + offset[2];
+        PREC x, y;
+        x = ((arr[0] - offset[0]) * l);
+        y = ((arr[1] - offset[1]) * l);
+        if (arr[0] < (span[0] + offset[0]) && arr[1] < (span[1] + offset[1]) && arr[2] < (span[2] + offset[2])) {
+          // Start ramp segment definition 
+          for (int d = 1; d < num_bathymetry_points; d++)
+          {
+            if (x < bathymetry_points[d][0])
+            {
+              PREC slope = (bathymetry_points[d][1] - bathymetry_points[d-1][1]) / (bathymetry_points[d][0] - bathymetry_points[d-1][0]);
+              if (y >= ( slope * (x - bathymetry_points[d-1][0]) + bathymetry_points[d-1][1]) )
+              {
+                if (inside_partition(arr, partition_start, partition_end)){
+                  translate_rotate_translate_point(fulcrum, rotation, arr);
+                  fields.push_back(arr);
+                }
+                break;
+              }
+              else break;
+            }
+          }
+        }
+      }
+    }
+  } 
+}
+
+
 /// @brief Make OSU LWF flume fluid as particles, write to fields as [x,y,z] data.
 /// @brief Assume span, offset, radius, partition_start/end are already scaled to 1x1x1 domain. 
 /// @param fields Vector of arrays to write particle position [x,y,z] data into
@@ -763,7 +815,6 @@ void make_OSU_TWB(std::vector<std::array<PREC, 3>>& fields,
   } 
 }
 
-
 template <typename T>
 bool inside_box(std::array<T,3>& arr, mn::vec<T,3> span, mn::vec<T,3> offset) 
 {
@@ -816,6 +867,24 @@ bool inside_sphere(std::array<T,3>& arr, T radius, mn::vec<T,3> offset)
 }
 
 template <typename T>
+bool inside_bathymetry(std::array<T, 3>& arr, mn::vec<T, 2> bathymetry_points[mn::config::g_max_bathymetry_points], int num_bathymetry_points) {
+  T x = arr[0];
+  T y = arr[1];
+  for (int d = 1; d < num_bathymetry_points; d++) {
+    if (d >= mn::config::g_max_bathymetry_points) break;
+    if (x < bathymetry_points[d][0]) {
+      T slope = (bathymetry_points[d][1] - bathymetry_points[d-1][1]) / (bathymetry_points[d][0] - bathymetry_points[d-1][0]);
+      T y_bath = slope * (x - bathymetry_points[d-1][0]) + bathymetry_points[d-1][1];
+      if (y <= y_bath) {
+        return true;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+template <typename T>
 void subtract_box(std::vector<std::array<T,3>>& particles, mn::vec<T,3> span, mn::vec<T,3> offset) {
   fmt::print("Previous particle count: {}\n", particles.size());
   particles.erase(std::remove_if(particles.begin(), particles.end(),
@@ -837,6 +906,14 @@ void subtract_sphere(std::vector<std::array<T,3>>& particles, T radius, mn::vec<
   fmt::print("Previous particle count: {}\n", particles.size());
   particles.erase(std::remove_if(particles.begin(), particles.end(),
                               [&](std::array<T,3> x){ return inside_sphere(x, radius / l, offset); }), particles.end());
+  fmt::print("Updated particle count: {}\n", particles.size());
+}
+
+template <typename T>
+void subtract_bathymetry(std::vector<std::array<T,3>>& particles, mn::vec<T,3> span, mn::vec<T,3> offset, mn::vec<T,2> bathymetry_points[mn::config::g_max_bathymetry_points], int num_bathymetry_points) {
+  fmt::print("Previous particle count: {}\n", particles.size());
+  particles.erase(std::remove_if(particles.begin(), particles.end(),
+                              [&](std::array<T,3> x){ return inside_bathymetry(x, bathymetry_points, num_bathymetry_points); }), particles.end());
   fmt::print("Updated particle count: {}\n", particles.size());
 }
 
@@ -2110,10 +2187,57 @@ void parse_scene(std::string fn,
                   }
                   else if (type == "OSU LWF" || type == "OSU_LWF_WATER")
                   {
-                    if (operation == "Add" || operation == "add") {
-                      make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, froude_scaling); }
-                    else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
-                    else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
+                    auto use_custom_bathymetry = CheckBool(geometry, "use_custom_bathymetry", false);
+                    if (use_custom_bathymetry) {
+                      fmt::print(fg(cyan),"GPU[{}] MODEL[{}] Using custom bathymetry for geometry object[{}]. Loading... \n", gpu_id, model_id, type);
+                      // Check for bathymetry coordinates (optional)
+                      int num_bathymetry_points = 0;
+                      mn::vec<PREC, 2> bathymetry_points[mn::config::g_max_bathymetry_points];
+                      
+                      auto bathymetry = geometry.FindMember("bathymetry"); // [[x1,y1],[x2,y2],...]
+                      if (bathymetry != geometry.MemberEnd()) {
+                        fmt::print(fg(cyan),"GPU[{}] Found bathymetry for geometry object[{}]. Loading... \n", gpu_id, type);
+                        // vec<PREC_G, 2> bathymetry_coords[mn::config::g_max_bathymetry_points];
+                        int bathymetry_size = static_cast<int>(geometry["bathymetry"].GetArray().Size());
+                        if (bathymetry_size > static_cast<int>(mn::config::g_max_bathymetry_points)) {
+                          fmt::print(fg(red),"ERROR: GPU[{}] Too many bathymetry coordinates[{}]. Max allowed is [{}].\n", gpu_id, bathymetry_size, mn::config::g_max_bathymetry_points);
+                          if (mn::config::g_log_level >= 3) getchar();
+                        } else if (bathymetry_size == 0) {
+                          fmt::print(fg(red),"ERROR: GPU[{}] No bathymetry coordinates set!\n", gpu_id);
+                        }
+                        num_bathymetry_points = static_cast<int>(bathymetry_size);
+                        fmt::print(fg(cyan),"INFO: GPU[{}] Found [{}] bathymetry coordinates! Max allowable: [{}] \n", gpu_id, num_bathymetry_points, mn::config::g_max_bathymetry_points); 
+                      
+                        int bathymetry_i = 0;
+                        for (auto &coord : geometry["bathymetry"].GetArray()) {
+                          if (bathymetry_i >= mn::config::g_max_bathymetry_points) break;
+                          mn::vec<PREC_G, 2> xy;
+                          for (int d = 0; d < 2; ++d) {
+                            xy[d] = coord.GetArray()[d].GetDouble();
+                          }
+
+                          bathymetry_points[bathymetry_i][0] = xy[0] * froude_scaling / l + o;
+                          bathymetry_points[bathymetry_i][1] = xy[1] * froude_scaling / l + o;
+                          fmt::print(fg(green),"INFO: GPU[{}] Bathymetry[{}/{}]: Input [{}, {}], Scaled [{}, {}]\n", gpu_id, bathymetry_i, num_bathymetry_points, xy[0], xy[1], bathymetry_points[bathymetry_i][0], bathymetry_points[bathymetry_i][1]);
+                          bathymetry_i++;
+                        }
+
+                        if (operation == "Add" || operation == "add") {
+                          make_bathymetry(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, bathymetry_points, num_bathymetry_points); 
+                        } else if (operation == "Subtract" || operation == "subtract") { 
+                          subtract_bathymetry(models[total_id], geometry_span, geometry_offset_updated, bathymetry_points, num_bathymetry_points);
+                        } else { fmt::print(fg(red), "ERROR: GPU[{}] geometry [{}] operation[{}] invalid! \n", gpu_id, type, operation); if (mn::config::g_log_level >= 3) getchar(); }
+                        
+                      } else {
+                        fmt::print(fg(red),"ERROR: GPU[{}] No custom bathymetry points set!\n", gpu_id);
+                      }
+                    }
+                    else {
+                      if (operation == "Add" || operation == "add") {
+                        make_OSU_LWF(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, froude_scaling); }
+                      else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
+                      else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
+                    }
                   }
                   else if (type == "OSU TWB" || type == "OSU_TWB_WATER")
                   {
@@ -2121,6 +2245,50 @@ void parse_scene(std::string fn,
                       make_OSU_TWB(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, froude_scaling); }
                     else if (operation == "Subtract" || operation == "subtract") { fmt::print(fg(red),"Operation not implemented yet...\n"); }
                     else { fmt::print(fg(red), "ERROR: GPU[{}] geometry operation[{}] invalid! \n", gpu_id, operation); if (mn::config::g_log_level >= 3) getchar(); }
+                  }
+                  else if (type == "Bathymetry" || type == "bathymetry")
+                  {
+                    // Check for bathymetry coordinates (optional)
+                    int num_bathymetry_points = 0;
+                    mn::vec<PREC, 2> bathymetry_points[mn::config::g_max_bathymetry_points];
+                    
+                    auto bathymetry = geometry.FindMember("bathymetry"); // [[x1,y1],[x2,y2],...]
+                    if (bathymetry != geometry.MemberEnd()) {
+                      fmt::print(fg(cyan),"GPU[{}] Found bathymetry for geometry object[{}]. Loading... \n", gpu_id, type);
+                      // vec<PREC_G, 2> bathymetry_coords[mn::config::g_max_bathymetry_points];
+                      int bathymetry_size = static_cast<int>(geometry["bathymetry"].GetArray().Size());
+                      if (bathymetry_size > static_cast<int>(mn::config::g_max_bathymetry_points)) {
+                        fmt::print(fg(red),"ERROR: GPU[{}] Too many bathymetry coordinates[{}]. Max allowed is [{}].\n", gpu_id, bathymetry_size, mn::config::g_max_bathymetry_points);
+                        if (mn::config::g_log_level >= 3) getchar();
+                      } else if (bathymetry_size == 0) {
+                        fmt::print(fg(red),"ERROR: GPU[{}] No bathymetry coordinates set!\n", gpu_id);
+                      }
+                      num_bathymetry_points = static_cast<int>(bathymetry_size);
+                      fmt::print(fg(cyan),"INFO: GPU[{}] Found [{}] bathymetry coordinates! Max allowable: [{}] \n", gpu_id, num_bathymetry_points, mn::config::g_max_bathymetry_points); 
+                    
+                      int bathymetry_i = 0;
+                      for (auto &coord : geometry["bathymetry"].GetArray()) {
+                        if (bathymetry_i >= mn::config::g_max_bathymetry_points) break;
+                        mn::vec<PREC_G, 2> xy;
+                        for (int d = 0; d < 2; ++d) {
+                          xy[d] = coord.GetArray()[d].GetDouble();
+                        }
+
+                        bathymetry_points[bathymetry_i][0] = xy[0] * froude_scaling / l + o;
+                        bathymetry_points[bathymetry_i][1] = xy[1] * froude_scaling / l + o;
+                        fmt::print(fg(green),"INFO: GPU[{}] Bathymetry[{}/{}]: Input [{}, {}], Scaled [{}, {}]\n", gpu_id, bathymetry_i, num_bathymetry_points, xy[0], xy[1], bathymetry_points[bathymetry_i][0], bathymetry_points[bathymetry_i][1]);
+                        bathymetry_i++;
+                      }
+
+                      if (operation == "Add" || operation == "add") {
+                        make_bathymetry(models[total_id], geometry_span, geometry_offset_updated, materialConfigs.ppc, partition_start, partition_end, rotation_matrix, geometry_fulcrum, bathymetry_points, num_bathymetry_points); 
+                      } else if (operation == "Subtract" || operation == "subtract") { 
+                        subtract_bathymetry(models[total_id], geometry_span, geometry_offset_updated, bathymetry_points, num_bathymetry_points);
+                      } else { fmt::print(fg(red), "ERROR: GPU[{}] geometry [{}] operation[{}] invalid! \n", gpu_id, type, operation); if (mn::config::g_log_level >= 3) getchar(); }
+                      
+                    } else {
+                      fmt::print(fg(red),"ERROR: GPU[{}] No custom bathymetry points set!\n", gpu_id);
+                    }
                   }
                   else if (type == "File" || type == "file") 
                   {
@@ -2663,21 +2831,18 @@ void parse_scene(std::string fn,
             // Check for bathymetry coordinates (optional)
             auto bathymetry = model.FindMember("bathymetry"); // [[x1,y1],[x2,y2],...]
             if (bathymetry != model.MemberEnd()) {
-              fmt::print(fg(cyan),"Found bathymetry for grid-boundary[{}]. Loading... \n", boundary_ID);
-              const int max_bathymetry_coordinates = 32; // Limited as we pass in as kernel argument
-              // vec<PREC_G, 2> bathymetry_coords[max_bathymetry_coordinates];
-
+              fmt::print(fg(cyan),"INFO: Found bathymetry key for grid-boundary[{}]. Value should be nested array of form: [ [x0,y0], [x1,y1], ..., [xn,yn] ]. Loading... \n", boundary_ID);
               int bathymetry_size = static_cast<int>(model["bathymetry"].GetArray().Size());
-              if (bathymetry_size > max_bathymetry_coordinates) {
-                fmt::print(fg(red),"ERROR: Too many bathymetry coordinates[{}] for grid-boundary[{}]. Max allowed is [{}].\n", bathymetry_size, boundary_ID, max_bathymetry_coordinates);
+              if (bathymetry_size > mn::config::g_max_bathymetry_points) {
+                fmt::print(fg(red),"ERROR: Too many bathymetry coordinates[{}] for grid-boundary[{}]. Max allowed is [{}].\n", bathymetry_size, boundary_ID, mn::config::g_max_bathymetry_points);
                 if (mn::config::g_log_level >= 3) getchar();
               }
               h_gridBoundary._num_bathymetry_points = static_cast<int>(bathymetry_size);
-              fmt::print(fg(cyan),"Found [{}] bathymetry coordinates for grid-boundary[{}]! Max allowable: [32] \n", h_gridBoundary._num_bathymetry_points, boundary_ID); 
+              fmt::print(fg(cyan),"INFO: Found [{}] bathymetry coordinates for grid-boundary[{}]! Max allowable: [32] \n", h_gridBoundary._num_bathymetry_points, boundary_ID); 
 
               int bathymetry_i = 0;
               for (auto &coord : model["bathymetry"].GetArray()) {
-                if (bathymetry_i >= max_bathymetry_coordinates) break;
+                if (bathymetry_i >= mn::config::g_max_bathymetry_points) break;
                 mn::vec<PREC_G, 2> xy;
                 for (int d = 0; d < 2; ++d) {
                   xy[d] = coord.GetArray()[d].GetFloat();

@@ -556,6 +556,7 @@ struct mgsp_benchmark {
     h_gridBoundaryConfigs[boundary_ID]._friction_dynamic = gridBoundaryConfigs._friction_dynamic;
     h_gridBoundaryConfigs[boundary_ID]._num_bathymetry_points = gridBoundaryConfigs._num_bathymetry_points;
     for (int i = 0; i < gridBoundaryConfigs._num_bathymetry_points; i++) {
+      if (i >= g_max_bathymetry_points) break;
       constexpr int BATHYMETRY_DIMENSIONS = 2; // X, Y (Z assumed flat, i.e. no out of plane sloping of panels)
       for (int j = 0; j < BATHYMETRY_DIMENSIONS; j++) {
         h_gridBoundaryConfigs[boundary_ID]._bathymetry_points[i][j] = static_cast<PREC_G>(gridBoundaryConfigs._bathymetry_points[i][j]);

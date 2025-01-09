@@ -94,7 +94,7 @@ namespace config /// * Simulation config setup and name-space
 // * g_device_cnt = 4, g_models_per_gpu = 2 ---> g_model_cnt = 8
 // ! You will get errors if exceeding num. of:
 // ! (i) Physical GPUs, check 'nvidia-smi' in terminal, (ii) Max. compiled particle models per GPU
-constexpr int g_device_cnt = 3; //< IMPORTANT. Num. GPUs to compile for. Default 1.
+constexpr int g_device_cnt = 1; //< IMPORTANT. Num. GPUs to compile for. Default 1.
 constexpr int g_models_per_gpu = 3; //< IMPORTANT. Max num. particle models per GPU. Default 1.
 constexpr uint32_t g_model_cnt = g_device_cnt * g_models_per_gpu; //< Max num. particle models on node
 
@@ -161,7 +161,7 @@ constexpr std::size_t g_max_halo_block = 1024 * 4; //< Max active halo blocks be
 constexpr int g_num_grid_blocks_per_cuda_block = GBPCB;
 constexpr int g_num_warps_per_grid_block = 1;
 constexpr int g_num_warps_per_cuda_block = g_num_warps_per_grid_block * g_num_grid_blocks_per_cuda_block;
-constexpr int g_max_active_block = 30000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
+constexpr int g_max_active_block = 25000; //< Max active blocks in gridBlocks. Preallocated, can resize. Lower = less memory used.
 
 // * Particles
 #define MAX_PPC 64 //< VERY important. Max particles-per-cell. Must be a power of two, e.g. 16, 32, 64. Substantially effects memory/performance. Exceeding MAX_PPC deletes particles. Generally, use MAX_PPC = 8*(Actual PPC) to account for compression, if nearly incompressible materials this isn't as neccesary. 64 is usually reliable as default.
@@ -278,6 +278,8 @@ struct AlgoConfigs {
   ~AlgoConfigs() {}
 };
 
+constexpr int g_max_bathymetry_points = 32; //< Max no. of bathymetry coordinate points, i.e. 31 panels total
+
 // * Boundary condition enumerators for easier reading
 enum class boundary_contact_t { Sticky, Slip, Separate, Separable = Separate, Seperable = Separable};
 enum class boundary_object_t { Walls, Box, Sphere, Cylinder, Plane, 
@@ -311,7 +313,7 @@ struct GridBoundaryConfigs {
   vec<int, 3> _array; //< Array of boundary objects
   vec<PREC_G, 3> _spacing; // Spacing between boundary objects
   int _num_bathymetry_points; //< Number of bathymetry points
-  vec<PREC_G, 2> _bathymetry_points[32]; //< Bathymetry points
+  vec<PREC_G, 2> _bathymetry_points[static_cast<int>(g_max_bathymetry_points)]; //< Bathymetry points
 };
 // Deprecated structure for holding grid-target configs
 // TODO: Undeprecate

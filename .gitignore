@@ -7,6 +7,7 @@ Projects/StructuralTest/structuraltest
 **/*.exe.manifest
 **/*.exe
 **/*.bgeo
+Projects/*/*.bgeo
 Projects/MGSP/mgsp
 .clangd/
 .cache/clangd/
