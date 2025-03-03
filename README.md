@@ -1,9 +1,9 @@
 # ClaymoreUW
-# Claymore Multi-GPU Material Point Method for Engineering Projects
+## Claymore for Engineering Projects - Multi-GPU Material Point Method 
 
 Authors:
 [Justin Bonus](https://github.com/JustinBonus)\, 
-[Pedro Arduino](https://github.com/parduino)\
+[Pedro Arduino](https://github.com/parduino)
 
 <div align="left">
     <a href="https://claymore.readthedocs.io/en/latest/"> Documentation </a>
