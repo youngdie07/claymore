@@ -5,13 +5,15 @@
     <a href="https://claymore.readthedocs.io/en/latest/"> Documentation </a>
 </div>
 
+## Data-Repositories
+
+Comparison data of ClaymoreUW MPM to DualSPHysics SPH and STAR-CCM+ CFD against stochastic experiments by Goserberg et al. 2016. For comparison details, see Bonus et al. 2025, "Tsunami Debris Motion and Loads in a Scaled Port Setting: Comparative Analysis of Three State-of-the-Art Numerical Methods",
+
+https://www.designsafe-ci.org/data/browser/projects/PRJ-5846/workdir
+
 ## Description
 
 Opensource code for Multi-GPU MPM. It is a modified fork from opensource code [page](https://github.com/penn-graphics-research/claymore) for the SIGGRAPH 2020 paper:
-
-**Data-Repositories**
-Comparison data of ClaymoreUW MPM to DualSPHysics SPH and STAR-CCM+ CFD against stochastic experiments by Goserberg et al. 2016. For comparison details, see Bonus et al. 2025, "Tsunami Debris Motion and Loads in a Scaled Port Setting: Comparative Analysis of Three State-of-the-Art Numerical Methods", 
-https://www.designsafe-ci.org/data/browser/projects/PRJ-5846/workdir
 
 **A Massively Parallel and Scalable Multi-GPU Material Point Method** 
 
