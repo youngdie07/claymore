@@ -11,9 +11,9 @@ Authors:
 
 ## Data-Repositories
 
-Comparison data of ClaymoreUW MPM to DualSPHysics SPH and STAR-CCM+ CFD against stochastic experiments by Goserberg et al. 2016. For comparison details, see Bonus et al. 2025, "Tsunami Debris Motion and Loads in a Scaled Port Setting: Comparative Analysis of Three State-of-the-Art Numerical Methods", published in Coastal Engineering [doi](https://doi.org/10.1016/j.coastaleng.2024.104672).
+Comparison data of ClaymoreUW MPM to DualSPHysics SPH and STAR-CCM+ CFD against stochastic experiments by Goserberg et al. 2016. For comparison details, see [Bonus et al. 2025](https://doi.org/10.1016/j.coastaleng.2024.104672), "Tsunami Debris Motion and Loads in a Scaled Port Setting: Comparative Analysis of Three State-of-the-Art Numerical Methods", published in Coastal Engineering.
 
-https://www.designsafe-ci.org/data/browser/projects/PRJ-5846/workdir
+[DesignSafe DataDepot Repository](https://www.designsafe-ci.org/data/browser/projects/PRJ-5846/workdir)
 
 ## Description
 
