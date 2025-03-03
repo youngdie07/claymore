@@ -1,6 +1,10 @@
 # ClaymoreUW
 # Claymore Multi-GPU Material Point Method for Engineering Projects
 
+Authors:
+[Justin Bonus](https://github.com/JustinBonus)\, 
+[Pedro Arduino](https://github.com/parduino)\
+
 <div align="left">
     <a href="https://claymore.readthedocs.io/en/latest/"> Documentation </a>
 </div>
@@ -18,24 +22,6 @@ Opensource code for Multi-GPU MPM. It is a modified fork from opensource code [p
 **A Massively Parallel and Scalable Multi-GPU Material Point Method** 
 
 [page](https://sites.google.com/view/siggraph2020-multigpu)\, [pdf](https://www.seas.upenn.edu/~cffjiang/research/wang2020multigpu/wang2020multigpu.pdf)\, [supp](https://www.seas.upenn.edu/~cffjiang/research/wang2020multigpu/supp.pdf)\, [video](https://vimeo.com/414136257)
-
-Authors:
-[Xinlei Wang](https://github.com/littlemine)\*, 
-[Yuxing Qiu](https://yuxingqiu.github.io/)\*, 
-[Stuart R. Slattery](https://www.ornl.gov/staff-profile/stuart-r-slattery), 
-[Yu Fang](http://squarefk.com/), 
-[Minchen Li](https://www.seas.upenn.edu/~minchenl/), 
-[Song-Chun Zhu](http://www.stat.ucla.edu/~sczhu/), 
-[Yixin Zhu](https://yzhu.io/), 
-[Min Tang](https://min-tang.github.io/home/), 
-[Dinesh Manocha](https://www.cs.umd.edu/people/dmanocha)
-[Chenfanfu Jiang](https://www.seas.upenn.edu/~cffjiang/)
-(* Equal contributions)
-
-<p float="left">
-<img src="Clips/examples.jpg" />
-</p>
-
 
 
 <!--
