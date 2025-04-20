@@ -2552,6 +2552,15 @@ void parse_scene(std::string fn,
               fmt::print(fg(red), "ERROR: gridTarget[{}] has invalid attribute[{}].\n", target_ID, attribute);
             }
 
+            std::string operation = CheckString(model, "operation", std::string{"sum"});
+            bool averages = false;
+            if (operation == "sum" || operation == "Sum" || operation == "add" || operation == "Add" || operation == "addition" || operation == "Addition") {
+              averages = false;
+            }
+            else if (operation == "average" || operation == "averages" || operation == "mean" || operation == "Average" || operation == "Mean" || operation == "Averages")
+            {
+              averages = true;
+            }
             // * Load and scale target domain
             mn::vec<PREC_G,3> domain_start, domain_end;
             for (int d = 0; d < 3; ++d) 
@@ -2578,7 +2587,7 @@ void parse_scene(std::string fn,
             // * Loop through GPU devices to initialzie
             for (int did = 0; did < mn::config::g_device_cnt; ++did) {
               benchmark->initGridTarget(did, h_gridTarget, target, 
-                freq); // TODO : Allow more than one frequency for grid-targets
+                freq, averages); // TODO : Allow more than one frequency for grid-targets
             fmt::print(fg(green), "GPU[{}] gridTarget[{}] Initialized.\n", did, target_ID);
             }
             target_ID += 1;
