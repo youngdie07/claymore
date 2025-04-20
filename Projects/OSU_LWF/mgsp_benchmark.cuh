@@ -455,7 +455,7 @@ struct mgsp_benchmark {
   void initGridTarget(int GPU_ID,
                       const std::vector<std::array<PREC_G, g_grid_target_attribs>> &input_gridTarget, 
                       const vec<PREC_G, 7> &host_target,  
-                      float freq) {
+                      float freq, bool average = false) {
     auto &cuDev = Cuda::ref_cuda_context(GPU_ID);
     cuDev.setContext();
     fmt::print("Entered initGridTarget in mgsp_benchmark.cuh.\n");
@@ -470,6 +470,7 @@ struct mgsp_benchmark {
     }
     int target_ID = number_of_grid_targets-1;
     host_gt_freq = freq; // Set output frequency [Hz] for target (host)
+    host_gt_averages[target_ID] = average;
     std::string fn_force = std::string{"gridTarget"} + "[" + std::to_string(target_ID)+"]_dev[" + std::to_string(GPU_ID) + "].csv";
     gridTargetFile[GPU_ID].open (fn_force, std::ios::out | std::ios::trunc); // Initialize *.csv
     gridTargetFile[GPU_ID] << "Time [s]" << "," << "Force [n]" << "\n";
@@ -2112,7 +2113,15 @@ struct mgsp_benchmark {
         // Output aggregate value to gridTarget[ ]_dev[ ].csv
         std::string fn = std::string{"gridTarget"} + "[" + std::to_string(i) + "]_dev[" + std::to_string(did) + "].csv";
         gridTargetFile[did].open (fn, std::ios::out | std::ios::app);
-        gridTargetFile[did] << curTime << "," << valAgg << "\n";
+        if (host_gt_averages[i]) {
+          double valAve = valAgg;
+          if (grid_tarcnt[i][did] > 0) {
+            valAve = valAgg / grid_tarcnt[i][did];
+          } 
+          gridTargetFile[did] << curTime << "," << valAve << "\n";
+        } else {
+          gridTargetFile[did] << curTime << "," << valAgg << "\n";
+        } 
         gridTargetFile[did].close();
       }
       if (curTime == initTime){
@@ -2909,6 +2918,8 @@ struct mgsp_benchmark {
   std::ofstream particleTrackFile[g_device_cnt][g_models_per_gpu];
   std::ofstream gridEnergyFile;
   std::ofstream gridTargetFile[g_device_cnt];
+
+  bool host_gt_averages[128] = {false}; // Basically just flags if the gridtarget operation needs to average. I.e., an average is the sum operation with a final division over the count of sampled grid-nodes.
 
   Instance<signed_distance_field_> _hostData;
 
